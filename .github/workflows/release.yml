@@ -124,7 +124,8 @@ jobs:
           "$bin/python" -m pip install --upgrade pip
           # --only-binary: never fall back to building the sdist here.
           "$bin/python" -m pip install --no-index --only-binary :all: --find-links dist vsg-rs
-          echo "$PWD/$bin" >> "$GITHUB_PATH"
+          # GITHUB_PATH needs a native path on Windows.
+          if [ "$RUNNER_OS" = "Windows" ]; then cygpath -w "$PWD/$bin"; else echo "$PWD/$bin"; fi >> "$GITHUB_PATH"
       - name: Smoke test
         shell: bash
         run: python python/tests/smoke.py
@@ -153,7 +154,8 @@ jobs:
           python -m venv .venv
           if [ "$RUNNER_OS" = "Windows" ]; then bin=.venv/Scripts; else bin=.venv/bin; fi
           "$bin/python" -m pip install dist/*.tar.gz
-          echo "$PWD/$bin" >> "$GITHUB_PATH"
+          # GITHUB_PATH needs a native path on Windows.
+          if [ "$RUNNER_OS" = "Windows" ]; then cygpath -w "$PWD/$bin"; else echo "$PWD/$bin"; fi >> "$GITHUB_PATH"
       - name: Smoke test
         shell: bash
         run: python python/tests/smoke.py
