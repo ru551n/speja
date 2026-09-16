@@ -448,7 +448,7 @@ fn collect_files(paths: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
         } else {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("{}: no such file", path.display()),
+                format!("{}: no such file [source_file_001]", path.display()),
             ));
         }
     }
@@ -632,6 +632,8 @@ fn list_rules(all: bool) -> ExitCode {
                 "implemented".to_owned()
             } else if owner == rules::Owner::Formatter {
                 "formatter".to_owned()
+            } else if owner == rules::Owner::Cli {
+                "command line".to_owned()
             } else {
                 format!("planned ({owner})")
             };
@@ -661,6 +663,10 @@ fn explain(rule: &str) -> ExitCode {
     match rules::vsg_catalog().find(|(id, _)| *id == rule) {
         Some((id, rules::Owner::Formatter)) => {
             println!("{id}: layout rule; enforced by `vsg-rs fmt` (see docs/formatting.md)");
+            ExitCode::SUCCESS
+        }
+        Some((id, rules::Owner::Cli)) => {
+            println!("{id}: input files must exist; missing files are an error (exit code 2)");
             ExitCode::SUCCESS
         }
         Some((id, owner)) => {

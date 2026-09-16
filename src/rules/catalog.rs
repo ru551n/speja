@@ -867,7 +867,7 @@ pub(super) static VSG_RULES: &[(&str, Owner)] = &[
     ("signal_200", Owner::Formatter),
     ("signal_400", Owner::Formatter),
     ("signal_600", Owner::Lint),
-    ("source_file_001", Owner::Structure),
+    ("source_file_001", Owner::Cli),
     ("subprogram_body_201", Owner::Formatter),
     ("subprogram_body_202", Owner::Formatter),
     ("subprogram_body_203", Owner::Formatter),

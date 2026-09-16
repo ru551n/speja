@@ -33,6 +33,9 @@ pub(crate) struct Builder<'a> {
     blank: HashMap<usize, crate::blank::Style>,
     /// Formatting directives (`fmt off` = `false`), by the offset of the token they precede.
     directives: Vec<(usize, bool)>,
+    /// Tokens (by text offset) whose trailing comment is emitted by the caller, after the
+    /// enclosing item, so it cannot force a value inside the item to break.
+    deferred_trailing: HashSet<usize>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -165,6 +168,13 @@ fn concat(v: Vec<Doc>) -> Doc {
 
 fn kw(t: &SyntaxToken, k: Kw) -> bool {
     t.kind() == T::Keyword(k)
+}
+
+fn last_token_of(e: &SyntaxElement) -> SyntaxToken {
+    match e {
+        SyntaxElement::Node(n) => n.last_token(),
+        SyntaxElement::Token(t) => t.clone(),
+    }
 }
 
 fn first_token(e: &SyntaxElement) -> SyntaxToken {
@@ -343,6 +353,7 @@ impl<'a> Builder<'a> {
             pads: HashMap::new(),
             directives: directives(parsed),
             blank: crate::blank::policies(parsed, &cfg.blank),
+            deferred_trailing: HashSet::new(),
         }
     }
 
@@ -463,6 +474,13 @@ impl<'a> Builder<'a> {
 
     /// Comments at the end of `t`'s line (stored in the next token's trivia).
     fn trailing(&self, t: &SyntaxToken) -> Doc {
+        if self.deferred_trailing.contains(&t.text_offset()) {
+            return Doc::Nil;
+        }
+        self.trailing_now(t)
+    }
+
+    fn trailing_now(&self, t: &SyntaxToken) -> Doc {
         let Some(next) = self.parsed.next_token(t) else {
             return Doc::Nil;
         };
@@ -895,7 +913,16 @@ impl<'a> Builder<'a> {
             for item in &items {
                 self.mark_item(&item[0]);
                 body.push(Doc::Hard);
+                // The comment after the last element (before `)`) ends the item's line.
+                let last = item.last().map(last_token_of);
+                if let Some(last) = &last {
+                    self.deferred_trailing.insert(last.text_offset());
+                }
                 body.extend(item.iter().map(|e| self.elem(e)));
+                if let Some(last) = last {
+                    self.deferred_trailing.remove(&last.text_offset());
+                    body.push(self.trailing_now(&last));
+                }
             }
             let close_tok = children[close].as_token().expect("matched parenthesis");
             body.push(self.leading(&close_tok));

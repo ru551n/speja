@@ -27,10 +27,12 @@ pub enum Owner {
     Formatter,
     /// Structural rule whose fix is a syntax-local edit.
     Structure,
-    /// Style policy that is reported, not fixed.
+    /// Naming, case and comment policy.
     Lint,
     /// Needs name resolution across declarations.
     Semantic,
+    /// Reported by the command line (missing input files).
+    Cli,
 }
 
 impl fmt::Display for Owner {
@@ -40,6 +42,7 @@ impl fmt::Display for Owner {
             Owner::Structure => "structure",
             Owner::Lint => "lint",
             Owner::Semantic => "semantic",
+            Owner::Cli => "command line",
         })
     }
 }
