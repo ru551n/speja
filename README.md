@@ -12,7 +12,8 @@ A fast Rust-native VHDL formatter and style checker with VSG-compatible rules an
 > behavioural reference.
 
 **Status: early development.** Formatting works and is tested against a large real-world corpus.
-Linting and fixing are being built. Expect layout changes before 1.0.
+27 structural rules and `length_001` are implemented, with transactional fixes. Expect layout
+changes before 1.0.
 
 ## Why
 
@@ -27,8 +28,9 @@ Linting and fixing are being built. Expect layout changes before 1.0.
   mode, stdout carries nothing but the formatted source.
 * **No fix phases.** No `--fix` runs that must be repeated until they converge, and no
   rule-order dependencies.
-* **Fast.** Parsing, formatting and verifying about 12 MB of VHDL takes under 5 seconds on one
-  core.
+* **Fast.** Formatting a typical file from stdin takes a few milliseconds; parsing, formatting
+  and verifying 12.6 MB of real-world VHDL takes under 3 seconds on one core
+  ([performance](docs/performance.md)).
 
 ## Usage
 
@@ -40,6 +42,22 @@ vsg-rs fmt --check src/                # CI: exit 1 if anything would change
 vsg-rs fmt --diff src/foo.vhd          # show what would change
 vsg-rs fmt --line-length 100 src/
 cat foo.vhd | vsg-rs fmt --stdin-filename foo.vhd -   # editor integration
+
+vsg-rs lint src/                       # report rule violations
+vsg-rs check src/                      # CI: violations and unformatted files
+vsg-rs fix src/                        # apply all safe fixes, then format
+vsg-rs rules --all                     # every VSG rule and how vsg-rs handles it
+```
+
+Configuration uses the VSG format (YAML or JSON). It is read from `--config FILE`, or from the
+nearest `vsg-rs.yaml` / `.vsg-rs.yaml` (or `.json`):
+
+```yaml
+rule:
+  length_001:
+    length: 100
+  process_016:
+    disable: true
 ```
 
 ### Editor integration
@@ -55,6 +73,8 @@ unchanged.
 * [Formatting](docs/formatting.md), [line folding](docs/line-folding.md) and its
   [coverage matrix](docs/line-folding-coverage.md)
 * [VHDL frontend](docs/vhdl-frontend.md) (why `vhdl_syntax`)
+* [Compatibility with VSG](docs/compatibility.md) and [rule status](docs/rule-status.md)
+* [Performance](docs/performance.md)
 * [VSG configuration model](docs/vsg-config.md), [VSG rule catalog](docs/vsg-rules.md)
 * [Known VSG bugs](docs/upstream-bugs.md) and [limitations](docs/upstream-limitations.md) that
   vsg-rs is designed to avoid
