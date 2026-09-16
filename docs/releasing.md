@@ -32,8 +32,10 @@ vsg-rs --version
    and builds the sdist on Linux and Windows. Each installation runs `python/tests/smoke.py`
    (console script, `python -m vsg_rs`, stdin formatting, error handling, linting, fixing with
    CRLF line endings);
-4. on tags only: attests the build provenance, publishes to PyPI with trusted publishing, and
-   creates a GitHub release with the wheels and the sdist attached.
+4. on tags only: publishes to PyPI with trusted publishing, and creates a GitHub release with
+   the wheels and the sdist attached. Build provenance attestations (GitHub and PEP 740) are
+   created only while the repository is public; GitHub does not offer them for private
+   repositories on its Free plan.
 
 Manual runs (`gh workflow run release.yml`) and pull requests that touch the packaging do steps
 1 to 3 only.

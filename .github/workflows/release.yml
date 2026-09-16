@@ -178,12 +178,15 @@ jobs:
           pattern: wheels-*
           path: dist
           merge-multiple: true
+      # Artifact attestations need a public repository (or GitHub Enterprise Cloud).
       - uses: actions/attest@v4
+        if: github.event.repository.visibility == 'public'
         with:
           subject-path: dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          attestations: ${{ github.event.repository.visibility == 'public' }}
 
   github-release:
     name: GitHub release
