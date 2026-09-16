@@ -97,12 +97,14 @@ pub(crate) struct Context<'a> {
     pub(crate) parsed: &'a Parsed,
     pub(crate) config: &'a Config,
     by_kind: HashMap<NodeKind, Vec<SyntaxNode>>,
-    /// The formatted snapshot, parsed (`None` when the source cannot be formatted).
-    formatted: OnceCell<Option<Parsed>>,
+    /// The formatted snapshot, parsed; computed on first use.
+    formatted: OnceCell<Result<Parsed, crate::FormatError>>,
+    /// The snapshot is known to be formatted already.
+    canonical: bool,
 }
 
 impl<'a> Context<'a> {
-    fn new(parsed: &'a Parsed, config: &'a Config) -> Self {
+    fn new(parsed: &'a Parsed, config: &'a Config, canonical: bool) -> Self {
         let mut by_kind: HashMap<NodeKind, Vec<SyntaxNode>> = HashMap::new();
         let mut stack = vec![parsed.root().clone()];
         while let Some(n) = stack.pop() {
@@ -118,6 +120,7 @@ impl<'a> Context<'a> {
             config,
             by_kind,
             formatted: OnceCell::new(),
+            canonical,
         }
     }
 
@@ -127,13 +130,15 @@ impl<'a> Context<'a> {
 
     /// The canonical formatting of this snapshot, parsed once on first use.
     pub(crate) fn formatted(&self) -> Option<&Parsed> {
+        if self.canonical {
+            return Some(self.parsed);
+        }
+        self.format_result().as_ref().ok()
+    }
+
+    fn format_result(&self) -> &Result<Parsed, crate::FormatError> {
         self.formatted
-            .get_or_init(|| {
-                crate::format_parsed(self.parsed, &self.config.format)
-                    .ok()
-                    .map(Parsed::new)
-            })
-            .as_ref()
+            .get_or_init(|| crate::format_parsed(self.parsed, &self.config.format).map(Parsed::new))
     }
 }
 
@@ -188,15 +193,45 @@ pub(crate) fn is_known_rule(id: &str) -> bool {
 
 /// Run every enabled rule on a snapshot. Violations are sorted by position, then rule id.
 pub fn check(parsed: &Parsed, config: &Config) -> Vec<Violation> {
-    let cx = Context::new(parsed, config);
+    run(&Context::new(parsed, config, false))
+}
+
+/// [`check`] plus the formatted source, formatting the snapshot at most once.
+pub fn check_and_format(
+    parsed: &Parsed,
+    config: &Config,
+) -> (Vec<Violation>, Result<Vec<u8>, crate::FormatError>) {
+    let cx = Context::new(parsed, config, false);
+    let violations = run(&cx);
+    let _ = cx.format_result();
+    let formatted = cx
+        .formatted
+        .into_inner()
+        .expect("initialized above")
+        .map(|p| p.source().to_vec());
+    (violations, formatted)
+}
+
+/// [`check`] for collecting fixes: formatter-owned violations (which have no fix) do not need
+/// the formatted snapshot, so it is not computed.
+pub(crate) fn check_for_fixes(parsed: &Parsed, config: &Config) -> Vec<Violation> {
+    run(&Context::new(parsed, config, true))
+}
+
+/// [`check`] for a snapshot that is the formatter's own output.
+pub(crate) fn check_canonical(parsed: &Parsed, config: &Config) -> Vec<Violation> {
+    run(&Context::new(parsed, config, true))
+}
+
+fn run(cx: &Context<'_>) -> Vec<Violation> {
     let mut out = Vec::new();
     for rule in rules() {
-        let settings = config.rule(&rule.info);
+        let settings = cx.config.rule(&rule.info);
         if !settings.enabled {
             continue;
         }
         let before = out.len();
-        (rule.check)(&cx, &settings, &mut out);
+        (rule.check)(cx, &settings, &mut out);
         if !settings.fixable {
             for v in &mut out[before..] {
                 v.fix = None;

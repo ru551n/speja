@@ -87,7 +87,7 @@ pub fn fix(parsed: &Parsed, config: &Config) -> Result<FixOutcome, FormatError> 
     if !parsed.syntax_errors().is_empty() {
         return Err(FormatError::Syntax(parsed.syntax_errors().to_vec()));
     }
-    let violations = rules::check(parsed, config);
+    let violations = rules::check_for_fixes(parsed, config);
     let (edits, applied) = resolve(&violations);
     let fixed = Parsed::new(apply(parsed.source(), &edits));
     if let Some(e) = fixed.syntax_errors().first() {
@@ -98,7 +98,7 @@ pub fn fix(parsed: &Parsed, config: &Config) -> Result<FixOutcome, FormatError> 
     }
     let output = format_parsed(&fixed, &config.format)?;
     let result = Parsed::new(output);
-    let remaining = rules::check(&result, config);
+    let remaining = rules::check_canonical(&result, config);
     let applied = applied.into_iter().map(|i| violations[i].clone()).collect();
     Ok(FixOutcome {
         output: result.source().to_vec(),

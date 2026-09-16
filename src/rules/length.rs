@@ -4,6 +4,10 @@
 //! violation says whether `vsg-rs fmt` folds the line: the tokens of the long line are looked up
 //! (by index, the token streams are identical) in the formatted snapshot, and the line counts as
 //! foldable when none of them ends up on a line that is still too long.
+//!
+//! `length` is the formatting width and the warning limit. The vsg-rs option `error_length`
+//! reports lines longer than it with severity `error` (for "prefer 120, never more than 160"
+//! policies); it does not change formatting.
 
 use std::collections::HashSet;
 
@@ -69,6 +73,7 @@ fn check(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
             })
             .collect()
     });
+    let error_length = settings.option_usize("error_length");
     for (start, end, w) in long {
         let first = source_tokens.partition_point(|&o| o < start);
         let last = source_tokens.partition_point(|&o| o < end);
@@ -84,7 +89,11 @@ fn check(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
         };
         out.push(Violation {
             rule: "length_001",
-            severity: settings.severity,
+            severity: if error_length.is_some_and(|limit| w > limit) {
+                Severity::Error
+            } else {
+                settings.severity
+            },
             start,
             end,
             message: format!("line is {w} columns long, limit is {width}; {hint}"),
@@ -96,7 +105,7 @@ fn check(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
 #[cfg(test)]
 mod tests {
     use crate::Parsed;
-    use crate::config::Config;
+    use crate::config::{Config, Severity};
 
     fn check(src: &str, width: usize) -> Vec<String> {
         let cfg = Config::parse(&format!("rule: {{length_001: {{length: {width}}}}}")).unwrap();
@@ -115,6 +124,19 @@ mod tests {
         assert!(messages[0].contains("folds it"), "{}", messages[0]);
         assert!(messages[1].contains("cannot be folded"), "{}", messages[1]);
         assert!(check(src, 120).is_empty());
+    }
+
+    #[test]
+    fn error_threshold() {
+        let cfg = Config::parse("rule: {length_001: {length: 20, error_length: 30}}").unwrap();
+        let src =
+            "entity e is\nend;\n-- 25 columns............\n-- 35 columns......................\n";
+        let severities: Vec<_> = crate::rules::check(&Parsed::new(src.as_bytes().to_vec()), &cfg)
+            .into_iter()
+            .filter(|v| v.rule == "length_001")
+            .map(|v| v.severity)
+            .collect();
+        assert_eq!(severities, [Severity::Warning, Severity::Error]);
     }
 
     #[test]

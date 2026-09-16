@@ -296,14 +296,19 @@ fn process(name: &str, source: Vec<u8>, cfg: &Config, mode: Mode) -> Report {
         }),
         Mode::Lint { check_format } => {
             if parsed.syntax_errors().is_empty() {
-                report.diagnostics = rules::check(&parsed, cfg)
+                if !check_format {
+                    report.diagnostics = rules::check(&parsed, cfg)
+                        .iter()
+                        .map(|v| diagnostic(name, &parsed, v))
+                        .collect();
+                    return report;
+                }
+                let (violations, formatted) = rules::check_and_format(&parsed, cfg);
+                report.diagnostics = violations
                     .iter()
                     .map(|v| diagnostic(name, &parsed, v))
                     .collect();
-                if !check_format {
-                    return report;
-                }
-                vsg_rs::format_parsed(&parsed, &cfg.format)
+                formatted
             } else {
                 Err(FormatError::Syntax(parsed.syntax_errors().to_vec()))
             }
