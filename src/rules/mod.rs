@@ -6,6 +6,7 @@
 mod case;
 mod catalog;
 mod length;
+mod naming;
 mod select;
 mod structure;
 
@@ -169,6 +170,7 @@ fn rules() -> &'static [Rule] {
         let mut all = Vec::new();
         all.extend(case::rules());
         all.extend(length::rules());
+        all.extend(naming::rules());
         all.extend(structure::rules());
         all.sort_by_key(|r| r.info.id);
         all

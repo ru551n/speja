@@ -94,6 +94,10 @@ impl RuleSettings {
             .and_then(|v| usize::try_from(v).ok())
     }
 
+    pub fn has_option(&self, key: &str) -> bool {
+        self.options.contains_key(key)
+    }
+
     pub fn option_bool(&self, key: &str) -> Option<bool> {
         self.options.get(key).and_then(Value::as_bool)
     }
