@@ -1,0 +1,68 @@
+# Releasing
+
+vsg-rs is distributed on PyPI as `vsg-rs`. The wheels contain the `vsg-rs` executable (installed
+into the environment's scripts directory, so it is on `PATH`) and a small `vsg_rs` Python module
+(`python -m vsg_rs ...`, `vsg_rs.find_vsg_rs_bin()`). The wheels do not depend on the Python
+version (`py3-none-<platform>`); they are tested on Python 3.10 to 3.14.
+
+```sh
+pip install vsg-rs      # or: uv tool install vsg-rs / pipx install vsg-rs
+vsg-rs --version
+```
+
+## Platforms
+
+| Platform | Wheel tag | Tested in CI |
+|---|---|---|
+| Linux x86_64 (glibc ≥ 2.28) | `manylinux_2_28_x86_64` | Python 3.10–3.14 |
+| Linux aarch64 (glibc ≥ 2.28) | `manylinux_2_28_aarch64` | build only |
+| Linux x86_64 (musl) | `musllinux_1_2_x86_64` | build only |
+| Linux aarch64 (musl) | `musllinux_1_2_aarch64` | build only |
+| Windows x64 | `win_amd64` | Python 3.10–3.14 |
+| Windows arm64 | `win_arm64` | build only (cross-compiled) |
+| other | sdist (needs a Rust toolchain ≥ 1.95 and network access for the git dependency) | built from sdist on Linux and Windows |
+
+## Workflow
+
+`.github/workflows/release.yml`:
+
+1. checks that the tag `vX.Y.Z` equals the version in `Cargo.toml`;
+2. builds the wheels and the sdist with maturin;
+3. installs each Linux x86_64 and Windows x64 wheel into Python 3.10, 3.11, 3.12, 3.13 and 3.14,
+   and builds the sdist on Linux and Windows. Each installation runs `python/tests/smoke.py`
+   (console script, `python -m vsg_rs`, stdin formatting, error handling, linting, fixing with
+   CRLF line endings);
+4. on tags only: attests the build provenance, publishes to PyPI with trusted publishing, and
+   creates a GitHub release with the wheels and the sdist attached.
+
+Manual runs (`gh workflow run release.yml`) and pull requests that touch the packaging do steps
+1 to 3 only.
+
+## One-time setup
+
+1. On PyPI, add a *trusted publisher* for the project `vsg-rs`: owner `ru551n`, repository
+   `vsg-rs`, workflow `release.yml`, environment `pypi` (a "pending publisher" can be created
+   before the first upload).
+2. In the GitHub repository settings, create the environment `pypi` (optionally with required
+   reviewers).
+
+No API tokens are stored in the repository.
+
+## Making a release
+
+```sh
+# 1. bump `version` in Cargo.toml, run `cargo check` to update Cargo.lock
+# 2. commit and push to main; wait for CI
+git tag -a v0.2.0 -m "vsg-rs 0.2.0"
+git push origin v0.2.0
+gh run watch   # follow the Release workflow
+```
+
+## Local build
+
+```sh
+uvx maturin build --release --out dist        # wheel for this machine
+uvx maturin sdist --out dist
+uv venv -p 3.12 .venv && uv pip install -p .venv/bin/python dist/*.whl
+PATH=.venv/bin:$PATH .venv/bin/python python/tests/smoke.py
+```

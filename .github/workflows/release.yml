@@ -1,0 +1,202 @@
+# Builds and tests the `vsg-rs` Python package (a wheel that ships the `vsg-rs` binary) for Linux
+# and Windows, and publishes it on version tags. See docs/releasing.md.
+#
+# - push of a tag `vX.Y.Z`: build, test, publish to PyPI, create a GitHub release
+# - manual run (workflow_dispatch) or a pull request touching packaging: build and test only
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "python/**"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Check tag matches crate version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compare versions
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ "$TAG" != "v$crate" ]; then
+            echo "::error::tag $TAG does not match Cargo.toml version $crate"
+            exit 1
+          fi
+
+  linux:
+    name: Wheel (${{ matrix.platform.manylinux }}, ${{ matrix.platform.target }})
+    needs: version
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { target: x86_64, manylinux: "2_28" }
+          - { target: aarch64, manylinux: "2_28" }
+          - { target: x86_64, manylinux: musllinux_1_2 }
+          - { target: aarch64, manylinux: musllinux_1_2 }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          manylinux: ${{ matrix.platform.manylinux }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-linux-${{ matrix.platform.manylinux }}-${{ matrix.platform.target }}
+          path: dist
+
+  windows:
+    name: Wheel (windows, ${{ matrix.target }})
+    needs: version
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # aarch64 is cross-compiled on the x64 runner.
+        target: [x64, aarch64]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-windows-${{ matrix.target }}
+          path: dist
+
+  sdist:
+    name: Source distribution
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-sdist
+          path: dist
+
+  test-wheels:
+    name: Test wheel (${{ matrix.os }}, Python ${{ matrix.python }})
+    needs: [linux, windows]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - name: Install the wheel for this platform
+        shell: bash
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = "Windows" ]; then bin=.venv/Scripts; else bin=.venv/bin; fi
+          "$bin/python" -m pip install --upgrade pip
+          # --only-binary: never fall back to building the sdist here.
+          "$bin/python" -m pip install --no-index --only-binary :all: --find-links dist vsg-rs
+          echo "$PWD/$bin" >> "$GITHUB_PATH"
+      - name: Smoke test
+        shell: bash
+        run: python python/tests/smoke.py
+
+  test-sdist:
+    name: Build from sdist (${{ matrix.os }})
+    needs: sdist
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v7
+        with:
+          name: wheels-sdist
+          path: dist
+      - name: Install from sdist
+        shell: bash
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = "Windows" ]; then bin=.venv/Scripts; else bin=.venv/bin; fi
+          "$bin/python" -m pip install dist/*.tar.gz
+          echo "$PWD/$bin" >> "$GITHUB_PATH"
+      - name: Smoke test
+        shell: bash
+        run: python python/tests/smoke.py
+
+  publish:
+    name: Publish to PyPI
+    needs: [test-wheels, test-sdist]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/vsg-rs/
+    permissions:
+      # PyPI trusted publishing and artifact attestations.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/attest@v4
+        with:
+          subject-path: dist/*
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  github-release:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag

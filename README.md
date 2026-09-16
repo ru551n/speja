@@ -35,7 +35,8 @@ changes before 1.0.
 ## Usage
 
 ```sh
-cargo install --path .
+pip install vsg-rs                     # Linux and Windows wheels, Python 3.10+ (or: uv tool install vsg-rs)
+cargo install --path .                 # from source
 
 vsg-rs fmt src/                        # format files in place
 vsg-rs fmt --check src/                # CI: exit 1 if anything would change
@@ -84,6 +85,7 @@ unchanged.
 * [VHDL frontend](docs/vhdl-frontend.md) (why `vhdl_syntax`)
 * [Compatibility with VSG](docs/compatibility.md) and [rule status](docs/rule-status.md)
 * [Performance](docs/performance.md)
+* [Releasing](docs/releasing.md) (Python package, platforms, release workflow)
 * [VSG configuration model](docs/vsg-config.md), [VSG rule catalog](docs/vsg-rules.md)
 * [Known VSG bugs](docs/upstream-bugs.md) and [limitations](docs/upstream-limitations.md) that
   vsg-rs is designed to avoid

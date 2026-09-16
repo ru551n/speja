@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.95"
 description = "A fast Rust-native VHDL formatter and style checker with VSG-compatible rules and configuration."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/ru551n/vsg-rs"
 readme = "README.md"
 keywords = ["vhdl", "formatter", "linter", "vsg"]
 categories = ["command-line-utilities", "development-tools"]

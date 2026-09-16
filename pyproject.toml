@@ -1,0 +1,42 @@
+[build-system]
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
+
+[project]
+name = "vsg-rs"
+dynamic = ["version"]
+description = "A fast Rust-native VHDL formatter and style checker with VSG-compatible rules and configuration."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_LICENSES.md"]
+keywords = ["vhdl", "formatter", "linter", "vsg", "fpga"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Repository = "https://github.com/ru551n/vsg-rs"
+Documentation = "https://github.com/ru551n/vsg-rs/tree/main/docs"
+
+[tool.maturin]
+# The wheel contains the `vsg-rs` executable (installed as a script) and a small Python
+# module that locates it (`python -m vsg_rs`).
+bindings = "bin"
+python-source = "python"
+python-packages = ["vsg_rs"]
+strip = true
