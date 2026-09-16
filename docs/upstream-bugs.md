@@ -11,6 +11,50 @@ quoted (fair-use, factual, not creative content). Black-box checks used
 
 ---
 
+## Status in vsg-rs
+
+Regression tests live in `tests/regressions.rs`. "reproducer" means the reproducer file
+`tests/regressions/vsg_bug_NNN.vhd` is formatted, fixed and linted without error, idempotently.
+
+| Bug | vsg-rs behaviour | Test |
+|---|---|---|
+| VSG-BUG-001 | handled: formats and lints without error | reproducer |
+| VSG-BUG-002 | handled | reproducer |
+| VSG-BUG-003 | handled | reproducer |
+| VSG-BUG-004 | handled | reproducer |
+| VSG-BUG-005 | not applicable: no phases | reproducer |
+| VSG-BUG-006 | refused with a syntax error; file untouched | reproducer |
+| VSG-BUG-007 | handled: comments never move relative to code | `pragma_comments_keep_their_position` |
+| VSG-BUG-008 | prevented: output verification rejects token loss; trailing comments always end their line | `closing_parenthesis_after_trailing_comment` |
+| VSG-BUG-009 | handled: no crash (name mismatch is not reported yet) | reproducer |
+| VSG-BUG-010 | handled | `block_comment_with_dashes_does_not_stop_fixing` |
+| VSG-BUG-011 | handled: bytes are preserved | `latin1_bytes_are_preserved` |
+| VSG-BUG-012 | fixed by design: one fix transaction; `fix` is idempotent | reproducers, `fix` unit tests |
+| VSG-BUG-013 | not applicable yet: identifier case is not implemented | reproducer |
+| VSG-BUG-014 | handled | `multiline_block_comment_is_stable` |
+| VSG-BUG-015 | not applicable yet: rule not implemented | reproducer |
+| VSG-BUG-016 | not applicable yet: rule not implemented | reproducer |
+| VSG-BUG-017 | not applicable yet: rule not implemented | reproducer |
+| VSG-BUG-018 | not applicable yet: rule not implemented | reproducer |
+| VSG-BUG-019 | not applicable yet: rule not implemented | — |
+| VSG-BUG-020 | not applicable yet: semantic rule | reproducer |
+| VSG-BUG-021 | not applicable yet: rule not implemented | reproducer |
+| VSG-BUG-022 | not applicable yet: semantic rule | reproducer |
+| VSG-BUG-023 | not applicable yet: comment alignment not implemented | reproducer |
+| VSG-BUG-024 | not applicable yet: rule not implemented | reproducer |
+| VSG-BUG-025 | planned: separate warning/error thresholds (formatter width is independent) | — |
+| VSG-BUG-026 | fixed: the formatter folds long lines | `long_lines_are_folded`, golden tests |
+| VSG-BUG-027 | handled: comments are indented with the record elements | reproducer |
+| VSG-BUG-028 | handled: comments before `end` stay at body indentation | reproducer, golden `comments` |
+| VSG-BUG-029 | not applicable: tabs are not supported | reproducer |
+| VSG-BUG-030 | handled: identifier lists count as one prefix; very wide ones are not aligned | reproducer |
+| VSG-BUG-031 | not applicable: native threads, no process spawning | — |
+| VSG-BUG-032 | handled: linear-time layout; about 12 MB/5 s including verification | `large_file_is_fast` |
+| VSG-BUG-033 | not applicable | — |
+| VSG-BUG-034 | handled | reproducer |
+
+---
+
 ## VSG-BUG-001: Multi-identifier `signal`-class port declaration crashes the fixer
 Upstream issue: https://github.com/jeremiah-c-leary/vhdl-style-guide/issues/1575 (state: open, reported against 0.35.0)
 Category: crash

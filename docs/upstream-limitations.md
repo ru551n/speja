@@ -12,6 +12,20 @@ real edge, and note plausibility of a CST-based single-parse fix for each.
 
 ---
 
+## Status in vsg-rs
+
+| Limitation | vsg-rs |
+|---|---|
+| L1 PSL | Blocked by the frontend: `vhdl_syntax` does not parse PSL; files are reported and left untouched. PSL in comments is safe, because comments are never changed. |
+| L2 VHDL-2019 | Partial: `vhdl_syntax` parses many VHDL-2019 constructs; tool directives are refused for now. |
+| L3 No automatic rewrapping | Fixed: `vsg-rs fmt` folds long lines (`line-folding.md`). |
+| L4 No cross-file resolution | Planned for semantic rules (via `vhdl_lang`). |
+| L5 No parse-error recovery | By design, files with syntax errors are never modified; the parser still recovers enough to report errors. |
+| L6 No fixer idempotence | Fixed: one fix transaction; idempotence is tested on every regression reproducer and a 1,500-file corpus. |
+| L7 No output safety | Fixed: every output is re-parsed and compared with the input before it is written. |
+
+---
+
 ## L1: Minimal support for embedded PSL (Property Specification Language)
 Still present in 3.35.0? Not independently black-box tested (PSL assertions embedded in VHDL comments/`--psl` are a narrow, low-frequency feature to construct a meaningful test for cheaply, and the docs still list this limitation unchanged as of the current release's `overview.rst`). Treated as still true based on the absence of any PSL-specific rule group or PSL grammar documentation anywhere in the current docs tree (no `psl_rules.rst` or similar exists in the 168-file docs listing).
 Likely fixable in a CST-based single-parse formatter? Partially. PSL is a separate language embedded via VHDL comments (`-- psl ...`) or a dedicated PSL block, so "fixing" this really means: (a) recognizing PSL syntax well enough not to misparse it as an ordinary comment or code (VSG-BUG's #1411 "PSL statements wrapped in vsg_off/on cause processing error" found during this research is consistent with PSL being handled as an afterthought rather than a first-class embedded grammar), and (b) optionally offering PSL-aware formatting (indentation/alignment) as a bonus. A CST-based parser can treat a recognized PSL block as an opaque-but-well-delimited island (never letting its internal tokens confuse the surrounding VHDL scan), which is a strictly easier bar than fully formatting PSL, and removes the "processing error" failure mode even without full PSL formatting support.
