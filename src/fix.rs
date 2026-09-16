@@ -8,7 +8,7 @@
 
 use crate::config::Config;
 use crate::rules::{self, Edit, FixSafety, Violation};
-use crate::{FormatError, Parsed, format_parsed};
+use crate::{FormatError, Parsed, TextEdit, apply_edits, format_parsed};
 
 #[derive(Debug)]
 pub struct FixOutcome {
@@ -58,28 +58,42 @@ fn is_word(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'_' | b'\\') || b >= 0x80
 }
 
-fn apply(source: &[u8], edits: &[Edit]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(source.len() + 64);
+/// Byte replacements for `edits` (sorted by offset and rank, non-conflicting), with spaces
+/// added so that inserted words do not fuse with adjacent words (`)begin` + ` is`).
+pub fn fix_edits(source: &[u8], edits: &[Edit]) -> Vec<TextEdit> {
+    let mut out = Vec::with_capacity(edits.len());
     let mut pos = 0;
+    let mut last = None;
     for e in edits {
         if e.start > pos {
-            out.extend_from_slice(&source[pos..e.start]);
+            last = Some(source[e.start - 1]);
         }
-        let text = e.text.as_bytes();
-        // Inserted words must not fuse with adjacent words (`)begin` + ` is`).
-        if text.first().copied().is_some_and(is_word) && out.last().copied().is_some_and(is_word) {
-            out.push(b' ');
+        let mut text = Vec::with_capacity(e.text.len() + 2);
+        if e.text.bytes().next().is_some_and(is_word) && last.is_some_and(is_word) {
+            text.push(b' ');
         }
-        out.extend_from_slice(text);
+        text.extend_from_slice(e.text.as_bytes());
+        let start = e.start.max(pos);
         pos = pos.max(e.end);
-        if text.last().copied().is_some_and(is_word)
+        if e.text.bytes().last().is_some_and(is_word)
             && source.get(pos).copied().is_some_and(is_word)
         {
-            out.push(b' ');
+            text.push(b' ');
         }
+        if let Some(&b) = text.last() {
+            last = Some(b);
+        }
+        out.push(TextEdit {
+            start,
+            end: pos,
+            text,
+        });
     }
-    out.extend_from_slice(&source[pos.min(source.len())..]);
     out
+}
+
+fn apply(source: &[u8], edits: &[Edit]) -> Vec<u8> {
+    apply_edits(source, &fix_edits(source, edits))
 }
 
 /// Apply all safe fixes and format the result.

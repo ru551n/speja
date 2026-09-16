@@ -16,6 +16,7 @@ mod verify;
 mod fuzz;
 
 use std::fmt;
+use std::ops::Range;
 
 use vhdl_syntax::parser::parse_with_standard;
 use vhdl_syntax::standard::VHDLStandard;
@@ -23,7 +24,7 @@ use vhdl_syntax::syntax::{AstNode, SyntaxElement, SyntaxNode, SyntaxToken, Token
 
 pub use config::{Config, FormatConfig};
 pub use doc::display_width;
-pub use fix::{FixOutcome, fix};
+pub use fix::{FixOutcome, fix, fix_edits};
 
 /// One immutable source snapshot and its (single) parse.
 pub struct Parsed {
@@ -202,6 +203,116 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
     Ok(out)
 }
 
+/// Replace `start..end` (byte offsets into the original source) with `text`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    pub start: usize,
+    pub end: usize,
+    pub text: Vec<u8>,
+}
+
+/// Apply sorted, non-overlapping edits to `source`.
+pub fn apply_edits(source: &[u8], edits: &[TextEdit]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(source.len());
+    let mut pos = 0;
+    for e in edits {
+        out.extend_from_slice(&source[pos..e.start]);
+        out.extend_from_slice(&e.text);
+        pos = e.end;
+    }
+    out.extend_from_slice(&source[pos..]);
+    out
+}
+
+/// Format only the lines touched by the byte range `range` (expanded to whole lines).
+///
+/// The whole snapshot is formatted and diffed line by line against the source; the returned
+/// edits are the changed hunks whose original lines intersect the range, in source order.
+pub fn format_range(
+    parsed: &Parsed,
+    cfg: &FormatConfig,
+    range: Range<usize>,
+) -> Result<Vec<TextEdit>, FormatError> {
+    let formatted = format_parsed(parsed, cfg)?;
+    let src = parsed.source();
+    let old: Vec<&[u8]> = src.split_inclusive(|&b| b == b'\n').collect();
+    let new: Vec<&[u8]> = formatted.split_inclusive(|&b| b == b'\n').collect();
+    // Start offset of every line; a final newline starts an empty line (index `old.len()`).
+    let mut starts: Vec<usize> = old
+        .iter()
+        .scan(0, |pos, l| {
+            let start = *pos;
+            *pos += l.len();
+            Some(start)
+        })
+        .collect();
+    if src.is_empty() || src.ends_with(b"\n") {
+        starts.push(src.len());
+    }
+    let line_of = |offset: usize| {
+        starts
+            .partition_point(|&s| s <= offset.min(src.len()))
+            .saturating_sub(1)
+    };
+    let first = line_of(range.start);
+    let last = line_of(range.end.saturating_sub(1)).max(first);
+    let offset = |line: usize| starts.get(line).copied().unwrap_or(src.len());
+
+    // Changed hunks as (old line range, new line range).
+    let mut hunks: Vec<(Range<usize>, Range<usize>)> = Vec::new();
+    for op in similar::capture_diff_slices(similar::Algorithm::Myers, &old, &new) {
+        let (tag, o, n) = op.as_tag_tuple();
+        if tag == similar::DiffTag::Equal {
+            continue;
+        }
+        if let Some(h) = hunks.last_mut()
+            && h.0.end == o.start
+            && h.1.end == n.start
+        {
+            h.0.end = o.end;
+            h.1.end = n.end;
+        } else {
+            hunks.push((o, n));
+        }
+    }
+    // Equal-length hunks are also tried line by line, so adjacent statements stay separate.
+    let fine: Vec<(Range<usize>, Range<usize>)> = hunks
+        .iter()
+        .flat_map(|(o, n)| {
+            if o.len() == n.len() {
+                o.clone()
+                    .zip(n.clone())
+                    .map(|(i, j)| (i..i + 1, j..j + 1))
+                    .collect()
+            } else {
+                vec![(o.clone(), n.clone())]
+            }
+        })
+        .collect();
+    let to_edit = |(o, n): &(Range<usize>, Range<usize>)| TextEdit {
+        start: offset(o.start),
+        end: offset(o.end),
+        text: new[n.clone()].concat(),
+    };
+    let touched = |(o, _): &&(Range<usize>, Range<usize>)| {
+        if o.is_empty() {
+            (first..=last).contains(&o.start)
+        } else {
+            o.start <= last && o.end > first
+        }
+    };
+    for candidate in [&fine, &hunks] {
+        let edits: Vec<TextEdit> = candidate.iter().filter(touched).map(to_edit).collect();
+        // Hunks are aligned on identical lines, which need not carry the same tokens (one
+        // `end;` line can pair with another), so a partial result can lose tokens.
+        if edits.is_empty() || verify::equivalent(parsed, &apply_edits(src, &edits)).is_ok() {
+            return Ok(edits);
+        }
+    }
+    // ponytail: last resort formats everything; grow the hunk set if this shows up in practice.
+    Ok(hunks.iter().map(to_edit).collect())
+}
+
 fn to_crlf(text: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() + text.len() / 16);
     for &b in text {
@@ -211,4 +322,61 @@ fn to_crlf(text: &[u8]) -> Vec<u8> {
         out.push(b);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn range_format(src: &str, range: Range<usize>) -> (Vec<TextEdit>, String) {
+        let parsed = Parsed::new(src.as_bytes().to_vec());
+        let edits = format_range(&parsed, &FormatConfig::default(), range).unwrap();
+        let out = apply_edits(parsed.source(), &edits);
+        assert!(Parsed::new(out.clone()).syntax_errors().is_empty());
+        (edits, String::from_utf8(out).unwrap())
+    }
+
+    const SRC: &str =
+        "entity e is\nend;\narchitecture rtl of e is\nbegin\n  a<=b;\n  c<=d;\nend;\n";
+
+    #[test]
+    fn range_changes_only_the_selected_statement() {
+        let at = SRC.find("c<=d").unwrap();
+        let (edits, out) = range_format(SRC, at..at + 2);
+        assert_eq!(edits.len(), 1);
+        assert_eq!(out, SRC.replace("c<=d", "c <= d"));
+    }
+
+    #[test]
+    fn range_on_formatted_lines_changes_nothing() {
+        let (edits, _) = range_format(SRC, 0..0);
+        assert!(edits.is_empty());
+        let full =
+            String::from_utf8(format(SRC.into(), &FormatConfig::default()).unwrap()).unwrap();
+        let (edits, out) = range_format(&full, 0..0);
+        assert!(edits.is_empty());
+        assert_eq!(out, full);
+    }
+
+    #[test]
+    fn range_whole_file_equals_format() {
+        let full = format(SRC.into(), &FormatConfig::default()).unwrap();
+        let (_, out) = range_format(SRC, 0..SRC.len());
+        assert_eq!(out.as_bytes(), full);
+    }
+
+    #[test]
+    fn range_preserves_crlf() {
+        let src = SRC.replace('\n', "\r\n");
+        let at = src.find("a<=b").unwrap();
+        let (edits, out) = range_format(&src, at..at);
+        assert_eq!(edits.len(), 1);
+        assert_eq!(out, src.replace("a<=b", "a <= b"));
+    }
+
+    #[test]
+    fn range_rejects_syntax_errors() {
+        let parsed = Parsed::new(b"entity e is port (a : in bit; end;\n".to_vec());
+        assert!(format_range(&parsed, &FormatConfig::default(), 0..1).is_err());
+    }
 }
