@@ -352,10 +352,9 @@ pub(super) fn rules() -> Vec<Rule> {
 }
 
 fn tokens_of(n: &SyntaxNode) -> Vec<SyntaxToken> {
-    let end = n.last_token().text_offset();
-    std::iter::successors(Some(n.first_token()), SyntaxToken::next_token)
-        .take_while(|t| t.text_offset() <= end)
-        .collect()
+    let mut out = Vec::new();
+    crate::collect_tokens(n, &mut out);
+    out
 }
 
 fn direct_token(n: &SyntaxNode, kind: T) -> Option<SyntaxToken> {
@@ -438,9 +437,10 @@ fn insert(at: usize, text: String, rank: u8) -> Edit {
 }
 
 /// Delete a token together with the whitespace before it.
-fn delete(t: &SyntaxToken) -> Edit {
-    let start = t
-        .prev_token()
+fn delete(cx: &Context<'_>, t: &SyntaxToken) -> Edit {
+    let start = cx
+        .parsed
+        .prev_token(t)
         .map_or(t.text_offset(), |p| p.text_range().end);
     Edit {
         start,
@@ -489,7 +489,7 @@ fn closing_keywords(
                     first,
                     format!("remove `{words}` after `end`"),
                 );
-                v.fix = Some(safe(present.iter().map(|t| delete(t)).collect()));
+                v.fix = Some(safe(present.iter().map(|t| delete(cx, t)).collect()));
                 out.push(v);
             }
         } else if present.is_empty() {
@@ -515,12 +515,13 @@ fn closing_name(
 ) {
     for n in cx.nodes(kind) {
         if let (Some(epilogue), Some(name)) = (child(n, is_epilogue), name(n)) {
-            name_in_epilogue(&epilogue, &name, settings, out, rule);
+            name_in_epilogue(cx, &epilogue, &name, settings, out, rule);
         }
     }
 }
 
 fn name_in_epilogue(
+    cx: &Context<'_>,
     epilogue: &SyntaxNode,
     name: &SyntaxToken,
     settings: &RuleSettings,
@@ -534,7 +535,7 @@ fn name_in_epilogue(
     match (closing, wants_removal(settings)) {
         (Some(closing), true) => {
             let mut v = violation(settings, rule, closing, "remove the name after `end`");
-            v.fix = Some(safe(vec![delete(closing)]));
+            v.fix = Some(safe(vec![delete(cx, closing)]));
             out.push(v);
         }
         (None, false) => {
@@ -581,7 +582,7 @@ fn subprogram_keyword(
         match (present, wants_removal(settings)) {
             (Some(t), true) => {
                 let mut v = violation(settings, rule, t, format!("remove `{word}` after `end`"));
-                v.fix = Some(safe(vec![delete(t)]));
+                v.fix = Some(safe(vec![delete(cx, t)]));
                 out.push(v);
             }
             (None, false) => {
@@ -617,7 +618,7 @@ fn subprogram_designator(
             });
         let epilogue = child(body, |k| k == N::SubprogramBodyEpilogue);
         if let (Some(epilogue), Some(designator)) = (epilogue, designator) {
-            name_in_epilogue(&epilogue, &designator, settings, out, rule);
+            name_in_epilogue(cx, &epilogue, &designator, settings, out, rule);
         }
     }
 }
@@ -640,7 +641,7 @@ fn optional_is(
         ) {
             (Some(is), true) => {
                 let mut v = violation(settings, rule, &is, "remove the optional `is`");
-                v.fix = Some(safe(vec![delete(&is)]));
+                v.fix = Some(safe(vec![delete(cx, &is)]));
                 out.push(v);
             }
             (None, false) => {
@@ -758,8 +759,9 @@ fn port_defaults(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violat
                 continue;
             }
             let assign = n.first_token();
-            let start = assign
-                .prev_token()
+            let start = cx
+                .parsed
+                .prev_token(&assign)
                 .map_or(assign.text_offset(), |p| p.text_range().end);
             let mut v = violation(
                 settings,

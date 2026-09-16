@@ -15,7 +15,7 @@ use std::fmt;
 
 use vhdl_syntax::parser::parse_with_standard;
 use vhdl_syntax::standard::VHDLStandard;
-use vhdl_syntax::syntax::{AstNode, SyntaxNode, SyntaxToken, TokenKind};
+use vhdl_syntax::syntax::{AstNode, SyntaxElement, SyntaxNode, SyntaxToken, TokenKind};
 
 pub use config::{Config, FormatConfig};
 pub use doc::display_width;
@@ -27,6 +27,8 @@ pub struct Parsed {
     root: SyntaxNode,
     errors: Vec<Diagnostic>,
     standard: VHDLStandard,
+    /// All tokens in source order (the tree's own sibling navigation is not constant-time).
+    tokens: Vec<SyntaxToken>,
 }
 
 /// A located message about the source.
@@ -47,11 +49,15 @@ impl Parsed {
                 message: format!("{:?}", e.err()),
             })
             .collect();
+        let root = file.raw();
+        let mut tokens = Vec::new();
+        collect_tokens(&root, &mut tokens);
         Parsed {
             source,
-            root: file.raw(),
+            root,
             errors,
             standard,
+            tokens,
         }
     }
 
@@ -93,18 +99,40 @@ impl Parsed {
         )
     }
 
-    pub(crate) fn tokens(&self) -> impl Iterator<Item = SyntaxToken> {
-        tokens(&self.root)
+    pub(crate) fn tokens(&self) -> &[SyntaxToken] {
+        &self.tokens
+    }
+
+    /// Position of `t` in [`Parsed::tokens`]. Token text offsets are strictly increasing.
+    pub(crate) fn token_index(&self, t: &SyntaxToken) -> Option<usize> {
+        let offset = t.text_offset();
+        let i = self.tokens.partition_point(|x| x.text_offset() < offset);
+        (self.tokens.get(i)?.text_offset() == offset).then_some(i)
+    }
+
+    pub(crate) fn prev_token(&self, t: &SyntaxToken) -> Option<&SyntaxToken> {
+        let i = self.token_index(t)?.checked_sub(1)?;
+        self.tokens.get(i)
+    }
+
+    pub(crate) fn next_token(&self, t: &SyntaxToken) -> Option<&SyntaxToken> {
+        self.tokens.get(self.token_index(t)? + 1)
     }
 
     /// True when the file contains nothing but whitespace and comments.
     fn is_blank(&self) -> bool {
-        self.tokens().all(|t| t.kind() == TokenKind::Eof)
+        self.tokens.iter().all(|t| t.kind() == TokenKind::Eof)
     }
 }
 
-pub(crate) fn tokens(root: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
-    std::iter::successors(Some(root.first_token()), SyntaxToken::next_token)
+/// Append the tokens of `node` in source order (linear in the size of the node).
+pub(crate) fn collect_tokens(node: &SyntaxNode, out: &mut Vec<SyntaxToken>) {
+    for child in node.children_with_tokens() {
+        match child {
+            SyntaxElement::Token(t) => out.push(t),
+            SyntaxElement::Node(n) => collect_tokens(&n, out),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -144,6 +172,7 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
     }
     if let Some(t) = parsed
         .tokens()
+        .iter()
         .find(|t| matches!(t.kind(), TokenKind::ToolDirective | TokenKind::Unknown))
     {
         return Err(FormatError::Unsupported(Diagnostic {
@@ -151,7 +180,7 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
             message: "tool directives are not supported by the formatter yet".into(),
         }));
     }
-    let mut builder = format::Builder::new(cfg, parsed.is_utf8(), parsed.standard);
+    let mut builder = format::Builder::new(cfg, parsed);
     let doc = builder.node(&parsed.root);
     let opts = doc::PrintOptions {
         width: cfg.width,

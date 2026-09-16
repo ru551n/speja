@@ -13,11 +13,13 @@ use vhdl_syntax::syntax::{NodeKind as N, SyntaxElement, SyntaxNode, SyntaxToken}
 use vhdl_syntax::tokens::token::requires_separator;
 use vhdl_syntax::tokens::{Keyword as Kw, TokenKind as T, TriviaPiece};
 
+use crate::Parsed;
 use crate::config::{FormatConfig, KeywordCase};
 use crate::doc::{Doc, GroupId, display_width};
 
 pub(crate) struct Builder<'a> {
     cfg: &'a FormatConfig,
+    parsed: &'a Parsed,
     utf8: bool,
     standard: VHDLStandard,
     groups: usize,
@@ -61,8 +63,8 @@ pub(crate) struct CommentInfo {
 }
 
 /// Leading comments of a token, classified, plus the newlines after the last comment.
-pub(crate) fn comments(t: &SyntaxToken) -> (Vec<CommentInfo>, usize) {
-    let has_prev = t.prev_token().is_some();
+/// `has_prev`: whether a token precedes `t` (comments at the start of a file are not trailing).
+pub(crate) fn comments(t: &SyntaxToken, has_prev: bool) -> (Vec<CommentInfo>, usize) {
     let mut out: Vec<CommentInfo> = Vec::new();
     let mut nl = 0;
     let mut total_nl = 0;
@@ -304,11 +306,12 @@ fn huggable(n: &SyntaxNode) -> bool {
 }
 
 impl<'a> Builder<'a> {
-    pub(crate) fn new(cfg: &'a FormatConfig, utf8: bool, standard: VHDLStandard) -> Self {
+    pub(crate) fn new(cfg: &'a FormatConfig, parsed: &'a Parsed) -> Self {
         Builder {
             cfg,
-            utf8,
-            standard,
+            parsed,
+            utf8: parsed.is_utf8(),
+            standard: parsed.standard,
             groups: 0,
             comments_done: HashSet::new(),
             item_starts: HashSet::new(),
@@ -362,7 +365,7 @@ impl<'a> Builder<'a> {
                 Doc::Hard
             }
         };
-        let (cs, nl_after) = comments(t);
+        let (cs, nl_after) = comments(t, self.parsed.prev_token(t).is_some());
         let mut out = Vec::new();
         let mut last_block = None;
         let mut total_nl = nl_after;
@@ -385,12 +388,12 @@ impl<'a> Builder<'a> {
     }
 
     /// Comments at the end of `t`'s line (stored in the next token's trivia).
-    fn trailing(t: &SyntaxToken) -> Doc {
-        let Some(next) = t.next_token() else {
+    fn trailing(&self, t: &SyntaxToken) -> Doc {
+        let Some(next) = self.parsed.next_token(t) else {
             return Doc::Nil;
         };
         let mut suffix = Vec::new();
-        for c in comments(&next).0.iter().filter(|c| c.trailing) {
+        for c in comments(next, true).0.iter().filter(|c| c.trailing) {
             suffix.push(b' ');
             suffix.extend_from_slice(&c.text);
         }
@@ -449,15 +452,15 @@ impl<'a> Builder<'a> {
             Self::pad(pad.before, pad.group),
             self.atom(t),
             Self::pad(pad.after, pad.group),
-            Self::trailing(t),
+            self.trailing(t),
         ])
     }
 
     fn space_before(&self, t: &SyntaxToken) -> bool {
-        let Some(p) = t.prev_token() else {
+        let Some(p) = self.parsed.prev_token(t) else {
             return false;
         };
-        want_space(&p, t) || requires_separator(p.token(), t.token(), self.standard)
+        want_space(p, t) || requires_separator(p.token(), t.token(), self.standard)
     }
 
     // ------------------------------------------------------------ nodes
@@ -835,22 +838,19 @@ impl<'a> Builder<'a> {
 
     /// Flat width of the tokens of `n` before `sep`, or `None` if comments intervene.
     fn flat_width_before(&self, n: &SyntaxNode, sep: &SyntaxToken) -> Option<usize> {
+        let start = self.parsed.token_index(&n.first_token())?;
         let mut width = 0;
-        let mut t = Some(n.first_token());
-        let mut first = true;
-        while let Some(tok) = t {
-            if !first && tok.leading_trivia().contains_comments() {
+        for (k, tok) in self.parsed.tokens()[start..].iter().enumerate() {
+            if k > 0 && tok.leading_trivia().contains_comments() {
                 return None;
             }
             if tok.text_offset() == sep.text_offset() {
                 return Some(width);
             }
-            if !first && self.space_before(&tok) {
+            if k > 0 && self.space_before(tok) {
                 width += 1;
             }
-            width += display_width(&self.token_text(&tok), self.utf8, 0);
-            first = false;
-            t = tok.next_token();
+            width += display_width(&self.token_text(tok), self.utf8, 0);
         }
         None
     }
@@ -1072,13 +1072,12 @@ fn is_simple_item(item: &[SyntaxElement]) -> bool {
     item.iter().all(|e| match e {
         SyntaxElement::Token(t) => matches!(t.kind(), T::Comma),
         SyntaxElement::Node(n) => {
-            let end = n.last_token().text_offset();
-            std::iter::successors(Some(n.first_token()), SyntaxToken::next_token)
-                .take_while(|t| t.text_offset() <= end)
-                .all(|t| {
-                    !matches!(t.kind(), T::LeftPar | T::RightArrow)
-                        && !t.leading_trivia().contains_comments()
-                })
+            let mut tokens = Vec::new();
+            crate::collect_tokens(n, &mut tokens);
+            tokens.iter().all(|t| {
+                !matches!(t.kind(), T::LeftPar | T::RightArrow)
+                    && !t.leading_trivia().contains_comments()
+            })
         }
     })
 }

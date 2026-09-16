@@ -7,9 +7,11 @@
 
 use std::collections::HashSet;
 
+use vhdl_syntax::syntax::SyntaxToken;
+
 use super::{Context, Rule, RuleInfo, Violation};
 use crate::config::{RuleSettings, Severity};
-use crate::{Parsed, display_width, tokens};
+use crate::{Parsed, display_width};
 
 pub(super) fn rules() -> Vec<Rule> {
     vec![Rule {
@@ -40,7 +42,11 @@ fn long_lines(source: &[u8], utf8: bool, width: usize) -> Vec<(usize, usize, usi
 }
 
 fn token_offsets(parsed: &Parsed) -> Vec<usize> {
-    tokens(parsed.root()).map(|t| t.text_offset()).collect()
+    parsed
+        .tokens()
+        .iter()
+        .map(SyntaxToken::text_offset)
+        .collect()
 }
 
 fn check(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
@@ -55,12 +61,12 @@ fn check(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
     let source_tokens = token_offsets(parsed);
     // Indices of tokens that are still on a long line after formatting.
     let still_long: Option<HashSet<usize>> = cx.formatted().map(|f| {
-        let lines = long_lines(f.source(), f.is_utf8(), width);
-        token_offsets(f)
-            .iter()
-            .enumerate()
-            .filter(|(_, off)| lines.iter().any(|(s, e, _)| (*s..*e).contains(*off)))
-            .map(|(i, _)| i)
+        let offsets = token_offsets(f);
+        long_lines(f.source(), f.is_utf8(), width)
+            .into_iter()
+            .flat_map(|(s, e, _)| {
+                offsets.partition_point(|&o| o < s)..offsets.partition_point(|&o| o < e)
+            })
             .collect()
     });
     for (start, end, w) in long {

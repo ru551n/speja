@@ -2,11 +2,10 @@
 //! (keywords compared case-insensitively) and the same comments, in the same order, as the
 //! input. Any difference is a formatter defect and the output is discarded.
 
-use vhdl_syntax::parser::parse_with_standard;
-use vhdl_syntax::syntax::{AstNode, SyntaxNode, TokenKind};
+use vhdl_syntax::syntax::TokenKind;
 
+use crate::Parsed;
 use crate::format::comments;
-use crate::{Parsed, tokens};
 
 struct Entry {
     kind: TokenKind,
@@ -15,14 +14,17 @@ struct Entry {
     comments: Vec<(bool, Vec<u8>)>,
 }
 
-fn signature(root: &SyntaxNode) -> Vec<Entry> {
-    tokens(root)
-        .map(|t| {
+fn signature(parsed: &Parsed) -> Vec<Entry> {
+    parsed
+        .tokens()
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
             let mut text = t.text().as_bytes().to_vec();
             if matches!(t.kind(), TokenKind::Keyword(_)) {
                 text.make_ascii_lowercase();
             }
-            let comments = comments(&t)
+            let comments = comments(t, i > 0)
                 .0
                 .into_iter()
                 .map(|c| (c.trailing, c.text.to_vec()))
@@ -59,11 +61,11 @@ impl Entry {
 }
 
 pub(crate) fn equivalent(before: &Parsed, output: &[u8]) -> Result<(), String> {
-    let (after, errors) = parse_with_standard(before.standard, output);
-    if let Some(e) = errors.first().filter(|_| before.errors.is_empty()) {
-        return Err(format!("formatted output does not parse: {e:?}"));
+    let after = Parsed::new(output.to_vec());
+    if let Some(e) = after.errors.first().filter(|_| before.errors.is_empty()) {
+        return Err(format!("formatted output does not parse: {}", e.message));
     }
-    let (a, b) = (signature(&before.root), signature(&after.raw()));
+    let (a, b) = (signature(before), signature(&after));
     if a.len() != b.len() {
         return Err(format!(
             "token count changed from {} to {}",
