@@ -58,7 +58,11 @@ pub enum Doc {
     /// A value after `:=` or `=>`, in order of preference: flat on the current line; flat on an
     /// indented continuation line; folded inside itself with its first line on the current
     /// line; folded on a continuation line.
-    Hug(Box<Doc>),
+    /// `forced`: the value contains a forced line break (computed when printing).
+    Hug {
+        value: Box<Doc>,
+        forced: bool,
+    },
     /// Items separated by line breaks (odd positions); a separator breaks only when the item
     /// after it does not fit on the current line.
     Fill(Vec<Doc>),
@@ -81,8 +85,8 @@ impl Doc {
             Doc::Concat(v) | Doc::Fill(v) => v.iter_mut().fold(false, |acc, d| d.propagate() | acc),
             Doc::Indent(d) | Doc::Align(d) => d.propagate(),
             // A forced break inside does not force the line break in front of the value.
-            Doc::Hug(d) => {
-                d.propagate();
+            Doc::Hug { value, forced } => {
+                *forced = value.propagate();
                 false
             }
             Doc::Group { doc, broken, .. } => {
@@ -103,13 +107,27 @@ impl Doc {
         }
     }
 
+    /// Whether printing starts with a forced line break (an own-line comment).
+    fn starts_with_break(&self) -> bool {
+        match self {
+            Doc::Hard | Doc::Blank => true,
+            Doc::Concat(v) | Doc::Fill(v) => v
+                .iter()
+                .find(|d| !matches!(d, Doc::Nil) && !matches!(d, Doc::Concat(c) if c.is_empty()))
+                .is_some_and(Doc::starts_with_break),
+            Doc::Indent(d) | Doc::Align(d) | Doc::Group { doc: d, .. } => d.starts_with_break(),
+            _ => false,
+        }
+    }
+
     fn first_atom_space(&self) -> Option<bool> {
         match self {
             Doc::Atom { space, .. } => Some(*space),
             Doc::Concat(v) | Doc::Fill(v) => v.iter().find_map(Doc::first_atom_space),
-            Doc::Indent(d) | Doc::Align(d) | Doc::Hug(d) | Doc::Group { doc: d, .. } => {
-                d.first_atom_space()
-            }
+            Doc::Indent(d)
+            | Doc::Align(d)
+            | Doc::Hug { value: d, .. }
+            | Doc::Group { doc: d, .. } => d.first_atom_space(),
             Doc::Choice(alts) => alts.first().and_then(Doc::first_atom_space),
             Doc::Line | Doc::Hard | Doc::Blank => Some(false),
             _ => None,
@@ -279,7 +297,7 @@ impl<'a> Printer<'a> {
                 let doc = if self.modes[*id] { broken } else { flat };
                 stack.push(Cmd { doc, ..cmd });
             }
-            Doc::Hug(value) => {
+            Doc::Hug { value, forced } => {
                 let continuation = cmd.indent + self.opts.indent;
                 let flat = Cmd {
                     flat: true,
@@ -290,15 +308,15 @@ impl<'a> Printer<'a> {
                     flat: false,
                     ..flat
                 };
-                if cmd.flat || self.fits(flat, stack) {
+                if cmd.flat || (!forced && self.fits(flat, stack)) {
                     stack.push(flat);
-                } else if self.fits_from(continuation, true, flat, stack) {
+                } else if !forced && self.fits_from(continuation, true, flat, stack) {
                     self.newline(1, continuation);
                     stack.push(Cmd {
                         indent: continuation,
                         ..flat
                     });
-                } else if self.fits(broken, stack) {
+                } else if !value.starts_with_break() && self.fits(broken, stack) {
                     stack.push(broken);
                 } else {
                     self.newline(1, continuation);
@@ -439,8 +457,8 @@ impl<'a> Printer<'a> {
                     work.push(Cmd { doc, ..cmd });
                 }
                 // Later on the line, a hugged value may still move to the next line.
-                Doc::Hug(d) if cmd.flat => work.push(Cmd { doc: d, ..cmd }),
-                Doc::Hug(_) => return true,
+                Doc::Hug { value, .. } if cmd.flat => work.push(Cmd { doc: value, ..cmd }),
+                Doc::Hug { .. } => return true,
                 // Later on the line, a choice may still take its most broken alternative.
                 Doc::Choice(alts) => {
                     let doc = if cmd.flat {

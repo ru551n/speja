@@ -470,6 +470,19 @@ impl<'a> Builder<'a> {
     }
 
     pub(crate) fn node(&mut self, n: &SyntaxNode) -> Doc {
+        // Comments in front of a node stay outside of the groups built for it, so their line
+        // breaks do not force the node itself to break.
+        // The design file marks its items (and their blank lines) itself.
+        let lead = if n.kind() == N::DesignFile {
+            Doc::Nil
+        } else {
+            self.leading(&n.first_token())
+        };
+        let doc = self.node_body(n);
+        concat(vec![lead, doc])
+    }
+
+    fn node_body(&mut self, n: &SyntaxNode) -> Doc {
         use N::*;
         match n.kind() {
             DesignFile => self.design_file(n),
@@ -535,7 +548,10 @@ impl<'a> Builder<'a> {
     /// line fits.
     fn right_hand_side(&mut self, value: Doc, huggable: bool) -> Doc {
         if huggable {
-            Doc::Hug(Box::new(value))
+            Doc::Hug {
+                value: Box::new(value),
+                forced: false,
+            }
         } else {
             self.group(Doc::indent(concat(vec![Doc::Line, value])))
         }
@@ -687,6 +703,7 @@ impl<'a> Builder<'a> {
             unreachable!("parenthesized sequences start and end with tokens")
         };
         let items = list_items(&seq[1..seq.len() - 1]);
+        let lead = self.leading(&open);
         let id = self.new_group();
         let expression = matches!(
             parent,
@@ -721,11 +738,14 @@ impl<'a> Builder<'a> {
                 self.tok(&close),
             ])
         };
-        Doc::Group {
-            id,
-            doc: Box::new(doc),
-            broken: false,
-        }
+        concat(vec![
+            lead,
+            Doc::Group {
+                id,
+                doc: Box::new(doc),
+                broken: false,
+            },
+        ])
     }
 
     /// Interface clauses and map aspects: always one element per line.
