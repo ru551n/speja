@@ -22,6 +22,7 @@ use std::ops::Range;
 use vhdl_syntax::parser::parse_with_standard;
 use vhdl_syntax::standard::VHDLStandard;
 use vhdl_syntax::syntax::{AstNode, SyntaxElement, SyntaxNode, SyntaxToken, TokenKind};
+use vhdl_syntax::tokens::TriviaPiece;
 
 pub use config::{Config, FormatConfig};
 pub use doc::display_width;
@@ -35,6 +36,19 @@ pub struct Parsed {
     standard: VHDLStandard,
     /// All tokens in source order (the tree's own sibling navigation is not constant-time).
     tokens: Vec<SyntaxToken>,
+    /// VHDL-2019 tool directives (`` `if ``, `` `warning `` …), which the parser does not accept.
+    /// The tree is built from a copy of the source in which each directive line is turned into
+    /// a comment of the same length (`` `i `` → `--`), so offsets are unchanged. Formatted output
+    /// gets the directives back (see [`Parsed::restore_directives`]).
+    directives: Vec<Directive>,
+}
+
+#[derive(Debug, Clone)]
+struct Directive {
+    /// The first two bytes of the directive, replaced by `--` in the parsed text.
+    prefix: [u8; 2],
+    /// The directive as a comment (trailing whitespace excluded).
+    masked: Vec<u8>,
 }
 
 /// A located message about the source.
@@ -47,24 +61,110 @@ pub struct Diagnostic {
 impl Parsed {
     pub fn new(source: Vec<u8>) -> Parsed {
         let standard = VHDLStandard::VHDL2008;
-        let (file, errors) = parse_with_standard(standard, source.as_slice());
-        let errors = errors
-            .iter()
-            .map(|e| Diagnostic {
-                offset: e.span().start,
-                message: format!("{:?}", e.err()),
-            })
-            .collect();
-        let root = file.raw();
-        let mut tokens = Vec::new();
-        collect_tokens(&root, &mut tokens);
+        let parse = |text: &[u8]| {
+            let (file, errors) = parse_with_standard(standard, text);
+            let errors: Vec<Diagnostic> = errors
+                .iter()
+                .map(|e| Diagnostic {
+                    offset: e.span().start,
+                    message: format!("{:?}", e.err()),
+                })
+                .collect();
+            let root = file.raw();
+            let mut tokens = Vec::new();
+            collect_tokens(&root, &mut tokens);
+            (root, errors, tokens)
+        };
+        let (mut root, mut errors, mut tokens) = parse(&source);
+        let mut directives = Vec::new();
+        if tokens.iter().any(|t| t.kind() == TokenKind::ToolDirective) {
+            let mut masked = source.clone();
+            for t in tokens.iter().filter(|t| t.kind() == TokenKind::ToolDirective) {
+                let r = t.text_range();
+                // Only directives that end their line can become comments.
+                let rest = &source[r.end..];
+                let line_end = rest
+                    .iter()
+                    .position(|&b| b == b'\n')
+                    .unwrap_or(rest.len());
+                if r.len() < 2 || !rest[..line_end].iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                masked[r.start..r.start + 2].copy_from_slice(b"--");
+                directives.push(Directive {
+                    prefix: [source[r.start], source[r.start + 1]],
+                    masked: masked[r.clone()].to_vec(),
+                });
+            }
+            if !directives.is_empty() {
+                (root, errors, tokens) = parse(&masked);
+            }
+        }
         Parsed {
             source,
             root,
             errors,
             standard,
             tokens,
+            directives,
         }
+    }
+
+    /// Put the tool directives of this snapshot back into `output`, a formatting of it (in which
+    /// they are comments, in the same order).
+    fn restore_directives(&self, mut output: Vec<u8>) -> Vec<u8> {
+        if self.directives.is_empty() {
+            return output;
+        }
+        let comments: Vec<(usize, usize)> = {
+            let printed = Parsed::new(output.clone());
+            let mut found = Vec::new();
+            for t in &printed.tokens {
+                let trivia = t.leading_trivia();
+                let len: usize = trivia.into_iter().map(TriviaPiece::byte_len).sum();
+                let mut offset = t.text_offset() - len;
+                for piece in trivia {
+                    if let TriviaPiece::LineComment(c) = piece {
+                        found.push((offset, c.as_bytes().len()));
+                    }
+                    offset += piece.byte_len();
+                }
+            }
+            found
+        };
+        // Directives are printed at the start of their line.
+        let mut restored: Vec<usize> = Vec::new();
+        let mut pending = self.directives.iter().peekable();
+        for (offset, len) in comments {
+            let Some(d) = pending.peek() else { break };
+            let text = &output[offset..offset + len];
+            let trimmed = text.trim_ascii_end();
+            if trimmed == d.masked.as_slice() {
+                output[offset..offset + 2].copy_from_slice(&d.prefix);
+                restored.push(offset);
+                pending.next();
+            } else if trimmed.len() == d.masked.len()
+                && trimmed[..2] == d.prefix
+                && trimmed[2..] == d.masked[2..]
+            {
+                // Printed verbatim (formatting was off there).
+                pending.next();
+            }
+        }
+        let mut result = Vec::with_capacity(output.len());
+        let mut pos = 0;
+        for offset in restored {
+            let line_start = output[..offset]
+                .iter()
+                .rposition(|&b| b == b'\n')
+                .map_or(0, |p| p + 1);
+            if output[line_start..offset].iter().all(|b| matches!(b, b' ' | b'\t')) {
+                result.extend_from_slice(&output[pos..line_start]);
+                pos = offset;
+            }
+        }
+        result.extend_from_slice(&output[pos..]);
+        result
     }
 
     pub fn source(&self) -> &[u8] {
@@ -183,7 +283,7 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
     {
         return Err(FormatError::Unsupported(Diagnostic {
             offset: t.text_offset(),
-            message: "tool directives are not supported by the formatter yet".into(),
+            message: "tool directives must be on a line of their own".into(),
         }));
     }
     let mut builder = format::Builder::new(cfg, parsed);
@@ -194,8 +294,9 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
         tabs: cfg.tabs,
     };
     let out = doc::print(doc, builder.groups(), &opts);
-    let mut out = align::align_comments(out, cfg);
+    let out = align::align_comments(out, cfg);
     verify::equivalent(parsed, &out).map_err(FormatError::Internal)?;
+    let mut out = parsed.restore_directives(out);
     let crlf = match cfg.line_ending {
         Some(ending) => ending == config::LineEnding::CrLf,
         None => parsed.uses_crlf(),
