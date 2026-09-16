@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
-mod lsp;
 mod report;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -45,8 +44,6 @@ enum Command {
         #[arg(long, value_name = "START:END", value_parser = parse_line_range)]
         range: Option<(usize, usize)>,
     },
-    /// Run a Language Server on stdin/stdout.
-    Lsp,
     /// Report rule violations.
     Lint {
         #[command(flatten)]
@@ -138,7 +135,6 @@ fn main() -> ExitCode {
             Mode::Format { check, diff, range },
             OutputFormat::Text,
         ),
-        Command::Lsp => return lsp::run(),
         Command::Lint {
             input,
             output_format,
