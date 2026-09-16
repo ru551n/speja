@@ -628,6 +628,11 @@ impl<'a> Builder<'a> {
                 self.group(Doc::align(doc))
             }
             SelectedWaveforms | SelectedExpressions => self.selected(n),
+            // `[t, t return t]` moves to a continuation line as a whole, then folds inside.
+            Signature => {
+                let body = self.children(n);
+                self.group(Doc::indent(concat(vec![Doc::Line, Doc::align(body)])))
+            }
             WhenWaveform
             | ElseWhenWaveform
             | ElseWaveform
