@@ -534,11 +534,10 @@ impl<'a> Builder<'a> {
     /// not fit; a value that folds inside its own parentheses stays on the line when its first
     /// line fits.
     fn right_hand_side(&mut self, value: Doc, huggable: bool) -> Doc {
-        let broken = self.group(Doc::indent(concat(vec![Doc::Line, value.clone()])));
         if huggable {
-            Doc::Choice(vec![value, broken])
+            Doc::Hug(Box::new(value))
         } else {
-            broken
+            self.group(Doc::indent(concat(vec![Doc::Line, value])))
         }
     }
 

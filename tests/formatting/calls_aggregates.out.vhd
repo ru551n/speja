@@ -44,10 +44,8 @@ begin
     q <= t_rec'(
       a      => '1',
       b      => '0',
-      c      => resize(
-        unsigned(input_vector),
-        output_width
-      ),
+      c      =>
+        resize(unsigned(input_vector), output_width),
       others => '-'
     );
     wait;

@@ -55,6 +55,10 @@ pub enum Doc {
     /// Alternative layouts of the same tokens: the first alternative whose first line fits is
     /// printed (the last one otherwise). Flat, the first alternative is used.
     Choice(Vec<Doc>),
+    /// A value after `:=` or `=>`, in order of preference: flat on the current line; flat on an
+    /// indented continuation line; folded inside itself with its first line on the current
+    /// line; folded on a continuation line.
+    Hug(Box<Doc>),
     /// Items separated by line breaks (odd positions); a separator breaks only when the item
     /// after it does not fit on the current line.
     Fill(Vec<Doc>),
@@ -76,6 +80,11 @@ impl Doc {
             Doc::Atom { text, .. } => text.contains(&b'\n'),
             Doc::Concat(v) | Doc::Fill(v) => v.iter_mut().fold(false, |acc, d| d.propagate() | acc),
             Doc::Indent(d) | Doc::Align(d) => d.propagate(),
+            // A forced break inside does not force the line break in front of the value.
+            Doc::Hug(d) => {
+                d.propagate();
+                false
+            }
             Doc::Group { doc, broken, .. } => {
                 *broken |= doc.propagate();
                 *broken
@@ -98,7 +107,9 @@ impl Doc {
         match self {
             Doc::Atom { space, .. } => Some(*space),
             Doc::Concat(v) | Doc::Fill(v) => v.iter().find_map(Doc::first_atom_space),
-            Doc::Indent(d) | Doc::Align(d) | Doc::Group { doc: d, .. } => d.first_atom_space(),
+            Doc::Indent(d) | Doc::Align(d) | Doc::Hug(d) | Doc::Group { doc: d, .. } => {
+                d.first_atom_space()
+            }
             Doc::Choice(alts) => alts.first().and_then(Doc::first_atom_space),
             Doc::Line | Doc::Hard | Doc::Blank => Some(false),
             _ => None,
@@ -268,6 +279,35 @@ impl<'a> Printer<'a> {
                 let doc = if self.modes[*id] { broken } else { flat };
                 stack.push(Cmd { doc, ..cmd });
             }
+            Doc::Hug(value) => {
+                let continuation = cmd.indent + self.opts.indent;
+                let flat = Cmd {
+                    flat: true,
+                    doc: value,
+                    ..cmd
+                };
+                let broken = Cmd {
+                    flat: false,
+                    ..flat
+                };
+                if cmd.flat || self.fits(flat, stack) {
+                    stack.push(flat);
+                } else if self.fits_from(continuation, true, flat, stack) {
+                    self.newline(1, continuation);
+                    stack.push(Cmd {
+                        indent: continuation,
+                        ..flat
+                    });
+                } else if self.fits(broken, stack) {
+                    stack.push(broken);
+                } else {
+                    self.newline(1, continuation);
+                    stack.push(Cmd {
+                        indent: continuation,
+                        ..broken
+                    });
+                }
+            }
             Doc::Choice(alts) => {
                 let doc = if cmd.flat {
                     &alts[0]
@@ -327,11 +367,21 @@ impl<'a> Printer<'a> {
 
     /// Would `next` fit flat on the current line, followed by the rest of the line?
     fn fits(&self, next: Cmd<'a>, rest: &[Cmd<'a>]) -> bool {
-        let (mut col, mut at_start) = if self.pending > 0 {
-            (self.pending_indent, true)
+        if self.pending > 0 {
+            self.fits_from(self.pending_indent, true, next, rest)
         } else {
-            (self.col, self.at_start)
-        };
+            self.fits_from(self.col, self.at_start, next, rest)
+        }
+    }
+
+    /// [`Printer::fits`], starting at a given column (at the start of a line if `at_start`).
+    fn fits_from(
+        &self,
+        mut col: usize,
+        mut at_start: bool,
+        next: Cmd<'a>,
+        rest: &[Cmd<'a>],
+    ) -> bool {
         let mut rest_idx = rest.len();
         let mut work = vec![next];
         loop {
@@ -388,6 +438,9 @@ impl<'a> Printer<'a> {
                     let doc = if self.modes[*id] { broken } else { flat };
                     work.push(Cmd { doc, ..cmd });
                 }
+                // Later on the line, a hugged value may still move to the next line.
+                Doc::Hug(d) if cmd.flat => work.push(Cmd { doc: d, ..cmd }),
+                Doc::Hug(_) => return true,
                 // Later on the line, a choice may still take its most broken alternative.
                 Doc::Choice(alts) => {
                     let doc = if cmd.flat {
