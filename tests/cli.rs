@@ -154,3 +154,160 @@ fn machine_readable_reports() {
         "{text}"
     );
 }
+
+#[test]
+fn stdin_range_formats_only_those_lines() {
+    let src = "entity e is\nend;\narchitecture rtl of e is\nbegin\n  a<=b;\n  c<=d;\nend;\n";
+    let out = vsg(&["fmt", "--range", "6:6", "-"], src);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        src.replace("c<=d", "c <= d")
+    );
+    let bad = vsg(&["fmt", "--range", "3:2", "-"], src);
+    assert_eq!(bad.status.code(), Some(2));
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = write(dir.path(), "a.vhd", src);
+    let not_stdin = vsg(&["fmt", "--range", "1:2", file.to_str().unwrap()], "");
+    assert_eq!(not_stdin.status.code(), Some(2));
+}
+
+/// Split a stream of `Content-Length`-framed LSP messages.
+fn lsp_messages(mut data: &[u8]) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    while let Some(header_end) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+        let header = String::from_utf8_lossy(&data[..header_end]);
+        let len: usize = header
+            .lines()
+            .find_map(|l| l.strip_prefix("Content-Length: "))
+            .expect("Content-Length")
+            .trim()
+            .parse()
+            .expect("length");
+        let body = &data[header_end + 4..header_end + 4 + len];
+        out.push(serde_json::from_slice(body).expect("JSON body"));
+        data = &data[header_end + 4 + len..];
+    }
+    out
+}
+
+/// Run `vsg-rs lsp` on framed `messages`; returns every message it wrote.
+fn lsp_run(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    let mut input = String::new();
+    for m in messages {
+        let body = m.to_string();
+        input.push_str("Content-Length: ");
+        input.push_str(&body.len().to_string());
+        input.push_str("\r\n\r\n");
+        input.push_str(&body);
+    }
+    let out = vsg(&["lsp"], &input);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    lsp_messages(&out.stdout)
+}
+
+#[test]
+fn lsp_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = write(dir.path(), "e.vhd", UNFORMATTED);
+    let uri = format!("file://{}", path.display());
+    let doc = serde_json::json!({ "uri": uri });
+    let messages = [
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"capabilities": {}}}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
+            "textDocument": {"uri": uri, "languageId": "vhdl", "version": 1, "text": UNFORMATTED}}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting",
+            "params": {"textDocument": doc, "options": {"tabSize": 2, "insertSpaces": true}}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction",
+            "params": {"textDocument": doc,
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 40}},
+                "context": {"diagnostics": []}}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 4, "method": "textDocument/formatting",
+            "params": {"bogus": true}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 5, "method": "shutdown"}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "exit"}),
+    ];
+    let replies = lsp_run(&messages);
+    let response = |id: u64| {
+        replies
+            .iter()
+            .find(|m| m["id"] == id)
+            .unwrap_or_else(|| panic!("no response {id} in {replies:?}"))
+    };
+
+    let caps = &response(1)["result"]["capabilities"];
+    assert_eq!(caps["documentFormattingProvider"], true);
+    assert_eq!(caps["documentRangeFormattingProvider"], true);
+
+    let diagnostics = replies
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .expect("diagnostics")["params"]["diagnostics"]
+        .as_array()
+        .expect("array")
+        .clone();
+    assert!(!diagnostics.is_empty());
+    assert!(diagnostics.iter().all(|d| d["source"] == "vsg-rs"));
+    assert!(diagnostics.iter().any(|d| d["code"] == "entity_019"));
+
+    let edits = response(2)["result"].as_array().expect("edits").clone();
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0]["newText"], FORMATTED);
+    assert_eq!(
+        edits[0]["range"]["end"],
+        serde_json::json!({"line": 1, "character": 0})
+    );
+
+    let actions = response(3)["result"].as_array().expect("actions").clone();
+    assert!(actions.iter().any(|a| a["kind"] == "quickfix"
+        && a["diagnostics"][0]["code"].is_string()
+        && a["edit"]["changes"][&uri].is_array()));
+    let fix_all = actions
+        .iter()
+        .find(|a| a["kind"] == "source.fixAll.vsg-rs")
+        .expect("fixAll action");
+    let new_text = fix_all["edit"]["changes"][&uri][0]["newText"]
+        .as_str()
+        .expect("text");
+    assert!(new_text.contains("end entity e;"), "{new_text}");
+
+    assert!(response(4)["error"]["code"].is_i64());
+    assert!(response(5)["result"].is_null());
+}
+
+#[test]
+fn lsp_formatting_failure_is_logged_not_fatal() {
+    let uri = "untitled:bad.vhd";
+    let messages = [
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"capabilities": {}}}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
+            "textDocument": {"uri": uri, "languageId": "vhdl", "version": 1, "text": MALFORMED}}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/rangeFormatting",
+            "params": {"textDocument": {"uri": uri},
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 9, "character": 0}},
+                "options": {"tabSize": 2, "insertSpaces": true}}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown"}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "exit"}),
+    ];
+    let replies = lsp_run(&messages);
+    let diagnostics = &replies
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .expect("diagnostics")["params"]["diagnostics"];
+    assert_eq!(diagnostics[0]["severity"], 1);
+    let formatting = replies.iter().find(|m| m["id"] == 2).expect("response");
+    assert_eq!(formatting["result"], serde_json::json!([]));
+    assert!(replies.iter().any(|m| m["method"] == "window/logMessage"));
+}

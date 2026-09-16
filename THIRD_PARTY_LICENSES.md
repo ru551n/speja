@@ -15,6 +15,7 @@ would have to be published under MPL-2.0, while vsg-rs code is unaffected.
 | anstyle-parse | 1.0.0 | MIT OR Apache-2.0 |
 | anstyle-query | 1.1.5 | MIT OR Apache-2.0 |
 | anstyle-wincon | 3.0.11 | MIT OR Apache-2.0 |
+| bitflags | 1.3.2 | MIT OR Apache-2.0 |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 |
 | bstr | 1.13.1 | MIT OR Apache-2.0 |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 |
@@ -23,6 +24,7 @@ would have to be published under MPL-2.0, while vsg-rs code is unaffected.
 | clap_derive | 4.6.7 | MIT OR Apache-2.0 |
 | clap_lex | 1.1.1 | MIT OR Apache-2.0 |
 | colorchoice | 1.0.5 | MIT OR Apache-2.0 |
+| crossbeam-channel | 0.5.17 | MIT OR Apache-2.0 |
 | crossbeam-deque | 0.8.8 | MIT OR Apache-2.0 |
 | crossbeam-epoch | 0.9.21 | MIT OR Apache-2.0 |
 | crossbeam-utils | 0.8.23 | MIT OR Apache-2.0 |
@@ -30,6 +32,7 @@ would have to be published under MPL-2.0, while vsg-rs code is unaffected.
 | equivalent | 1.0.2 | Apache-2.0 OR MIT |
 | errno | 0.3.14 | MIT OR Apache-2.0 |
 | fastrand | 2.5.0 | Apache-2.0 OR MIT |
+| fluent-uri | 0.1.4 | MIT |
 | getrandom | 0.4.3 | MIT OR Apache-2.0 |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 |
 | heck | 0.5.0 | MIT OR Apache-2.0 |
@@ -39,6 +42,9 @@ would have to be published under MPL-2.0, while vsg-rs code is unaffected.
 | libc | 0.2.189 | MIT OR Apache-2.0 |
 | libyaml-rs | 0.3.0 | MIT |
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| log | 0.4.34 | MIT OR Apache-2.0 |
+| lsp-server | 0.10.0 | MIT OR Apache-2.0 |
+| lsp-types | 0.97.0 | MIT |
 | memchr | 2.8.3 | Unlicense OR MIT |
 | nonzero_ext | 0.3.0 | Apache-2.0 |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 |
@@ -55,6 +61,7 @@ would have to be published under MPL-2.0, while vsg-rs code is unaffected.
 | serde_core | 1.0.229 | MIT OR Apache-2.0 |
 | serde_derive | 1.0.229 | MIT OR Apache-2.0 |
 | serde_json | 1.0.151 | MIT OR Apache-2.0 |
+| serde_repr | 0.1.21 | MIT OR Apache-2.0 |
 | similar | 3.2.0 | Apache-2.0 |
 | strsim | 0.11.1 | MIT |
 | syn | 3.0.5 | MIT OR Apache-2.0 |

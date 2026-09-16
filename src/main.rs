@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
+mod lsp;
 mod report;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -40,7 +41,12 @@ enum Command {
         /// Print a unified diff instead of writing files.
         #[arg(long)]
         diff: bool,
+        /// Format only lines START to END (1-based, inclusive); stdin (`-`) only.
+        #[arg(long, value_name = "START:END", value_parser = parse_line_range)]
+        range: Option<(usize, usize)>,
     },
+    /// Run a Language Server on stdin/stdout.
+    Lsp,
     /// Report rule violations.
     Lint {
         #[command(flatten)]
@@ -101,9 +107,17 @@ enum OutputFormat {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
-    Format { check: bool, diff: bool },
-    Lint { check_format: bool },
-    Fix { diff: bool },
+    Format {
+        check: bool,
+        diff: bool,
+        range: Option<(usize, usize)>,
+    },
+    Lint {
+        check_format: bool,
+    },
+    Fix {
+        diff: bool,
+    },
 }
 
 /// Exit status: changes needed or violations found.
@@ -114,9 +128,17 @@ const EXIT_ERROR: u8 = 2;
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let (input, mode, output_format) = match cli.command {
-        Command::Fmt { input, check, diff } => {
-            (input, Mode::Format { check, diff }, OutputFormat::Text)
-        }
+        Command::Fmt {
+            input,
+            check,
+            diff,
+            range,
+        } => (
+            input,
+            Mode::Format { check, diff, range },
+            OutputFormat::Text,
+        ),
+        Command::Lsp => return lsp::run(),
         Command::Lint {
             input,
             output_format,
@@ -294,6 +316,28 @@ fn process(name: &str, source: Vec<u8>, cfg: &Config, mode: Mode) -> Report {
     let parsed = Parsed::new(source);
     let mut report = Report::default();
     let result = match mode {
+        Mode::Format {
+            range: Some((first, last)),
+            ..
+        } => {
+            let src = parsed.source();
+            // Byte offset where 1-based line `n` starts.
+            let line_start = |n: usize| match n.checked_sub(2) {
+                None => 0,
+                Some(k) => src
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, &b)| b == b'\n')
+                    .nth(k)
+                    .map_or(src.len(), |(i, _)| i + 1),
+            };
+            vsg_rs::format_range(
+                &parsed,
+                &cfg.format,
+                line_start(first)..line_start(last + 1),
+            )
+            .map(|edits| vsg_rs::apply_edits(src, &edits))
+        }
         Mode::Format { .. } => vsg_rs::format_parsed(&parsed, &cfg.format),
         Mode::Fix { .. } => vsg_rs::fix(&parsed, cfg).map(|outcome| {
             let fixed = Parsed::new(outcome.output);
@@ -416,6 +460,10 @@ fn run(input: &Input, mode: Mode, output_format: OutputFormat) -> ExitCode {
         }
     };
     let stdin = input.paths.iter().any(|p| p == Path::new("-"));
+    if matches!(mode, Mode::Format { range: Some(_), .. }) && !stdin {
+        eprintln!("error: `--range` requires reading stdin (`-`)");
+        return ExitCode::from(EXIT_ERROR);
+    }
     let reports: Vec<(String, Option<PathBuf>, Report)> = if stdin {
         if input.paths.len() > 1 {
             eprintln!("error: `-` cannot be combined with other paths");
@@ -555,6 +603,17 @@ fn emit(
         }),
     };
     ExitCode::from(status)
+}
+
+/// Parse `START:END` (1-based, inclusive line numbers).
+fn parse_line_range(s: &str) -> Result<(usize, usize), String> {
+    let (a, b) = s.split_once(':').ok_or("expected START:END")?;
+    let a: usize = a.trim().parse().map_err(|e| format!("START: {e}"))?;
+    let b: usize = b.trim().parse().map_err(|e| format!("END: {e}"))?;
+    if a == 0 || b < a {
+        return Err("expected 1 <= START <= END".into());
+    }
+    Ok((a, b))
 }
 
 // ------------------------------------------------------------------ rule information
