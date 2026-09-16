@@ -221,10 +221,10 @@ impl Config {
 
     /// Map VSG rule options that are formatter policy onto the formatter configuration.
     fn resolve_format(&mut self) {
-        if let Some(width) = self.layer_option("length_001", &["length"], "length") {
-            if let Some(width) = width.as_u64().and_then(|w| usize::try_from(w).ok()) {
-                self.format.width = width;
-            }
+        if let Some(width) = self.layer_option("length_001", &["length"], "length")
+            && let Some(width) = width.as_u64().and_then(|w| usize::try_from(w).ok())
+        {
+            self.format.width = width;
         }
         if let Some(size) = self
             .global
