@@ -2,12 +2,12 @@
 //! internal errors (output not equivalent), non-idempotent output and remaining long code lines.
 //!
 //! `cargo run --release --example corpus -- [--width N] DIR...` (set `SHOW_LONG=1` to list
-//! long lines).
+//! long lines, `FIX=1` to run `vsg_rs::fix` instead of formatting).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use vsg_rs::{FormatConfig, FormatError, Parsed};
+use vsg_rs::{Config, FormatError, Parsed};
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -42,11 +42,21 @@ fn first_difference(a: &[u8], b: &[u8]) -> String {
 #[allow(clippy::cast_precision_loss)]
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let mut cfg = FormatConfig::default();
+    let mut config = Config::default();
     if args.first().is_some_and(|a| a == "--width") {
-        cfg.width = args[1].parse().expect("width must be a number");
+        config.format.width = args[1].parse().expect("width must be a number");
         args.drain(..2);
     }
+    let cfg = config.format.clone();
+    let fix = std::env::var_os("FIX").is_some();
+    let run = |src: Vec<u8>| -> Result<Vec<u8>, FormatError> {
+        let parsed = Parsed::new(src);
+        if fix {
+            vsg_rs::fix(&parsed, &config).map(|o| o.output)
+        } else {
+            vsg_rs::format_parsed(&parsed, &cfg)
+        }
+    };
     let show_long = std::env::var_os("SHOW_LONG").is_some();
     let mut files = Vec::new();
     for a in &args {
@@ -60,8 +70,7 @@ fn main() {
         let Ok(src) = std::fs::read(f) else { continue };
         bytes += src.len();
         let start = Instant::now();
-        let parsed = Parsed::new(src);
-        let result = vsg_rs::format_parsed(&parsed, &cfg);
+        let result = run(src);
         let elapsed = start.elapsed();
         time += elapsed;
         if elapsed > slowest.0 {
@@ -84,7 +93,7 @@ fn main() {
             }
         };
         ok += 1;
-        match vsg_rs::format(out.clone(), &cfg) {
+        match run(out.clone()) {
             Ok(again) if again == out => {}
             Ok(again) => {
                 unstable += 1;
