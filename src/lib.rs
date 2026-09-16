@@ -24,7 +24,7 @@ use vhdl_syntax::syntax::{AstNode, SyntaxElement, SyntaxNode, SyntaxToken, Token
 
 pub use config::{Config, FormatConfig};
 pub use doc::display_width;
-pub use fix::{FixOutcome, fix, fix_edits};
+pub use fix::{FixOutcome, fix, fix_edits, fix_with};
 
 /// One immutable source snapshot and its (single) parse.
 pub struct Parsed {

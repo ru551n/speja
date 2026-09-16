@@ -2,9 +2,10 @@
 //! pass to the original source, and the result is formatted once.
 //!
 //! A fix is applied completely or not at all. A fix whose edits overlap an already accepted fix
-//! is skipped (a later run, which sees the fixed source, reports it again). Fixes are accepted in
-//! the position order of their violations, so the result does not depend on rule registration
-//! order.
+//! is deferred: the accepted fixes are applied, the new snapshot is parsed and checked, and the
+//! remaining fixes are resolved again (at most [`MAX_ROUNDS`] times). Fixes are accepted in the
+//! position order of their violations, so the result does not depend on rule registration
+//! order. The final snapshot is formatted once.
 
 use crate::config::Config;
 use crate::rules::{self, Edit, FixSafety, Violation};
@@ -14,7 +15,7 @@ use crate::{FormatError, Parsed, TextEdit, apply_edits, format_parsed};
 pub struct FixOutcome {
     /// The fixed and formatted source.
     pub output: Vec<u8>,
-    /// Violations whose fixes were applied.
+    /// Violations whose fixes were applied (positions refer to the snapshot of their round).
     pub applied: Vec<Violation>,
     /// Violations of the fixed output (not fixable, unsafe, or skipped because of a conflict).
     pub remaining: Vec<Violation>,
@@ -32,25 +33,35 @@ fn conflicts(a: &Edit, b: &Edit) -> bool {
     }
 }
 
-/// Select the safe fixes to apply. Returns the edits in application order and the indices of
-/// the violations whose fixes were accepted.
-fn resolve(violations: &[Violation]) -> (Vec<Edit>, Vec<usize>) {
+/// Rounds of conflict resolution before giving up on the remaining conflicting fixes.
+const MAX_ROUNDS: usize = 8;
+
+/// Select the fixes to apply (safe ones, plus unsafe ones if `unsafe_fixes`). Returns the edits
+/// in application order, the indices of the violations whose fixes were accepted and whether a
+/// fix was deferred because it conflicts with an accepted one.
+fn resolve(violations: &[Violation], unsafe_fixes: bool) -> (Vec<Edit>, Vec<usize>, bool) {
     let mut accepted: Vec<Edit> = Vec::new();
     let mut applied = Vec::new();
+    let mut deferred = false;
     for (i, v) in violations.iter().enumerate() {
-        let Some(fix) = v.fix.as_ref().filter(|f| f.safety == FixSafety::Safe) else {
+        let Some(fix) = v
+            .fix
+            .as_ref()
+            .filter(|f| unsafe_fixes || f.safety == FixSafety::Safe)
+        else {
             continue;
         };
         // Identical edits from different rules are applied once.
         let new: Vec<&Edit> = fix.edits.iter().filter(|e| !accepted.contains(e)).collect();
         if new.iter().any(|e| accepted.iter().any(|a| conflicts(a, e))) {
+            deferred = true;
             continue;
         }
         accepted.extend(new.into_iter().cloned());
         applied.push(i);
     }
     accepted.sort_by_key(|e| (e.start, e.rank, e.end));
-    (accepted, applied)
+    (accepted, applied, deferred)
 }
 
 /// Characters that fuse with a neighbouring word into one lexical element.
@@ -98,22 +109,44 @@ fn apply(source: &[u8], edits: &[Edit]) -> Vec<u8> {
 
 /// Apply all safe fixes and format the result.
 pub fn fix(parsed: &Parsed, config: &Config) -> Result<FixOutcome, FormatError> {
+    fix_with(parsed, config, false)
+}
+
+/// [`fix`], also applying unsafe fixes (which may change behaviour) if `unsafe_fixes`.
+pub fn fix_with(
+    parsed: &Parsed,
+    config: &Config,
+    unsafe_fixes: bool,
+) -> Result<FixOutcome, FormatError> {
     if !parsed.syntax_errors().is_empty() {
         return Err(FormatError::Syntax(parsed.syntax_errors().to_vec()));
     }
-    let violations = rules::check_for_fixes(parsed, config);
-    let (edits, applied) = resolve(&violations);
-    let fixed = Parsed::new(apply(parsed.source(), &edits));
-    if let Some(e) = fixed.syntax_errors().first() {
-        return Err(FormatError::Internal(format!(
-            "fixes produced invalid VHDL ({})",
-            e.message
-        )));
+    let mut applied = Vec::new();
+    let mut fixed: Option<Parsed> = None;
+    for _ in 0..MAX_ROUNDS {
+        let current = fixed.as_ref().unwrap_or(parsed);
+        let violations = rules::check_for_fixes(current, config);
+        let (edits, accepted, deferred) = resolve(&violations, unsafe_fixes);
+        if edits.is_empty() {
+            break;
+        }
+        let next = Parsed::new(apply(current.source(), &edits));
+        if let Some(e) = next.syntax_errors().first() {
+            return Err(FormatError::Internal(format!(
+                "fixes produced invalid VHDL ({})",
+                e.message
+            )));
+        }
+        applied.extend(accepted.into_iter().map(|i| violations[i].clone()));
+        fixed = Some(next);
+        if !deferred {
+            break;
+        }
     }
-    let output = format_parsed(&fixed, &config.format)?;
+    let fixed = fixed.as_ref().unwrap_or(parsed);
+    let output = format_parsed(fixed, &config.format)?;
     let result = Parsed::new(output);
     let remaining = rules::check_canonical(&result, config);
-    let applied = applied.into_iter().map(|i| violations[i].clone()).collect();
     Ok(FixOutcome {
         output: result.source().to_vec(),
         applied,

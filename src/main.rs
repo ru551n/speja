@@ -65,6 +65,9 @@ enum Command {
         /// Print a unified diff instead of writing files.
         #[arg(long)]
         diff: bool,
+        /// Also apply fixes that may change behaviour or drop comments (review the result).
+        #[arg(long)]
+        unsafe_fixes: bool,
     },
     /// List the implemented rules (`--all`: every VSG rule and who handles it).
     Rules {
@@ -114,6 +117,7 @@ enum Mode {
     },
     Fix {
         diff: bool,
+        unsafe_fixes: bool,
     },
 }
 
@@ -149,7 +153,11 @@ fn main() -> ExitCode {
             input,
             output_format,
         } => (input, Mode::Lint { check_format: true }, output_format),
-        Command::Fix { input, diff } => (input, Mode::Fix { diff }, OutputFormat::Text),
+        Command::Fix {
+            input,
+            diff,
+            unsafe_fixes,
+        } => (input, Mode::Fix { diff, unsafe_fixes }, OutputFormat::Text),
         Command::Rules { all } => return list_rules(all),
         Command::Explain { rule } => return explain(&rule),
     };
@@ -335,15 +343,17 @@ fn process(name: &str, source: Vec<u8>, cfg: &Config, mode: Mode) -> Report {
             .map(|edits| vsg_rs::apply_edits(src, &edits))
         }
         Mode::Format { .. } => vsg_rs::format_parsed(&parsed, &cfg.format),
-        Mode::Fix { .. } => vsg_rs::fix(&parsed, cfg).map(|outcome| {
-            let fixed = Parsed::new(outcome.output);
-            report.diagnostics = outcome
-                .remaining
-                .iter()
-                .map(|v| diagnostic(name, &fixed, v))
-                .collect();
-            fixed.source().to_vec()
-        }),
+        Mode::Fix { unsafe_fixes, .. } => {
+            vsg_rs::fix_with(&parsed, cfg, unsafe_fixes).map(|outcome| {
+                let fixed = Parsed::new(outcome.output);
+                report.diagnostics = outcome
+                    .remaining
+                    .iter()
+                    .map(|v| diagnostic(name, &fixed, v))
+                    .collect();
+                fixed.source().to_vec()
+            })
+        }
         Mode::Lint { check_format } => {
             if parsed.syntax_errors().is_empty() {
                 if !check_format {
@@ -369,7 +379,7 @@ fn process(name: &str, source: Vec<u8>, cfg: &Config, mode: Mode) -> Report {
             report.changed = output != parsed.source();
             let wants_diff = matches!(
                 mode,
-                Mode::Format { diff: true, .. } | Mode::Fix { diff: true }
+                Mode::Format { diff: true, .. } | Mode::Fix { diff: true, .. }
             );
             if report.changed && wants_diff {
                 report.diff = Some(unified_diff(name, parsed.source(), &output));
@@ -539,7 +549,7 @@ fn emit(
         }
         let wants_diff = matches!(
             mode,
-            Mode::Format { diff: true, .. } | Mode::Fix { diff: true }
+            Mode::Format { diff: true, .. } | Mode::Fix { diff: true, .. }
         );
         if wants_diff {
             if let Some(diff) = &report.diff {

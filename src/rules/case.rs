@@ -49,9 +49,7 @@ fn required(settings: &RuleSettings, name: &str) -> Result<Option<String>, ()> {
     let suffix = settings
         .option_list("suffix_exceptions")
         .into_iter()
-        .filter(|s| {
-            prefix.len() + s.len() < name.len() && lower.ends_with(&s.to_ascii_lowercase())
-        })
+        .filter(|s| prefix.len() + s.len() < name.len() && lower.ends_with(&s.to_ascii_lowercase()))
         .max_by_key(|s| s.len())
         .unwrap_or("");
     let core = &name[prefix.len()..name.len() - suffix.len()];
@@ -166,7 +164,11 @@ fn selected_names(cx: &Context<'_>, kind: N) -> Vec<Vec<SyntaxToken>> {
     cx.nodes(kind)
         .iter()
         .filter_map(|n| child(n, N::NameList))
-        .flat_map(|l| children(&l, N::Name).map(|n| name_words(&n)).collect::<Vec<_>>())
+        .flat_map(|l| {
+            children(&l, N::Name)
+                .map(|n| name_words(&n))
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
@@ -174,7 +176,11 @@ fn selected_names(cx: &Context<'_>, kind: N) -> Vec<Vec<SyntaxToken>> {
 fn name_words(name: &SyntaxNode) -> Vec<SyntaxToken> {
     name.children()
         .filter(|p| matches!(p.kind(), N::NameDesignatorPrefix | N::SelectedName))
-        .flat_map(|p| tokens(&p).filter(|t| t.kind() != T::Dot).collect::<Vec<_>>())
+        .flat_map(|p| {
+            tokens(&p)
+                .filter(|t| t.kind() != T::Dot)
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
@@ -195,7 +201,13 @@ fn context_part(cx: &Context<'_>, first: bool) -> Vec<SyntaxToken> {
     selected_names(cx, N::ContextReference)
         .into_iter()
         .filter(|p| p.len() >= 2)
-        .filter_map(|p| if first { p.first().cloned() } else { p.last().cloned() })
+        .filter_map(|p| {
+            if first {
+                p.first().cloned()
+            } else {
+                p.last().cloned()
+            }
+        })
         .collect()
 }
 
@@ -646,7 +658,8 @@ mod tests {
 
     #[test]
     fn upper_case_and_exceptions() {
-        let yaml = "rule:\n  global:\n    case: upper\n  generic_007:\n    prefix_exceptions: ['g_']\n";
+        let yaml =
+            "rule:\n  global:\n    case: upper\n  generic_007:\n    prefix_exceptions: ['g_']\n";
         let f = found(SRC, yaml);
         assert!(has(&f, "generic_007", "G_W"), "{f:?}");
         assert!(has(&f, "port_010", "Clk"), "{f:?}");
@@ -656,8 +669,12 @@ mod tests {
     #[test]
     fn fix_renames_in_one_run() {
         let config = Config::default();
-        let text = String::from_utf8(crate::fix::fix(&Parsed::new(SRC.as_bytes().to_vec()), &config).unwrap().output)
-            .unwrap();
+        let text = String::from_utf8(
+            crate::fix::fix(&Parsed::new(SRC.as_bytes().to_vec()), &config)
+                .unwrap()
+                .output,
+        )
+        .unwrap();
         assert!(text.contains("library ieee;"), "{text}");
         assert!(text.contains("sig <= (others => clk);"), "{text}");
         let again = crate::rules::check(&Parsed::new(text.clone().into_bytes()), &config);

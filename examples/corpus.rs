@@ -2,7 +2,8 @@
 //! internal errors (output not equivalent), non-idempotent output and remaining long code lines.
 //!
 //! `cargo run --release --example corpus -- [--width N] DIR...` (set `SHOW_LONG=1` to list
-//! long lines, `FIX=1` to run `vsg_rs::fix` instead of formatting).
+//! long lines, `FIX=1` to run `vsg_rs::fix` instead of formatting, `FIX=unsafe` to also apply
+//! unsafe fixes).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -48,11 +49,11 @@ fn main() {
         args.drain(..2);
     }
     let cfg = config.format.clone();
-    let fix = std::env::var_os("FIX").is_some();
+    let fix = std::env::var("FIX").ok();
     let run = |src: Vec<u8>| -> Result<Vec<u8>, FormatError> {
         let parsed = Parsed::new(src);
-        if fix {
-            vsg_rs::fix(&parsed, &config).map(|o| o.output)
+        if let Some(mode) = &fix {
+            vsg_rs::fix_with(&parsed, &config, mode == "unsafe").map(|o| o.output)
         } else {
             vsg_rs::format_parsed(&parsed, &cfg)
         }

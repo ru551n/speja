@@ -520,7 +520,10 @@ fn comment_keywords(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Vio
 fn inline_comments(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
     let source = cx.parsed.source();
     let newline = if cx.parsed.uses_crlf() { "\r\n" } else { "\n" };
-    for c in comments(cx).into_iter().filter(|c| c.trailing && c.token > 0) {
+    for c in comments(cx)
+        .into_iter()
+        .filter(|c| c.trailing && c.token > 0)
+    {
         let line_start = source[..c.start]
             .iter()
             .rposition(|&b| b == b'\n')
@@ -595,7 +598,11 @@ fn is_rule_line(text: &str) -> bool {
 /// Check the header (`footer == false`) or footer line of a block comment.
 fn check_edge(settings: &RuleSettings, line: &str, footer: bool) -> Option<String> {
     let edge = if footer { "footer" } else { "header" };
-    let opt = |k: &str| settings.option_str(&format!("{edge}_{k}")).map(str::to_owned);
+    let opt = |k: &str| {
+        settings
+            .option_str(&format!("{edge}_{k}"))
+            .map(str::to_owned)
+    };
     let left = opt("left").unwrap_or_default();
     let left_repeat = opt("left_repeat").unwrap_or_else(|| "-".into());
     let right_repeat = opt("right_repeat").unwrap_or_else(|| left_repeat.clone());
@@ -781,9 +788,16 @@ mod tests {
     #[test]
     fn comment_rules() {
         let src = "-- TODO: x\nentity e is -- trailing\nend entity e;\n";
-        let yaml = "rule:\n  comment_012:\n    disable: false\n  comment_011:\n    disable: false\n";
-        assert_eq!(found(src, yaml, "comment_012"), [("comment_012", "-- TODO: x".into())]);
-        assert_eq!(found(src, yaml, "comment_011"), [("comment_011", "-- trailing".into())]);
+        let yaml =
+            "rule:\n  comment_012:\n    disable: false\n  comment_011:\n    disable: false\n";
+        assert_eq!(
+            found(src, yaml, "comment_012"),
+            [("comment_012", "-- TODO: x".into())]
+        );
+        assert_eq!(
+            found(src, yaml, "comment_011"),
+            [("comment_011", "-- trailing".into())]
+        );
         let config = Config::parse(yaml).unwrap();
         let out = crate::fix::fix(&Parsed::new(src.as_bytes().to_vec()), &config).unwrap();
         assert_eq!(
@@ -797,6 +811,13 @@ mod tests {
         let src = "--------\n-- Title\n-- body\n--======\nentity e is\nend entity e;\n";
         let yaml = "rule:\n  block_comment_001:\n    disable: false\n  block_comment_002:\n    disable: false\n    comment_left: '|'\n  block_comment_003:\n    disable: false\n";
         let rules: Vec<&str> = found(src, yaml, "block").iter().map(|(r, _)| *r).collect();
-        assert_eq!(rules, ["block_comment_002", "block_comment_002", "block_comment_003"]);
+        assert_eq!(
+            rules,
+            [
+                "block_comment_002",
+                "block_comment_002",
+                "block_comment_003"
+            ]
+        );
     }
 }

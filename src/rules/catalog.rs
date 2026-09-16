@@ -254,7 +254,7 @@ pub(super) static VSG_RULES: &[(&str, Owner)] = &[
     ("context_ref_006", Owner::Formatter),
     ("context_ref_007", Owner::Formatter),
     ("context_ref_008", Owner::Formatter),
-    ("context_ref_009", Owner::Lint),
+    ("context_ref_009", Owner::Structure),
     ("context_ref_500", Owner::Lint),
     ("context_ref_501", Owner::Lint),
     ("declarative_part_400", Owner::Formatter),

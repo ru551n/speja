@@ -9,6 +9,7 @@ mod length;
 mod naming;
 mod select;
 mod structure;
+mod transform;
 
 use std::cell::OnceCell;
 use std::collections::HashMap;
@@ -172,6 +173,7 @@ fn rules() -> &'static [Rule] {
         all.extend(length::rules());
         all.extend(naming::rules());
         all.extend(structure::rules());
+        all.extend(transform::rules());
         all.sort_by_key(|r| r.info.id);
         all
     })

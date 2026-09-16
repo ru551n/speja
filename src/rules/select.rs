@@ -238,10 +238,7 @@ pub(crate) fn is_qualified_position(t: &SyntaxToken) -> bool {
     let parent = t.parent();
     match parent.kind() {
         N::SelectedName | N::AttributeName => true,
-        N::NameDesignatorPrefix => parent
-            .ancestors()
-            .take(3)
-            .any(|a| a.kind() == N::Formal),
+        N::NameDesignatorPrefix => parent.ancestors().take(3).any(|a| a.kind() == N::Formal),
         _ => false,
     }
 }
