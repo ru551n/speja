@@ -1,0 +1,7 @@
+ENTITY Keyword_Case IS
+  PORT (Clk : IN STD_LOGIC);
+END ENTITY Keyword_Case;
+ARCHITECTURE RTL OF Keyword_Case IS
+BEGIN
+  Q <= D WHEN Enable = '1' ELSE 'Z';
+END ARCHITECTURE RTL;
