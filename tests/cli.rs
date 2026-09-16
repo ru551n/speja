@@ -128,3 +128,29 @@ fn line_length_option() {
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("  x <= f(\n    alpha,\n"), "{text}");
 }
+
+#[test]
+fn machine_readable_reports() {
+    let src = "entity e is\nend;\n";
+    let sarif = vsg(
+        &[
+            "lint",
+            "--output-format",
+            "sarif",
+            "--stdin-filename",
+            "e.vhd",
+            "-",
+        ],
+        src,
+    );
+    assert_eq!(sarif.status.code(), Some(1));
+    let doc: serde_json::Value = serde_json::from_slice(&sarif.stdout).expect("valid JSON");
+    assert_eq!(doc["version"], "2.1.0");
+    assert_eq!(doc["runs"][0]["results"][0]["ruleId"], "entity_015");
+    let junit = vsg(&["lint", "--output-format", "junit", "-"], src);
+    let text = String::from_utf8_lossy(&junit.stdout);
+    assert!(
+        text.contains("<testsuite name=\"vsg-rs\" tests=\"1\" failures=\"1\">"),
+        "{text}"
+    );
+}

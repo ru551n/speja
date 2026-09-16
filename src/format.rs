@@ -520,25 +520,26 @@ impl<'a> Builder<'a> {
             | ExpressionList => self.flat_list(n),
             InitialValue => {
                 let value = n.children().next();
-                match value.filter(huggable) {
-                    // `:=` stays on the line; the value may move or fold inside itself.
-                    Some(value) => {
-                        let assign = n.first_token();
-                        let assign = self.tok(&assign);
-                        let value = self.node(&value);
-                        concat(vec![assign, self.right_hand_side(value, true)])
-                    }
-                    None => {
-                        let doc = self.block(n);
-                        self.right_hand_side(doc, false)
-                    }
+                // With a value that folds inside itself, `:=` stays on the line and only the
+                // value may move.
+                if let Some(value) = value.filter(huggable) {
+                    let assign = n.first_token();
+                    let assign = self.tok(&assign);
+                    let value = self.node(&value);
+                    concat(vec![assign, self.right_hand_side(value, true)])
+                } else {
+                    let doc = self.block(n);
+                    self.right_hand_side(doc, false)
                 }
             }
             SubtypeIndication
                 if n.parent().is_some_and(|p| {
                     matches!(
                         p.kind(),
-                        SignalDeclaration | ConstantDeclaration | VariableDeclaration | FileDeclaration
+                        SignalDeclaration
+                            | ConstantDeclaration
+                            | VariableDeclaration
+                            | FileDeclaration
                     )
                 }) =>
             {

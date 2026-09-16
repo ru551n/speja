@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
+mod report;
+
 use clap::{Parser, Subcommand, ValueEnum};
 use rayon::prelude::*;
 use vsg_rs::config::{self, Config, Severity};
@@ -91,6 +93,10 @@ struct Input {
 enum OutputFormat {
     Text,
     Json,
+    /// SARIF 2.1.0 (code scanning)
+    Sarif,
+    /// JUnit XML (one test case per file)
+    Junit,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -470,7 +476,9 @@ fn emit(
     let mut status = 0;
     let mut stdout = io::stdout().lock();
     let mut diagnostics = Vec::new();
+    let mut files = Vec::new();
     for (name, path, report) in reports {
+        files.push(name.clone());
         if let Some(e) = &report.error {
             eprintln!("error: {name}: {e}");
             status = EXIT_ERROR;
@@ -526,6 +534,8 @@ fn emit(
         OutputFormat::Json => serde_json::to_writer_pretty(&mut *lint_stream, &diagnostics)
             .map_err(io::Error::other)
             .and_then(|()| writeln!(lint_stream)),
+        OutputFormat::Sarif => writeln!(lint_stream, "{}", report::sarif(&diagnostics)),
+        OutputFormat::Junit => write!(lint_stream, "{}", report::junit(&files, &diagnostics)),
         OutputFormat::Text => diagnostics.iter().try_for_each(|d| {
             let fix = match d.fix {
                 "safe" => " [fixable]",
