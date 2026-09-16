@@ -42,6 +42,9 @@ pub struct Parsed {
     /// a comment of the same length (`` `i `` → `--`), so offsets are unchanged. Formatted output
     /// gets the directives back (see [`Parsed::restore_directives`]).
     directives: Vec<Directive>,
+    utf8: bool,
+    /// Byte offset of the start of each line, computed on first use.
+    line_starts: std::sync::OnceLock<Vec<usize>>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,12 +105,14 @@ impl Parsed {
             }
         }
         Parsed {
+            utf8: std::str::from_utf8(&source).is_ok(),
             source,
             root,
             errors,
             standard,
             tokens,
             directives,
+            line_starts: std::sync::OnceLock::new(),
         }
     }
 
@@ -184,7 +189,7 @@ impl Parsed {
     }
 
     pub fn is_utf8(&self) -> bool {
-        std::str::from_utf8(&self.source).is_ok()
+        self.utf8
     }
 
     /// Whether the source uses CRLF line endings (decided by its first line break).
@@ -197,15 +202,23 @@ impl Parsed {
 
     /// 1-based line and column (in characters) of a byte offset.
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
-        let before = &self.source[..offset.min(self.source.len())];
-        let line_start = before
-            .iter()
-            .rposition(|&b| b == b'\n')
-            .map_or(0, |i| i + 1);
-        let line = before.iter().filter(|&&b| b == b'\n').count() + 1;
+        let offset = offset.min(self.source.len());
+        let starts = self.line_starts.get_or_init(|| {
+            std::iter::once(0)
+                .chain(
+                    self.source
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, &b)| b == b'\n')
+                        .map(|(i, _)| i + 1),
+                )
+                .collect()
+        });
+        let line = starts.partition_point(|&s| s <= offset);
+        let line_start = starts[line - 1];
         (
             line,
-            display_width(&before[line_start..], self.is_utf8(), 0) + 1,
+            display_width(&self.source[line_start..offset], self.utf8, 0) + 1,
         )
     }
 
