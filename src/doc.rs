@@ -1,0 +1,517 @@
+//! Width-aware document model and printer.
+//!
+//! The formatter lowers the syntax tree into a [`Doc`], a tree of atoms (tokens and comments),
+//! line breaks, indentation and groups. The printer decides, group by group, whether a group is
+//! printed flat or broken, using the classic "does the rest of this line fit" test
+//! (Wadler/Oppen/Prettier family). The decision for a group depends only on the document and the
+//! configured width, so output is deterministic.
+//!
+//! Spacing between atoms is carried by the atoms themselves (`space`), so a [`Doc::Line`] prints
+//! nothing when flat and a newline when broken.
+//!
+//! Comments that trail a token are printed as line suffixes: they never count towards the width
+//! when deciding a layout, and a pending suffix always ends the line before any further atom is
+//! printed, so a comment can never swallow code.
+
+use std::rc::Rc;
+
+pub type GroupId = usize;
+
+#[derive(Debug, Clone)]
+pub enum Doc {
+    Nil,
+    /// Text that is never split. `space`: separate from a preceding atom on the same line.
+    Atom {
+        text: Rc<[u8]>,
+        width: usize,
+        space: bool,
+    },
+    /// Nothing when flat, a newline when the enclosing group is broken.
+    Line,
+    /// Always a newline; forces all enclosing groups to break.
+    Hard,
+    /// A blank line (two newlines); forces all enclosing groups to break.
+    Blank,
+    /// Zero-width marker that forces all enclosing groups to break.
+    BreakParent,
+    /// End-of-line text (a trailing comment). Does not count towards the width.
+    Suffix(Rc<[u8]>),
+    Concat(Vec<Doc>),
+    /// Increase indentation by one level for lines started inside.
+    Indent(Box<Doc>),
+    /// Indent lines started inside to the column where the first atom inside is printed.
+    Align(Box<Doc>),
+    Group {
+        id: GroupId,
+        doc: Box<Doc>,
+        broken: bool,
+    },
+    /// Chooses a document depending on how group `id` was printed.
+    IfBreak {
+        id: GroupId,
+        broken: Box<Doc>,
+        flat: Box<Doc>,
+    },
+    /// Alternative layouts of the same tokens: the first alternative whose first line fits is
+    /// printed (the last one otherwise). Flat, the first alternative is used.
+    Choice(Vec<Doc>),
+    /// Items separated by line breaks (odd positions); a separator breaks only when the item
+    /// after it does not fit on the current line.
+    Fill(Vec<Doc>),
+}
+
+impl Doc {
+    pub fn indent(d: Doc) -> Doc {
+        Doc::Indent(Box::new(d))
+    }
+    pub fn align(d: Doc) -> Doc {
+        Doc::Align(Box::new(d))
+    }
+
+    /// Compute `broken` for every group: a group containing a forced break is always broken.
+    fn propagate(&mut self) -> bool {
+        match self {
+            Doc::Hard | Doc::Blank | Doc::BreakParent => true,
+            Doc::Nil | Doc::Line | Doc::Suffix(_) => false,
+            Doc::Atom { text, .. } => text.contains(&b'\n'),
+            Doc::Concat(v) | Doc::Fill(v) => v.iter_mut().fold(false, |acc, d| d.propagate() | acc),
+            Doc::Indent(d) | Doc::Align(d) => d.propagate(),
+            Doc::Group { doc, broken, .. } => {
+                *broken |= doc.propagate();
+                *broken
+            }
+            // Only the selected branch is printed, and selection depends on the group itself,
+            // so forced breaks inside a branch do not propagate.
+            Doc::IfBreak { broken, flat, .. } => {
+                broken.propagate();
+                flat.propagate();
+                false
+            }
+            Doc::Choice(alts) => {
+                let forced: Vec<bool> = alts.iter_mut().map(Doc::propagate).collect();
+                forced.iter().all(|f| *f)
+            }
+        }
+    }
+
+    fn first_atom_space(&self) -> Option<bool> {
+        match self {
+            Doc::Atom { space, .. } => Some(*space),
+            Doc::Concat(v) | Doc::Fill(v) => v.iter().find_map(Doc::first_atom_space),
+            Doc::Indent(d) | Doc::Align(d) | Doc::Group { doc: d, .. } => d.first_atom_space(),
+            Doc::Choice(alts) => alts.first().and_then(Doc::first_atom_space),
+            Doc::Line | Doc::Hard | Doc::Blank => Some(false),
+            _ => None,
+        }
+    }
+}
+
+pub struct PrintOptions {
+    pub width: usize,
+    pub indent: usize,
+}
+
+#[derive(Clone, Copy)]
+struct Cmd<'a> {
+    indent: usize,
+    flat: bool,
+    doc: &'a Doc,
+    /// Position inside a [`Doc::Fill`] still to be printed.
+    fill: usize,
+}
+
+struct Printer<'a> {
+    opts: &'a PrintOptions,
+    out: Vec<u8>,
+    col: usize,
+    /// Newlines requested but not yet written (0, 1 or 2) and the indentation to use.
+    pending: u8,
+    pending_indent: usize,
+    at_start: bool,
+    /// Indentation of the current line.
+    line_indent: usize,
+    suffix: Vec<u8>,
+    modes: Vec<bool>,
+}
+
+/// Print `doc`. The result uses `\n` line endings and ends with exactly one newline
+/// (unless nothing was printed at all).
+pub fn print(mut doc: Doc, groups: usize, opts: &PrintOptions) -> Vec<u8> {
+    doc.propagate();
+    let mut p = Printer {
+        opts,
+        out: Vec::new(),
+        col: 0,
+        pending: 0,
+        pending_indent: 0,
+        at_start: true,
+        line_indent: 0,
+        suffix: Vec::new(),
+        modes: vec![false; groups],
+    };
+    let mut stack = vec![Cmd {
+        indent: 0,
+        flat: false,
+        doc: &doc,
+        fill: 0,
+    }];
+    while let Some(cmd) = stack.pop() {
+        p.step(cmd, &mut stack);
+    }
+    p.out.append(&mut p.suffix);
+    if !p.out.is_empty() {
+        p.out.push(b'\n');
+    }
+    p.out
+}
+
+impl<'a> Printer<'a> {
+    fn step(&mut self, cmd: Cmd<'a>, stack: &mut Vec<Cmd<'a>>) {
+        match cmd.doc {
+            Doc::Nil | Doc::BreakParent => {}
+            Doc::Atom { text, width, space } => self.atom(text, *width, *space, cmd.indent),
+            Doc::Line if cmd.flat => {}
+            Doc::Line | Doc::Hard => self.newline(1, cmd.indent),
+            Doc::Blank => self.newline(2, cmd.indent),
+            Doc::Suffix(s) => self.suffix.extend_from_slice(s),
+            Doc::Concat(v) => stack.extend(v.iter().rev().map(|doc| Cmd {
+                doc,
+                fill: 0,
+                ..cmd
+            })),
+            Doc::Fill(v) => {
+                let Some(item) = v.get(cmd.fill) else { return };
+                stack.push(Cmd {
+                    fill: cmd.fill + 1,
+                    ..cmd
+                });
+                // The last item must also leave room for what follows the fill.
+                let rest_for = |i: usize, stack: &[Cmd<'a>]| -> usize {
+                    if i + 1 == v.len() { stack.len() - 1 } else { 0 }
+                };
+                let flat = if cmd.flat {
+                    true
+                } else if cmd.fill % 2 == 1 {
+                    // A separator stays flat when the next item fits after it.
+                    v.get(cmd.fill + 1).is_none_or(|next| {
+                        let rest = &stack[..rest_for(cmd.fill + 1, stack)];
+                        self.fits(
+                            Cmd {
+                                flat: true,
+                                doc: next,
+                                fill: 0,
+                                ..cmd
+                            },
+                            rest,
+                        )
+                    })
+                } else {
+                    let rest = &stack[..rest_for(cmd.fill, stack)];
+                    self.fits(
+                        Cmd {
+                            flat: true,
+                            doc: item,
+                            fill: 0,
+                            ..cmd
+                        },
+                        rest,
+                    )
+                };
+                stack.push(Cmd {
+                    flat,
+                    doc: item,
+                    fill: 0,
+                    ..cmd
+                });
+            }
+            Doc::Indent(d) => stack.push(Cmd {
+                indent: cmd.indent + self.opts.indent,
+                doc: d,
+                ..cmd
+            }),
+            Doc::Align(d) => {
+                let (target, line_indent) =
+                    if self.pending > 0 || self.at_start || !self.suffix.is_empty() {
+                        (cmd.indent, cmd.indent)
+                    } else {
+                        let space = usize::from(d.first_atom_space().unwrap_or(false));
+                        (self.col + space, self.line_indent)
+                    };
+                // Bounded alignment: past 40% of the width, continuation lines use a fixed
+                // double indent instead, so deep alignment never leaves no room on the right.
+                let indent = if target * 5 > self.opts.width * 2 {
+                    line_indent + 2 * self.opts.indent
+                } else {
+                    target
+                };
+                stack.push(Cmd {
+                    indent,
+                    doc: d,
+                    ..cmd
+                });
+            }
+            Doc::Group { id, doc, broken } => {
+                let flat = cmd.flat
+                    || (!broken
+                        && self.fits(
+                            Cmd {
+                                flat: true,
+                                doc,
+                                ..cmd
+                            },
+                            stack,
+                        ));
+                self.modes[*id] = !flat;
+                stack.push(Cmd { flat, doc, ..cmd });
+            }
+            Doc::IfBreak { id, broken, flat } => {
+                let doc = if self.modes[*id] { broken } else { flat };
+                stack.push(Cmd { doc, ..cmd });
+            }
+            Doc::Choice(alts) => {
+                let doc = if cmd.flat {
+                    &alts[0]
+                } else {
+                    let (last, init) = alts.split_last().expect("non-empty choice");
+                    init.iter()
+                        .find(|d| self.fits(Cmd { doc: d, ..cmd }, stack))
+                        .unwrap_or(last)
+                };
+                stack.push(Cmd { doc, ..cmd });
+            }
+        }
+    }
+
+    fn newline(&mut self, n: u8, indent: usize) {
+        if self.out.is_empty() {
+            return;
+        }
+        self.pending = self.pending.max(n);
+        self.pending_indent = indent;
+    }
+
+    fn atom(&mut self, text: &[u8], width: usize, space: bool, indent: usize) {
+        if !self.suffix.is_empty() {
+            self.out.append(&mut self.suffix);
+            if self.pending == 0 {
+                self.pending = 1;
+                self.pending_indent = indent;
+            }
+        }
+        if self.pending > 0 {
+            for _ in 0..self.pending {
+                self.out.push(b'\n');
+            }
+            self.pending = 0;
+            indent_to(&mut self.out, self.pending_indent);
+            self.col = self.pending_indent;
+            self.line_indent = self.pending_indent;
+        } else if self.at_start {
+            indent_to(&mut self.out, indent);
+            self.col = indent;
+            self.line_indent = indent;
+        } else if space {
+            self.out.push(b' ');
+            self.col += 1;
+        }
+        self.at_start = false;
+        self.out.extend_from_slice(text);
+        // Multi-line atoms (block comments) restart the column count; `width` is then the
+        // width of their last line.
+        self.col = if text.contains(&b'\n') {
+            width
+        } else {
+            self.col + width
+        };
+    }
+
+    /// Would `next` fit flat on the current line, followed by the rest of the line?
+    fn fits(&self, next: Cmd<'a>, rest: &[Cmd<'a>]) -> bool {
+        let (mut col, mut at_start) = if self.pending > 0 {
+            (self.pending_indent, true)
+        } else {
+            (self.col, self.at_start)
+        };
+        let mut rest_idx = rest.len();
+        let mut work = vec![next];
+        loop {
+            if col > self.opts.width {
+                return false;
+            }
+            let cmd = match work.pop() {
+                Some(c) => c,
+                None if rest_idx == 0 => return true,
+                None => {
+                    rest_idx -= 1;
+                    rest[rest_idx]
+                }
+            };
+            match cmd.doc {
+                Doc::Nil | Doc::Suffix(_) | Doc::BreakParent => {}
+                Doc::Atom { width, space, text } => {
+                    if text.contains(&b'\n') {
+                        return false;
+                    }
+                    if at_start {
+                        col = col.max(cmd.indent);
+                    } else if *space {
+                        col += 1;
+                    }
+                    at_start = false;
+                    col += width;
+                }
+                Doc::Line if cmd.flat => {}
+                Doc::Line | Doc::Hard | Doc::Blank => return true,
+                Doc::Concat(v) | Doc::Fill(v) => {
+                    work.extend(v.iter().rev().map(|doc| Cmd {
+                        doc,
+                        fill: 0,
+                        ..cmd
+                    }));
+                }
+                Doc::Indent(d) | Doc::Align(d) => work.push(Cmd { doc: d, ..cmd }),
+                // Groups after `next` are measured in the mode of their enclosing command, so
+                // an undecided group later on the line ends the measurement at its first line
+                // break.
+                Doc::Group { doc, broken, .. } => {
+                    if cmd.flat && *broken {
+                        return false;
+                    }
+                    work.push(Cmd {
+                        doc,
+                        flat: cmd.flat && !broken,
+                        ..cmd
+                    });
+                }
+                // Groups not yet printed (including the one being measured) read as flat.
+                Doc::IfBreak { id, broken, flat } => {
+                    let doc = if self.modes[*id] { broken } else { flat };
+                    work.push(Cmd { doc, ..cmd });
+                }
+                // Later on the line, a choice may still take its most broken alternative.
+                Doc::Choice(alts) => {
+                    let doc = if cmd.flat {
+                        &alts[0]
+                    } else {
+                        &alts[alts.len() - 1]
+                    };
+                    work.push(Cmd { doc, ..cmd });
+                }
+            }
+        }
+    }
+}
+
+fn indent_to(out: &mut Vec<u8>, n: usize) {
+    out.extend(std::iter::repeat_n(b' ', n));
+}
+
+/// Tab stop used when measuring text containing tabs (only comments can contain tabs).
+pub const TAB_WIDTH: usize = 4;
+
+/// Display width of `text` printed at column `start`: one column per character (per UTF-8
+/// scalar when the file is valid UTF-8, otherwise per Latin-1 byte); tabs advance to the next
+/// multiple of [`TAB_WIDTH`]. For multi-line text, the width of the last line.
+pub fn display_width(text: &[u8], utf8: bool, start: usize) -> usize {
+    let mut col = start;
+    let mut base = start;
+    for &b in text {
+        match b {
+            b'\t' => col = (col / TAB_WIDTH + 1) * TAB_WIDTH,
+            b'\n' => {
+                col = 0;
+                base = 0;
+            }
+            _ if utf8 && (b & 0xC0) == 0x80 => {}
+            _ => col += 1,
+        }
+    }
+    col - base
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn atom(s: &str, space: bool) -> Doc {
+        Doc::Atom {
+            text: s.as_bytes().into(),
+            width: s.len(),
+            space,
+        }
+    }
+
+    fn call(n: usize) -> Doc {
+        let mut inner = vec![Doc::Line];
+        for i in 0..n {
+            if i > 0 {
+                inner.push(atom(",", false));
+                inner.push(Doc::Line);
+            }
+            inner.push(atom(&format!("arg{i}"), i > 0));
+        }
+        Doc::Concat(vec![
+            atom("f", false),
+            Doc::Group {
+                id: 0,
+                broken: false,
+                doc: Box::new(Doc::Concat(vec![
+                    atom("(", false),
+                    Doc::indent(Doc::Concat(inner)),
+                    Doc::Line,
+                    atom(")", false),
+                ])),
+            },
+        ])
+    }
+
+    fn opts(width: usize) -> PrintOptions {
+        PrintOptions { width, indent: 2 }
+    }
+
+    #[test]
+    fn group_flat_or_broken_by_width() {
+        assert_eq!(print(call(3), 1, &opts(80)), b"f(arg0, arg1, arg2)\n");
+        let out = print(call(3), 1, &opts(10));
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "f(\n  arg0,\n  arg1,\n  arg2\n)\n"
+        );
+    }
+
+    #[test]
+    fn exact_width_boundary() {
+        // Flat width is 19.
+        assert_eq!(print(call(3), 1, &opts(19)), b"f(arg0, arg1, arg2)\n");
+        assert_ne!(print(call(3), 1, &opts(18)), b"f(arg0, arg1, arg2)\n");
+    }
+
+    #[test]
+    fn suffix_forces_newline_before_next_atom() {
+        let d = Doc::Concat(vec![
+            atom("a", false),
+            Doc::Suffix(b" -- c".as_slice().into()),
+            atom("b", true),
+        ]);
+        assert_eq!(print(d, 0, &opts(80)), b"a -- c\nb\n");
+    }
+
+    #[test]
+    fn suffix_does_not_count_towards_width() {
+        // The group fits in 20 columns; the trailing comment must not make it break.
+        let d = Doc::Concat(vec![
+            call(3),
+            Doc::Suffix(b" -- a very long comment".as_slice().into()),
+        ]);
+        let out = String::from_utf8(print(d, 1, &opts(20))).unwrap();
+        assert_eq!(out, "f(arg0, arg1, arg2) -- a very long comment\n");
+    }
+
+    #[test]
+    fn widths() {
+        assert_eq!(display_width("héllo".as_bytes(), true, 0), 5);
+        assert_eq!(display_width(&[b'h', 0xE9], false, 0), 2);
+        assert_eq!(display_width(b"\tx", true, 1), 4);
+        assert_eq!(display_width(b"ab\ncde", true, 7), 3);
+    }
+}
