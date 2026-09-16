@@ -11,6 +11,9 @@ mod format;
 pub mod rules;
 mod verify;
 
+#[cfg(test)]
+mod fuzz;
+
 use std::fmt;
 
 use vhdl_syntax::parser::parse_with_standard;
