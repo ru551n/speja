@@ -93,6 +93,19 @@ impl RuleSettings {
             .and_then(Value::as_u64)
             .and_then(|v| usize::try_from(v).ok())
     }
+
+    pub fn option_bool(&self, key: &str) -> Option<bool> {
+        self.options.get(key).and_then(Value::as_bool)
+    }
+
+    /// A list of strings; a single string counts as a one-element list.
+    pub fn option_list(&self, key: &str) -> Vec<&str> {
+        match self.options.get(key) {
+            Some(Value::Sequence(items)) => items.iter().filter_map(Value::as_str).collect(),
+            Some(Value::String(s)) => vec![s.as_str()],
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// Resolved configuration.

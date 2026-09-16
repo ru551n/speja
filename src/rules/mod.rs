@@ -3,8 +3,10 @@
 //! Rules never modify the source and never depend on each other. Results are sorted by
 //! position and rule id, so the order in which rules run is irrelevant.
 
+mod case;
 mod catalog;
 mod length;
+mod select;
 mod structure;
 
 use std::cell::OnceCell;
@@ -51,9 +53,11 @@ pub struct RuleInfo {
     pub description: &'static str,
 }
 
+pub(crate) type Check = fn(&Context<'_>, &RuleSettings, &mut Vec<Violation>);
+
 pub(crate) struct Rule {
     pub(crate) info: RuleInfo,
-    pub(crate) check: fn(&Context<'_>, &RuleSettings, &mut Vec<Violation>),
+    pub(crate) check: Check,
 }
 
 /// How safe it is to apply a fix without review.
@@ -163,6 +167,7 @@ fn rules() -> &'static [Rule] {
     static RULES: std::sync::OnceLock<Vec<Rule>> = std::sync::OnceLock::new();
     RULES.get_or_init(|| {
         let mut all = Vec::new();
+        all.extend(case::rules());
         all.extend(length::rules());
         all.extend(structure::rules());
         all.sort_by_key(|r| r.info.id);

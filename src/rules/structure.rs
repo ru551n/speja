@@ -520,6 +520,24 @@ fn closing_name(
     }
 }
 
+fn end_name_case_rule(rule: &str) -> &'static str {
+    match rule {
+        "entity_019" => "entity_012",
+        "architecture_024" => "architecture_011",
+        "package_014" => "package_008",
+        "package_body_003" => "package_body_507",
+        "component_022" => "component_012",
+        "context_022" => "context_016",
+        "function_020" => "function_506",
+        "procedure_014" => "procedure_506",
+        "block_007" => "block_506",
+        "generate_011" => "generate_012",
+        "loop_statement_007" => "loop_statement_504",
+        "process_018" => "process_019",
+        _ => "type_004",
+    }
+}
+
 fn name_in_epilogue(
     cx: &Context<'_>,
     epilogue: &SyntaxNode,
@@ -546,7 +564,8 @@ fn name_in_epilogue(
             } else {
                 last.text_range().end
             };
-            let name = text(name);
+            // Inserted as the end-name case rule wants it, so a second run finds nothing.
+            let name = super::case::spelling(cx, end_name_case_rule(rule), text(name));
             let mut v = violation(settings, rule, last, format!("add `{name}` after `end`"));
             v.fix = Some(safe(vec![insert(at, format!(" {name}"), 1)]));
             out.push(v);
