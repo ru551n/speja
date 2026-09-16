@@ -519,9 +519,32 @@ impl<'a> Builder<'a> {
             | VerificationUnitList
             | ExpressionList => self.flat_list(n),
             InitialValue => {
-                let hug = n.children().next().is_some_and(|v| huggable(&v));
+                let value = n.children().next();
+                match value.filter(huggable) {
+                    // `:=` stays on the line; the value may move or fold inside itself.
+                    Some(value) => {
+                        let assign = n.first_token();
+                        let assign = self.tok(&assign);
+                        let value = self.node(&value);
+                        concat(vec![assign, self.right_hand_side(value, true)])
+                    }
+                    None => {
+                        let doc = self.block(n);
+                        self.right_hand_side(doc, false)
+                    }
+                }
+            }
+            SubtypeIndication
+                if n.parent().is_some_and(|p| {
+                    matches!(
+                        p.kind(),
+                        SignalDeclaration | ConstantDeclaration | VariableDeclaration | FileDeclaration
+                    )
+                }) =>
+            {
+                // A long subtype may move after the `:`.
                 let doc = self.block(n);
-                self.right_hand_side(doc, hug)
+                self.right_hand_side(doc, true)
             }
             AssociationElement | ElementAssociation => {
                 let mut cs = n.children_with_tokens();

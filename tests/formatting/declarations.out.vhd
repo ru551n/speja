@@ -27,9 +27,9 @@ package decls is
   subtype small_int_t is integer range minimum_allowed_value
       to maximum_allowed_value_for_this_type;
   constant first_constant, second_constant : natural := 42;
-  signal status_register_value_with_long_name : std_logic_vector(
-    register_width - 1 downto 0
-  ) := (others => '0');
+  signal status_register_value_with_long_name :
+    std_logic_vector(register_width - 1 downto 0) :=
+    (others => '0');
   alias control_bits : std_logic_vector(3 downto 0)
     is control_register_value_with_long_name(3 downto 0);
   attribute keep_hierarchy of the_instance_label_name : label

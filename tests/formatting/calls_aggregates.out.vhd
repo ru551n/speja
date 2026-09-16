@@ -22,8 +22,8 @@ architecture rtl of calls is
     second_parameter => 2,
     third_parameter  => open_value
   );
-  signal s : std_logic_vector(7 downto 0)
-    := std_logic_vector(to_unsigned(initial_value, 8));
+  signal s : std_logic_vector(7 downto 0) :=
+    std_logic_vector(to_unsigned(initial_value, 8));
 begin
   process
   begin
