@@ -99,6 +99,8 @@ pub struct Config {
     global: RuleLayer,
     groups: BTreeMap<String, RuleLayer>,
     rules: BTreeMap<String, RuleLayer>,
+    /// `file_rules`: (path pattern, `rule` block) applied to matching files.
+    file_rules: Vec<(String, Value)>,
     /// Problems found while loading that did not prevent loading.
     pub warnings: Vec<String>,
 }
@@ -175,13 +177,62 @@ impl Config {
                 }
                 // Files are selected on the command line.
                 "file_list" => self.warn("file_list is ignored; pass files on the command line"),
-                "file_rules" | "local_rules" | "indent" | "pragma" => {
+                "file_rules" => self.merge_file_rules(value)?,
+                "local_rules" | "indent" | "pragma" => {
                     self.warn(&format!("`{key}` is not supported yet and is ignored"));
                 }
                 _ => self.warn(&format!("unknown top-level key `{key}` ignored")),
             }
         }
         Ok(())
+    }
+
+    /// `file_rules` as a mapping `{pattern: {rule: ...}}` or a list of such mappings.
+    fn merge_file_rules(&mut self, value: &Value) -> Result<(), String> {
+        let entries: Vec<&Value> = match value {
+            Value::Sequence(items) => items.iter().collect(),
+            other => vec![other],
+        };
+        for entry in entries {
+            let Some(map) = entry.as_mapping() else {
+                return Err("`file_rules` entries must map a path to settings".into());
+            };
+            for (pattern, settings) in map {
+                let pattern = pattern
+                    .as_str()
+                    .ok_or("`file_rules` keys must be paths")?
+                    .replace('\\', "/");
+                let rule = settings
+                    .as_mapping()
+                    .and_then(|m| m.get("rule"))
+                    .ok_or_else(|| format!("`file_rules.{pattern}` must contain `rule`"))?;
+                // Validate now so errors are reported when loading.
+                Config::default().merge_rules(rule)?;
+                self.file_rules.push((pattern, rule.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    /// The configuration for a particular file, with matching `file_rules` applied.
+    pub fn for_path(&self, path: &Path) -> std::borrow::Cow<'_, Config> {
+        let path = path.to_string_lossy().replace('\\', "/");
+        let matching: Vec<&Value> = self
+            .file_rules
+            .iter()
+            .filter(|(pattern, _)| path_matches(pattern, &path))
+            .map(|(_, rule)| rule)
+            .collect();
+        if matching.is_empty() {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut cfg = self.clone();
+        for rule in matching {
+            // Already validated when loading.
+            let _ = cfg.merge_rules(rule);
+        }
+        cfg.resolve_format();
+        std::borrow::Cow::Owned(cfg)
     }
 
     fn merge_rules(&mut self, value: &Value) -> Result<(), String> {
@@ -295,6 +346,33 @@ impl Config {
     }
 }
 
+/// Whether `path` matches `pattern` (`*` and `?` within a path component, `**` across
+/// components). Relative patterns also match any path that ends with them.
+fn path_matches(pattern: &str, path: &str) -> bool {
+    if glob(pattern.as_bytes(), path.as_bytes()) {
+        return true;
+    }
+    !pattern.starts_with('/')
+        && path
+            .match_indices('/')
+            .any(|(i, _)| glob(pattern.as_bytes(), &path.as_bytes()[i + 1..]))
+}
+
+fn glob(pattern: &[u8], text: &[u8]) -> bool {
+    match pattern {
+        [] => text.is_empty(),
+        [b'*', b'*', rest @ ..] => {
+            let rest = rest.strip_prefix(b"/").unwrap_or(rest);
+            (0..=text.len()).any(|i| glob(rest, &text[i..]))
+        }
+        [b'*', rest @ ..] => (0..=text.len())
+            .take_while(|&i| i == 0 || text[i - 1] != b'/')
+            .any(|i| glob(rest, &text[i..])),
+        [b'?', rest @ ..] => text.first().is_some_and(|&c| c != b'/') && glob(rest, &text[1..]),
+        [c, rest @ ..] => text.first() == Some(c) && glob(rest, &text[1..]),
+    }
+}
+
 fn merge_layer(layer: &mut RuleLayer, settings: &Value, name: &str) -> Result<(), String> {
     let Some(map) = settings.as_mapping() else {
         return Err(format!("settings of `{name}` must be a mapping"));
@@ -354,6 +432,25 @@ mod tests {
         assert!(cfg.rule(crate::rules::info("entity_015").unwrap()).enabled);
         assert!(!cfg.rule(crate::rules::info("entity_019").unwrap()).enabled);
         assert!(!cfg.rule(crate::rules::info("process_016").unwrap()).enabled);
+    }
+
+    #[test]
+    fn file_rules() {
+        let cfg = Config::parse(
+            "rule: {length_001: {length: 100}}\nfile_rules:\n  legacy/**/*.vhd:\n    rule: {length_001: {length: 200}, entity_015: {disable: true}}\n",
+        )
+        .unwrap();
+        let info = crate::rules::info("entity_015").unwrap();
+        let legacy = cfg.for_path(Path::new("/src/legacy/old/core.vhd"));
+        assert_eq!(legacy.format.width, 200);
+        assert!(!legacy.rule(info).enabled);
+        let other = cfg.for_path(Path::new("/src/new/core.vhd"));
+        assert_eq!(other.format.width, 100);
+        assert!(other.rule(info).enabled);
+        assert!(path_matches("a/*.vhd", "x/a/b.vhd"));
+        assert!(!path_matches("a/*.vhd", "x/a/b/c.vhd"));
+        assert!(path_matches("a/**/c.vhd", "a/c.vhd"));
+        assert!(Config::parse("file_rules: {x.vhd: {}}").is_err());
     }
 
     #[test]

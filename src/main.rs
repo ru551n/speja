@@ -169,13 +169,17 @@ impl Configs {
         } else {
             self.discovered(file)?
         };
+        let cfg = match base.for_path(file) {
+            std::borrow::Cow::Borrowed(_) => base,
+            std::borrow::Cow::Owned(cfg) => Arc::new(cfg),
+        };
         Ok(match self.line_length {
             Some(width) => {
-                let mut cfg = (*base).clone();
+                let mut cfg = (*cfg).clone();
                 cfg.format.width = width;
                 Arc::new(cfg)
             }
-            None => base,
+            None => cfg,
         })
     }
 }
