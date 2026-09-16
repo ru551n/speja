@@ -6,7 +6,9 @@
 
 pub mod config;
 mod doc;
+mod fix;
 mod format;
+pub mod rules;
 mod verify;
 
 use std::fmt;
@@ -15,8 +17,9 @@ use vhdl_syntax::parser::parse_with_standard;
 use vhdl_syntax::standard::VHDLStandard;
 use vhdl_syntax::syntax::{AstNode, SyntaxNode, SyntaxToken, TokenKind};
 
-pub use config::FormatConfig;
+pub use config::{Config, FormatConfig};
 pub use doc::display_width;
+pub use fix::{FixOutcome, fix};
 
 /// One immutable source snapshot and its (single) parse.
 pub struct Parsed {
@@ -156,7 +159,11 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
     };
     let mut out = doc::print(doc, builder.groups(), &opts);
     verify::equivalent(parsed, &out).map_err(FormatError::Internal)?;
-    if parsed.uses_crlf() {
+    let crlf = match cfg.line_ending {
+        Some(ending) => ending == config::LineEnding::CrLf,
+        None => parsed.uses_crlf(),
+    };
+    if crlf {
         out = to_crlf(&out);
     }
     Ok(out)
