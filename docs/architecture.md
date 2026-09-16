@@ -27,6 +27,9 @@
       output check (src/verify.rs): re-parse, compare tokens and comments
                  │
                  ▼
+      trailing-comment alignment (src/align.rs, whitespace only)
+                 │
+                 ▼
             canonical source
 ```
 
@@ -34,7 +37,8 @@
 
 * **One parse per snapshot.** `Parsed` owns the source bytes and the only tree built from them.
   Formatting and rules read that tree; nothing re-tokenizes the source. The output check parses
-  the *output*, which is a different snapshot.
+  the *output*, which is a different snapshot, and comment alignment reuses that parse. (A file
+  with tool directives is parsed a second time with the directives masked.)
 * **No source mutation between rules.** Rules only read the tree and return diagnostics and fix
   intents. Nothing depends on another rule having run first.
 * **Formatting is one pass.** The layout builder emits every token exactly once, in source order,
@@ -44,9 +48,12 @@
 * **Output is verified.** Before any output is returned, it is re-parsed and must have no syntax
   errors and the same tokens (keywords compared case-insensitively) and comments, in the same
   order, attached to the same tokens. A mismatch is reported as an internal error and the input is
-  left untouched. This is what makes format-on-save safe even when the formatter has a bug.
-* **Refuse rather than guess.** Sources with syntax errors, or with constructs the formatter does
-  not handle yet (VHDL-2019 tool directives), are returned unchanged with an error.
+  left untouched. This is what makes format-on-save safe even when the formatter has a bug. The
+  only later step, trailing-comment alignment, changes nothing but the spaces between code and
+  a comment on the same line.
+* **Refuse rather than guess.** Sources with syntax errors are returned unchanged with an error.
+  VHDL-2019 tool directives on their own line are parsed as same-length comments (so byte
+  offsets stay valid for rules and fixes) and put back into the output.
 * **Deterministic.** Layout depends only on the tree and the resolved configuration. There is no
   hash-map iteration order in the output path. Files are processed in parallel, but results are
   reported in sorted path order.
@@ -60,9 +67,11 @@
   alignment and keyword case. VSG rules in those categories map onto formatter settings, not
   onto independent fixers.
 * The **linter** reports rules that are not layout: naming, structure, semantics.
-* The **fixer** applies only fixes classified as safe, as text edits over the original snapshot.
-  A central resolver rejects overlapping or contradictory edits, and the result goes through the
-  formatter once. There are no phases and no repeated `--fix` runs.
+* The **fixer** applies fixes classified as safe (and, on request, unsafe ones) as text edits
+  over a snapshot. A central resolver accepts non-overlapping fixes in source order; the rest are
+  resolved again on the new snapshot, for a bounded number of rounds, and the result goes
+  through the formatter once. There are no phases and no rule-order dependencies, and users never
+  need to repeat `fix`.
 
 ## Crate layout
 

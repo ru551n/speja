@@ -11,9 +11,10 @@ A fast Rust-native VHDL formatter and style checker with VSG-compatible rules an
 > project by Jeremiah Leary and contributors. vsg-rs contains no VSG code; VSG is used only as a
 > behavioural reference.
 
-**Status: early development.** Formatting works and is tested against a large real-world corpus.
-27 structural rules and `length_001` are implemented, with transactional fixes. Expect layout
-changes before 1.0.
+**Status: beta.** Formatting is tested against a corpus of more than 11,000 real-world files.
+192 VSG rules are implemented as lint rules with fixes (structure, identifier case, naming,
+comments, `length_001`), and the other 779 layout rules are covered by the formatter's policy
+(blank lines, alignment, keyword case, indentation). Expect layout changes before 1.0.
 
 ## Why
 
@@ -27,10 +28,11 @@ changes before 1.0.
   tokens and comments before it is used. Files with syntax errors are left untouched. In pipe
   mode, stdout carries nothing but the formatted source.
 * **No fix phases.** No `--fix` runs that must be repeated until they converge, and no
-  rule-order dependencies.
+  rule-order dependencies. Fixes that could change behaviour are only applied on request
+  (`--unsafe-fixes`).
 * **Fast.** Formatting a typical file from stdin takes a few milliseconds; parsing, formatting
-  and verifying 12.6 MB of real-world VHDL takes under 3 seconds on one core
-  ([performance](docs/performance.md)).
+  and verifying real-world VHDL runs at about 3.4 MB/s on one core, and files are processed in
+  parallel ([performance](docs/performance.md)).
 
 ## Usage
 
@@ -47,8 +49,9 @@ cat foo.vhd | vsg-rs fmt --range 10:24 -              # only lines 10 to 24
 
 vsg-rs lint src/                       # report rule violations
 vsg-rs check src/                      # CI: violations and unformatted files
-vsg-rs check --output-format sarif src/ > vsg.sarif   # also json, junit
+vsg-rs check --output-format sarif src/ > vsg.sarif   # also json, junit, gitlab, syntastic, summary
 vsg-rs fix src/                        # apply all safe fixes, then format
+vsg-rs fix --unsafe-fixes --diff src/  # also fixes that may change behaviour (review them)
 vsg-rs rules --all                     # every VSG rule and how vsg-rs handles it
 ```
 
@@ -61,6 +64,9 @@ rule:
     length: 100
   process_016:
     disable: true
+  group:
+    case::name:
+      case: lower
 file_rules:
   legacy/**/*.vhd:
     rule:
@@ -81,7 +87,7 @@ stdout is empty and stderr explains why; leave the buffer unchanged. See
 ## Documentation
 
 * [Architecture](docs/architecture.md)
-* [Editor integration](docs/editors.md) (language server, pipe mode)
+* [Editor integration](docs/editors.md) (pipe mode)
 * [Formatting](docs/formatting.md), [line folding](docs/line-folding.md) and its
   [coverage matrix](docs/line-folding-coverage.md)
 * [VHDL frontend](docs/vhdl-frontend.md) (why `vhdl_syntax`)

@@ -14,22 +14,27 @@ vsg-rs accepts VSG configuration documents in YAML or JSON.
 | `rule.global`, `rule.group.<name>`, `rule.<id>` | supported, with the same precedence: global < group < rule |
 | `disable`, `severity`, `fixable` | supported for implemented rules |
 | `phase` | accepted and ignored (vsg-rs has no phases) |
-| `indent_style`, `user_error_message` | accepted and ignored |
+| `user_error_message` | accepted and ignored |
 | `rule.length_001.length` | sets the formatter's target width and the `length_001` limit |
 | `rule.global.indent_size` | sets the formatter's indentation |
-| `rule.global.case`, `rule.group.case` / `case::keyword` `.case` | sets keyword case (`lower` or `upper`) |
+| `rule.global.indent_style` | `spaces` (default) or `smart_tabs` |
+| `rule.global.case`, `rule.group.case` / `case::keyword` `.case` | sets keyword case (`lower` or `upper`) and the default of the identifier case rules |
 | `rule.group.case` / `case::keyword` `.disable: true` | keeps keywords as written |
-| rule options such as `action` (`add`/`remove`) and `parenthesis` (`insert`/`remove`) | supported by the rules that define them |
+| keyword case rules (`entity_004`, …) `.case`, `.disable` | per keyword (see `formatting.md`) |
+| `blank_line` rules `.style`, `whitespace_200`, `pragma_400`–`pragma_403` | applied by the formatter |
+| alignment rules `.disable` and group options | applied by the formatter per kind of alignment (see `formatting.md`) |
+| rule options such as `action`, `parenthesis`, `case`, `case_exceptions`, `prefix_exceptions`, `suffix_exceptions`, `regex`, `prefixes`, `suffixes`, `exceptions`, `names`, `consecutive`, `method`, `clock`, `magnitude`, `units`, `keywords`, `standard` and the `block_comment` options | supported by the rules that define them |
 | `linesep` | supported (`"\n"` or `"\r\n"`); without it, the input's line ending is kept |
 | `file_list` | ignored with a warning; pass files and directories on the command line |
 | `file_rules` | supported, as a mapping or a list; keys are paths or glob patterns (`*`, `?`, `**`); a relative pattern matches any path ending with it |
-| `local_rules`, `indent`, `pragma` | not supported; ignored with a warning |
+| `pragma.patterns` | supported (`open`, `close` regular expressions) |
+| `local_rules`, `indent` | not supported; ignored with a warning |
 | `rule.length_001.error_length` | vsg-rs extension: lines longer than this are reported with severity `error` (formatting still uses `length`) |
 | unknown rule ids | warning; the settings are ignored |
 
-Settings of VSG rules that vsg-rs does not implement individually (for example most whitespace,
-indentation and alignment rules) are accepted without warnings. Their behaviour comes from the
-formatter's policy, and their options are not honoured yet.
+Settings of formatter-owned rules that vsg-rs does not map individually (for example most
+whitespace and indentation rules) are accepted without warnings. Their behaviour comes from the
+formatter's policy.
 
 ### Discovery
 
@@ -44,14 +49,17 @@ with `-c` or by copying it to one of these names.
 | VSG | vsg-rs |
 |---|---|
 | `vsg -f FILES` | `vsg-rs lint FILES` (directories are searched recursively) |
-| `vsg -f FILES --fix` | `vsg-rs fix FILES` |
+| `vsg -f FILES --fix` | `vsg-rs fix FILES` (safe fixes; `--unsafe-fixes` for the rest) |
+| `--fix_only FILE` | `vsg-rs fix --fix-only FILE` (same JSON/YAML format; the result is not formatted) |
 | `vsg -f FILES --fix -fp N`, `--all_phases` | no equivalent: there are no phases, and all violations are always reported |
 | `vsg --stdin` | `vsg-rs lint -`, `vsg-rs fix -`, `vsg-rs fmt -` with `--stdin-filename` |
 | `-c FILE` | `-c FILE` / `--config FILE` |
 | `-of vsg`, `-js FILE` | `--output-format text` (default) / `--output-format json` (stdout) |
+| `-of syntastic`, `-of summary` | `--output-format syntastic`, `--output-format summary` |
 | `-j FILE` (JUnit) | `--output-format junit` (stdout) |
+| `--quality_report FILE` | `--output-format gitlab` (stdout) |
 | — | `--output-format sarif` (SARIF 2.1.0, for code scanning) |
-| `--quality_report`, `-of syntastic` | not yet |
+| `--style`, `-lr` | not supported |
 | `-b` (backup) | not needed: files are replaced atomically and only after verification |
 | `--force_fix` | not provided: files with syntax errors are never modified |
 | `-p N` (jobs) | automatic (all cores) |
@@ -71,15 +79,20 @@ VSG returns 0 or 1. vsg-rs distinguishes:
 
 * **No phases.** VSG stops reporting at the first phase with violations and fixes phase by phase,
   sometimes needing several `--fix` runs. vsg-rs reports all violations at once. `vsg-rs fix`
-  applies every safe fix in one transaction and then formats; running it again changes nothing.
+  applies every safe fix of a snapshot in one transaction; fixes that overlap an applied one
+  are resolved again on the new text (a bounded number of rounds), and the result is formatted
+  once. Running it again changes nothing.
 * **Formatting is not a set of fixes.** Whitespace, indentation, alignment, blank lines, keyword
   case and line length are handled by one formatter with one canonical layout. Individual rules in
   those groups are not reported as separate violations. `vsg-rs check` reports "file is not
   formatted" instead.
 * **`length_001` is fixable.** VSG never shortens lines. vsg-rs folds them. `length_001` reports only
   what remains, and says whether `vsg-rs fmt` would fold it.
-* **Safety classes.** A fix that may change behaviour (for example `port_012`, removing a port
-  default) is reported as a suggestion and never applied automatically.
+* **Safety classes.** A fix that may change behaviour or drop information (for example
+  `port_012`, removing a port default, or `port_map_010`, removing comments) is reported as a
+  suggestion and applied only with `vsg-rs fix --unsafe-fixes`.
+* **Identifier case consistency.** The consistency rules (`signal_014`, …) target the spelling
+  the declaration's case rule requires, so declaration and uses are fixed in the same run.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. vsg-rs leaves such files
   untouched and reports the first syntax error.
 * **Output verification.** Every fixed or formatted file is re-parsed and compared token by token
@@ -94,7 +107,5 @@ VSG returns 0 or 1. vsg-rs distinguishes:
 
 ## Known gaps
 
-See `rule-status.md` for rule coverage. Notable formatter policies that VSG offers and vsg-rs does
-not have yet: identifier case, required blank lines (for example around processes), comment
-alignment, per-construct indentation (`indent.tokens`), alternative alignment styles, and
-`--fix_only`.
+See `rule-status.md` for rule coverage. Not supported: `indent.tokens` per-token indentation,
+`local_rules`, `--style` presets, and consistency checks across files.

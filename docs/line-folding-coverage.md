@@ -61,8 +61,9 @@ Test references are fixtures in `tests/formatting/`.
 | Configuration declarations / specifications | supported | binding indications and maps indented | `configuration_context` |
 | Protected types, package instantiation | supported | | `protected_types` |
 | Selected / indexed names, external names | unavoidable overflow only | names are never split; indices fold as lists | — |
-| Signatures (`[t return t]`) | planned | kept on one line | — |
-| PSL, VHDL-2019 tool directives | blocked by frontend | files with tool directives are refused; PSL does not parse | — |
+| Signatures (`[t return t]`) | supported | move to a continuation line, then one type mark per line | `signatures` |
+| VHDL-2019 tool directives | supported | kept on their own line at column 0 | `tool_directives` |
+| PSL | blocked by frontend | PSL does not parse; such files are left untouched | — |
 | Comments (trailing, own-line, block) | supported | never moved or wrapped; trailing comments force a break | `comments` |
 | Formatter-off regions | supported | items inside are kept as written | `fmt_off` |
 | Nested constructs | supported | bounded alignment prevents staircases | `deep_nesting` |
@@ -70,23 +71,27 @@ Test references are fixtures in `tests/formatting/`.
 
 ## Measured on a real-world corpus
 
-`cargo run --release --example corpus -- DIRS` over about 1,600 local files (tsfpga modules,
-VUnit's VHDL libraries, project code, nvc's standard libraries and regression tests, the rust_hdl
-IEEE libraries), September 2026:
+`cargo run --release --example corpus -- DIRS` over every VHDL file below a development
+directory (11,749 files, 134.6 MB: tsfpga and hdl-modules, VUnit and OSVVM, including copies in
+virtual environments, nvc's libraries and regression tests, rust_hdl, project code),
+September 2026:
 
 | Width | Files formatted | Internal errors | Unstable | Code lines still too long |
 |---|---|---|---|---|
-| 120 | 1548 | 0 | 0 | 63 |
-| 80 | 1548 | 0 | 0 | 737 |
-| 40 | 1548 | 0 | 0 | 20,779 |
+| 120 | 11,603 | 0 | 0 | 649 |
+| 80 | 11,603 | 0 | 0 | 11,938 |
+| 40 | 11,603 | 0 | 0 | 273,249 |
 
-At width 120, every remaining long line inspected was a single string literal, a long selected
-name, or a declaration whose identifier and type mark alone exceed the width. Those are
+The other 146 files have syntax errors (mostly deliberate, in parser regression tests) or PSL
+and are left untouched. `FIX=1` (safe fixes) and `FIX=unsafe` report 0 internal errors and 0
+unstable files as well: a second `fix` run changes nothing.
+
+At width 120, the remaining long lines inspected were single string literals, long selected
+names, or declarations whose identifier and type mark alone exceed the width. Those are
 unavoidable overflows. At narrower widths the count is dominated by long identifiers and
 indentation depth.
 
-**Not yet claimed**: production-ready automatic `length_001` fixing. Missing pieces: signatures,
-and review of the real-world long-line classification at widths below 80.
+**Not yet claimed**: review of the real-world long-line classification at widths below 80.
 
 The randomized tests in `src/fuzz.rs` check that layout does not depend on source whitespace and
 that token deletions never cause an internal error. Set `VSG_FUZZ_DIRS` to run them over a

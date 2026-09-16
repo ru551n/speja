@@ -233,7 +233,7 @@ impl Config {
                 "file_rules" => self.merge_file_rules(value)?,
                 "pragma" => self.merge_pragma(value)?,
                 "local_rules" | "indent" => {
-                    self.warn(&format!("`{key}` is not supported yet and is ignored"));
+                    self.warn(&format!("`{key}` is not supported and is ignored"));
                 }
                 _ => self.warn(&format!("unknown top-level key `{key}` ignored")),
             }

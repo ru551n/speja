@@ -26,16 +26,23 @@ entries.
 ## What the formatter owns
 
 * Whitespace between tokens (a fixed spacing table, see below).
-* Indentation (default 2 spaces per level).
+* Indentation: `indent_size` columns per level (default 2). With `indent_style: smart_tabs`,
+  each level is a tab and alignment inside a level uses spaces (tabs are assumed to be
+  `indent_size` wide).
 * Line structure: every design unit, context item, declaration and statement starts on its own
   line. Blocks (`is … begin … end`) indent their content.
 * Line folding to the configured width (`line-folding.md`).
-* Alignment of `:` in interface lists and record elements, of `=>` in named association lists
-  that are printed one element per line, and port mode padding (`in    `, `out   `,
-  `inout `).
-* Keyword case (default lower).
-* Blank lines: kept between items (declarations, statements, design units, list elements, and
-  before closing keywords), collapsed to at most one. Blank lines inside expressions are removed.
+* Alignment (see below).
+* Keyword case: lower by default. `case` in the `case::keyword` group (or `global`) sets it for
+  all keywords. Each VSG keyword rule (`entity_004`, `architecture_009`, …) sets it for the
+  keywords it names, everywhere they occur; a disabled keyword rule keeps those keywords as
+  written.
+* Blank lines: the VSG `blank_line` rules (required, forbidden or "no code" blank lines before
+  and after constructs, with their `style` options), `whitespace_200` (at most one consecutive
+  blank line by default) and the pragma rules `pragma_400` to `pragma_403`. Other blank lines
+  between items are kept. Blank lines inside expressions are removed.
+* VHDL-2019 tool directives (`` `if ``, `` `else ``, `` `warning `` …) on their own line are
+  kept, at column 0.
 * Trailing whitespace is removed, including at the end of line comments. Files end with exactly one
   newline.
 * Line endings follow the first line break of the input (LF or CRLF).
@@ -75,10 +82,35 @@ After those rules, a space is always inserted where the lexer requires one.
   Selected assignments have one alternative per line.
 * `assert` statements put `report` and `severity` on their own indented lines.
 
+## Alignment
+
+As in VSG's default configuration:
+
+* `:` in interface lists and record elements, `=>` in named association lists printed one
+  element per line, and port modes padded to one width (`in    `, `out   `, `inout `).
+* In declarative parts, consecutive declarations align their names (after `signal`,
+  `constant`, …), their `:` and their `:=`.
+* Consecutive simple and conditional assignments align `<=` (concurrent statements) or `<=` and
+  `:=` together (sequential statements). Any other statement ends the group.
+* Trailing comments align within consecutive lines of a declarative part, generic or port
+  clause, generic or port map, and concurrent statement part. In a process body, all trailing
+  comments align to one column after the longest code line.
+
+A blank line or a comment line ends an alignment group. Each kind of alignment is configured
+through one VSG rule: `architecture_029` (names), `architecture_026` (colons),
+`declarative_part_400` (`:=`), `concurrent_006`, `process_400`, `architecture_027`,
+`entity_020`, `instantiation_029`, `concurrent_008` and `process_035` (comments). Their
+`disable`, `blank_line_ends_group`, `comment_line_ends_group` and
+`include_lines_without_comments` options are honoured; `rule: {group: {alignment: {disable:
+true}}}` turns all of this off except interface and map alignment. VSG's per-construct variants
+(for example `process_033` for colons in process declarative parts) follow the rule of their
+kind.
+
 ## Configuration
 
-See `compatibility.md` for the VSG configuration mapping. Formatter settings: `width` (from
-`length_001.length`, default 120), `indent` (default 2) and keyword case (default lower).
+See `compatibility.md` for the VSG configuration mapping. Formatter settings: width (from
+`length_001.length`, default 120), `indent_size` (default 2), `indent_style` (`spaces` or
+`smart_tabs`), keyword case, blank-line and alignment rules, and `linesep`.
 
 ## Formatter-off regions
 
@@ -101,8 +133,11 @@ constant table : lut_t := (x"00", x"01",
   Fixes from `vsg-rs fix` still apply inside `fmt off` regions (not inside `vsg_off` regions,
   where rules are suppressed).
 
-## Not yet implemented
+## Not supported
 
-* Required blank lines (VSG inserts blank lines around processes, instances and `begin`).
-  vsg-rs currently keeps blank lines from the source and collapses them.
-* Identifier case, tabs for indentation, range formatting.
+* VSG's `indent.tokens` block (per-token indentation offsets). vsg-rs has one structural
+  indentation; the block is reported as ignored.
+* VSG's built-in `--style` presets.
+
+Identifier and label case are lint rules with safe fixes (`vsg-rs fix`), not formatter
+policy, because they rename tokens.
