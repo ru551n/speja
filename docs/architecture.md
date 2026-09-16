@@ -1,7 +1,7 @@
 # Architecture
 
 ```text
-            CLI (src/main.rs)              editors, CI, future LSP
+            CLI (src/main.rs)        language server (src/lsp.rs)
                      │                               │
                      └─────────────┬─────────────────┘
                                    ▼
@@ -66,5 +66,7 @@
 
 ## Crate layout
 
-A single package (`vsg-rs`) with a library (`vsg_rs`) and a binary (`vsg-rs`). The CLI has no
-formatting logic. More crates will be split out only when a boundary proves useful.
+A single package (`vsg-rs`) with a library (`vsg_rs`) and a binary (`vsg-rs`). The CLI and the
+language server (`vsg-rs lsp`, part of the binary) have no formatting logic; range formatting
+(`format_range`) is a line diff of the whole-file result, so it has the same guarantees. More
+crates will be split out only when a boundary proves useful.

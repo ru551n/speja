@@ -43,6 +43,8 @@ vsg-rs fmt --check src/                # CI: exit 1 if anything would change
 vsg-rs fmt --diff src/foo.vhd          # show what would change
 vsg-rs fmt --line-length 100 src/
 cat foo.vhd | vsg-rs fmt --stdin-filename foo.vhd -   # editor integration
+cat foo.vhd | vsg-rs fmt --range 10:24 -              # only lines 10 to 24
+vsg-rs lsp                             # language server on stdio
 
 vsg-rs lint src/                       # report rule violations
 vsg-rs check src/                      # CI: violations and unformatted files
@@ -72,14 +74,17 @@ VSG's `-- vsg_off [rule ...]` / `-- vsg_on` comments suppress rules.
 
 ### Editor integration
 
-Configure your editor to pipe the buffer through
-`vsg-rs fmt --stdin-filename <path> -`. On success (exit code 0) the buffer is replaced with
-stdout. On failure (exit code 2) stdout is empty and stderr explains why; leave the buffer
-unchanged.
+`vsg-rs lsp` is a language server with diagnostics, document and range formatting, quick
+fixes and a `source.fixAll.vsg-rs` action. Editors without a language client can pipe the buffer
+through `vsg-rs fmt --stdin-filename <path> -` (add `--range START:END` to format selected
+lines). On success (exit code 0) the buffer is replaced with stdout. On failure (exit code 2)
+stdout is empty and stderr explains why; leave the buffer unchanged. See
+[docs/editors.md](docs/editors.md) for VS Code, Neovim, Helix and Emacs setups.
 
 ## Documentation
 
 * [Architecture](docs/architecture.md)
+* [Editor integration](docs/editors.md) (language server, pipe mode)
 * [Formatting](docs/formatting.md), [line folding](docs/line-folding.md) and its
   [coverage matrix](docs/line-folding-coverage.md)
 * [VHDL frontend](docs/vhdl-frontend.md) (why `vhdl_syntax`)
