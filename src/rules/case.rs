@@ -610,10 +610,141 @@ fn consistency() -> Vec<Rule> {
     }
 }
 
+const PREDEFINED_ATTRIBUTES: &[&str] = &[
+    "active",
+    "ascending",
+    "base",
+    "converse",
+    "delayed",
+    "designated_subtype",
+    "driving",
+    "driving_value",
+    "element",
+    "event",
+    "high",
+    "image",
+    "index",
+    "instance_name",
+    "last_active",
+    "last_event",
+    "last_value",
+    "left",
+    "leftof",
+    "length",
+    "low",
+    "path_name",
+    "pos",
+    "pred",
+    "quiet",
+    "reflect",
+    "reverse_range",
+    "right",
+    "rightof",
+    "simple_name",
+    "stable",
+    "succ",
+    "transaction",
+    "val",
+    "value",
+];
+
+/// Predefined attribute designators (`x'length`).
+fn predefined_attributes(cx: &Context<'_>) -> Vec<SyntaxToken> {
+    cx.nodes(N::AttributeName)
+        .iter()
+        .flat_map(|n| {
+            tokens(n)
+                .skip_while(|t| t.kind() != T::Tick)
+                .skip(1)
+                .take(1)
+                .collect::<Vec<_>>()
+        })
+        .filter(|t| PREDEFINED_ATTRIBUTES.contains(&text(t).to_ascii_lowercase().as_str()))
+        .collect()
+}
+
+/// `read_mode`, `write_mode` and `append_mode` in file open information.
+fn file_open_kinds(cx: &Context<'_>) -> Vec<SyntaxToken> {
+    const KINDS: [&str; 3] = ["read_mode", "write_mode", "append_mode"];
+    cx.nodes(N::FileOpenKind)
+        .iter()
+        .flat_map(|n| {
+            let mut all = Vec::new();
+            crate::collect_tokens(n, &mut all);
+            all
+        })
+        .filter(|t| KINDS.contains(&text(t).to_ascii_lowercase().as_str()))
+        .collect()
+}
+
+/// The exponent marker of decimal literals (`1.0E-9`), as an edit of the literal token.
+fn exponents(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
+    let upper = settings.option_str("case") == Some("upper");
+    for t in cx.parsed.tokens() {
+        let literal = text(t);
+        if t.kind() != T::AbstractLiteral || literal.contains('#') || literal.contains(':') {
+            continue;
+        }
+        let Some(pos) = literal.find(['e', 'E']) else {
+            continue;
+        };
+        let want = if upper { 'E' } else { 'e' };
+        if literal[pos..].starts_with(want) {
+            continue;
+        }
+        let fixed = format!("{}{want}{}", &literal[..pos], &literal[pos + 1..]);
+        let mut v = violation(
+            settings,
+            "exponent_500",
+            t,
+            format!("write the exponent as `{want}`"),
+        );
+        v.fix = Some(Fix {
+            safety: FixSafety::Safe,
+            // The whole token, so that no separator is added inside it.
+            edits: vec![Edit {
+                start: t.text_offset(),
+                end: t.text_range().end,
+                text: fixed,
+                rank: 0,
+            }],
+        });
+        out.push(v);
+    }
+}
+
+fn keyword_like_rules() -> Vec<Rule> {
+    let keyword = |id, description, check| Rule {
+        info: RuleInfo {
+            groups: &["case", "case::keyword"],
+            ..case_rule(id, false, description, check).info
+        },
+        check,
+    };
+    vec![
+        keyword(
+            "attribute_500",
+            "Predefined attributes are in the configured case.",
+            |cx, s, out| check_case(cx, s, out, "attribute_500", predefined_attributes),
+        ),
+        keyword(
+            "file_open_information_501",
+            "File open kinds are in the configured case.",
+            |cx, s, out| check_case(cx, s, out, "file_open_information_501", file_open_kinds),
+        ),
+        keyword(
+            "exponent_500",
+            "Exponents of decimal literals are in the configured case.",
+            exponents,
+        ),
+    ]
+}
+
 pub(super) fn rules() -> Vec<Rule> {
     let mut all = case_name_rules();
     all.extend(case_label_rules());
     all.extend(consistency());
+    all.extend(keyword_like_rules());
     all
 }
 
@@ -654,6 +785,20 @@ mod tests {
         }
         // `g_w` already matches the lower-case target of `G_W`.
         assert!(!f.iter().any(|(r, _)| *r == "architecture_600"), "{f:?}");
+    }
+
+    #[test]
+    fn keyword_like_names() {
+        let src = "architecture rtl of e is\n  file f : text open READ_MODE is \"x\";\n  constant t : time := 1.0E-9 * 16#E#;\nbegin\n  a <= b'LENGTH;\nend architecture rtl;\n";
+        let f = found(src, "");
+        for (rule, text) in [
+            ("file_open_information_501", "READ_MODE"),
+            ("exponent_500", "1.0E-9"),
+            ("attribute_500", "LENGTH"),
+        ] {
+            assert!(has(&f, rule, text), "{rule} {text} missing in {f:?}");
+        }
+        assert_eq!(f.iter().filter(|(r, _)| *r == "exponent_500").count(), 1);
     }
 
     #[test]

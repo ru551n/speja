@@ -512,7 +512,16 @@ impl<'a> Builder<'a> {
 
     pub(crate) fn token_text(&self, t: &SyntaxToken) -> Rc<[u8]> {
         let bytes = t.text().as_bytes();
-        match (t.kind(), self.cfg.keyword_case) {
+        let case = match t.kind() {
+            T::Keyword(_) if !self.cfg.keyword_case_overrides.is_empty() => self
+                .cfg
+                .keyword_case_overrides
+                .get(std::str::from_utf8(&bytes.to_ascii_lowercase()).unwrap_or_default())
+                .copied()
+                .unwrap_or(self.cfg.keyword_case),
+            _ => self.cfg.keyword_case,
+        };
+        match (t.kind(), case) {
             (T::Keyword(_), KeywordCase::Lower) => bytes.to_ascii_lowercase().into(),
             (T::Keyword(_), KeywordCase::Upper) => bytes.to_ascii_uppercase().into(),
             _ => bytes.into(),

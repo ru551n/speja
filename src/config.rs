@@ -27,6 +27,8 @@ pub struct FormatConfig {
     /// Indent with tabs and align with spaces (VSG `indent_style: smart_tabs`).
     pub tabs: bool,
     pub keyword_case: KeywordCase,
+    /// Keywords (lower case) whose case differs from `keyword_case` (per-keyword VSG rules).
+    pub keyword_case_overrides: BTreeMap<String, KeywordCase>,
     /// Output line ending; `None` keeps the line ending of the input.
     pub line_ending: Option<LineEnding>,
     /// Blank-line policy (VSG `blank_line` rules).
@@ -48,6 +50,7 @@ impl Default for FormatConfig {
             indent: 2,
             tabs: false,
             keyword_case: KeywordCase::Lower,
+            keyword_case_overrides: BTreeMap::new(),
             line_ending: None,
             blank: crate::blank::BlankSettings::default(),
             align: crate::align::AlignSettings::default(),
@@ -393,6 +396,46 @@ impl Config {
         if keyword_case_disabled {
             self.format.keyword_case = KeywordCase::Preserve;
         }
+        self.resolve_keyword_rules();
+    }
+
+    /// Per-rule keyword case: a rule that is disabled or configured with another case than the
+    /// keyword group applies to its keywords everywhere.
+    fn resolve_keyword_rules(&mut self) {
+        let default = self.format.keyword_case;
+        let mut overrides: BTreeMap<String, (KeywordCase, &'static str)> = BTreeMap::new();
+        for (info, words) in crate::keywords::RULES {
+            let settings = self.rule(info);
+            let case = if !settings.enabled || !settings.fixable {
+                KeywordCase::Preserve
+            } else {
+                match settings.option_str("case") {
+                    Some("upper") => KeywordCase::Upper,
+                    Some("lower") => KeywordCase::Lower,
+                    _ => default,
+                }
+            };
+            if case == default {
+                continue;
+            }
+            for word in *words {
+                match overrides.get(*word) {
+                    Some((other, rule)) if *other != case => {
+                        let message = format!(
+                            "{} and {rule} configure different cases for `{word}`; using {rule}",
+                            info.id
+                        );
+                        self.warn(&message);
+                    }
+                    Some(_) => {}
+                    None => {
+                        overrides.insert((*word).to_owned(), (case, info.id));
+                    }
+                }
+            }
+        }
+        self.format.keyword_case_overrides =
+            overrides.into_iter().map(|(w, (c, _))| (w, c)).collect();
     }
 
     fn resolve_alignment(&mut self) {
@@ -570,6 +613,12 @@ mod tests {
         assert_eq!(cfg.format.width, 100);
         assert_eq!(cfg.format.indent, 4);
         assert_eq!(cfg.format.keyword_case, KeywordCase::Upper);
+        let per_rule = Config::parse(
+            "rule:\n  entity_004:\n    case: upper\n  entity_010:\n    disable: true\n",
+        )
+        .unwrap();
+        let out = crate::format(b"Entity e is\nEnd Entity;\n".to_vec(), &per_rule.format).unwrap();
+        assert_eq!(out, b"ENTITY e is\nEnd ENTITY;\n");
         assert_eq!(cfg.format.line_ending, Some(LineEnding::CrLf));
         assert!(cfg.warnings.iter().any(|w| w.contains("indent")));
         assert!(!cfg.format.tabs);

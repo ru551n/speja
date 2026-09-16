@@ -160,7 +160,8 @@ pub fn fix_with(
     config: &Config,
     options: &FixOptions,
 ) -> Result<FixOutcome, FormatError> {
-    if !parsed.syntax_errors().is_empty() {
+    // A file with only comments has no code to damage (see `format_parsed`).
+    if !parsed.syntax_errors().is_empty() && !parsed.is_blank() {
         return Err(FormatError::Syntax(parsed.syntax_errors().to_vec()));
     }
     let mut applied = Vec::new();
@@ -180,7 +181,7 @@ pub fn fix_with(
             break;
         }
         let next = Parsed::new(apply(current.source(), &edits));
-        if let Some(e) = next.syntax_errors().first() {
+        if let Some(e) = next.syntax_errors().first().filter(|_| !next.is_blank()) {
             return Err(FormatError::Internal(format!(
                 "fixes produced invalid VHDL ({})",
                 e.message
