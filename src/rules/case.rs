@@ -13,8 +13,7 @@ use vhdl_syntax::tokens::TokenKind as T;
 use super::select::{
     bodies, child, children, clause_idents, declared, designators, end_ident, enum_literals,
     formals, generate_end_labels, generate_labels, ident, idents_of, interface_idents,
-    interface_list, is_declaration_position, is_qualified_position, labels_of, name_idents,
-    parameters, specs, subprogram_spec, tokens,
+    interface_list, labels_of, name_idents, parameters, specs, subprogram_spec, tokens,
 };
 use super::{Check, Context, Edit, Fix, FixSafety, Rule, RuleInfo, Violation, violation};
 use crate::config::{RuleSettings, Severity};
@@ -512,7 +511,7 @@ fn check_consistency(
     scopes: Scopes,
 ) {
     // The declaration's own case rule decides the target spelling, so one fix run suffices.
-    let all = cx.parsed.tokens();
+    let sites = cx.use_sites();
     for scope in scopes(cx) {
         let mut target: HashMap<String, Option<String>> = HashMap::new();
         for d in scope.decls.iter().filter(|d| !is_extended(d)) {
@@ -527,21 +526,17 @@ fn check_consistency(
                 })
                 .or_insert(Some(spelled));
         }
+        if target.is_empty() {
+            continue;
+        }
         let range = scope.region.text_range();
-        let first = all.partition_point(|t| t.text_offset() < range.start);
-        let last = all.partition_point(|t| t.text_offset() < range.end);
-        for t in &all[first..last] {
-            if t.kind() != T::Identifier
-                || is_extended(t)
-                || is_declaration_position(t)
-                || is_qualified_position(t)
-            {
-                continue;
-            }
-            let name = text(t);
-            let Some(Some(want)) = target.get(&name.to_ascii_lowercase()) else {
+        let first = sites.partition_point(|(o, _, _)| *o < range.start);
+        let last = sites.partition_point(|(o, _, _)| *o < range.end);
+        for (_, t, lower) in &sites[first..last] {
+            let Some(Some(want)) = target.get(&**lower) else {
                 continue;
             };
+            let name = text(t);
             if *want != name && !scope.decls.contains(t) {
                 let mut v = violation(
                     settings,

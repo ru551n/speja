@@ -110,6 +110,8 @@ pub(crate) struct Context<'a> {
     formatted: OnceCell<Result<Parsed, crate::FormatError>>,
     /// The snapshot is known to be formatted already.
     canonical: bool,
+    /// Identifier use sites (not declarations or selected suffixes): offset, token, lower case.
+    use_sites: OnceCell<Vec<(usize, SyntaxToken, Box<str>)>>,
 }
 
 impl<'a> Context<'a> {
@@ -130,11 +132,31 @@ impl<'a> Context<'a> {
             by_kind,
             formatted: OnceCell::new(),
             canonical,
+            use_sites: OnceCell::new(),
         }
     }
 
     pub(crate) fn nodes(&self, kind: NodeKind) -> &[SyntaxNode] {
         self.by_kind.get(&kind).map_or(&[], Vec::as_slice)
+    }
+
+    pub(crate) fn use_sites(&self) -> &[(usize, SyntaxToken, Box<str>)] {
+        self.use_sites.get_or_init(|| {
+            self.parsed
+                .tokens()
+                .iter()
+                .filter(|t| {
+                    t.kind() == vhdl_syntax::tokens::TokenKind::Identifier
+                        && t.text().as_bytes().first() != Some(&b'\\')
+                        && !select::is_declaration_position(t)
+                        && !select::is_qualified_position(t)
+                })
+                .map(|t| {
+                    let lower = String::from_utf8_lossy(t.text().as_bytes()).to_ascii_lowercase();
+                    (t.text_offset(), t.clone(), lower.into_boxed_str())
+                })
+                .collect()
+        })
     }
 
     /// The canonical formatting of this snapshot, parsed once on first use.

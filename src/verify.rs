@@ -61,11 +61,15 @@ impl Entry {
 }
 
 pub(crate) fn equivalent(before: &Parsed, output: &[u8]) -> Result<(), String> {
-    let after = Parsed::new(output.to_vec());
+    equivalent_parsed(before, &Parsed::new(output.to_vec()))
+}
+
+/// [`equivalent`] for output that is already parsed.
+pub(crate) fn equivalent_parsed(before: &Parsed, after: &Parsed) -> Result<(), String> {
     if let Some(e) = after.errors.first().filter(|_| before.errors.is_empty()) {
         return Err(format!("formatted output does not parse: {}", e.message));
     }
-    let (a, b) = (signature(before), signature(&after));
+    let (a, b) = (signature(before), signature(after));
     if a.len() != b.len() {
         return Err(format!(
             "token count changed from {} to {}",

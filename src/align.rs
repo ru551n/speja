@@ -199,13 +199,9 @@ fn width(text: &[u8], utf8: bool, tab: usize) -> usize {
     display_width(&text[tabs..], utf8, tabs * tab)
 }
 
-/// Align trailing comments in `out` (printed output with `\n` line endings).
-pub(crate) fn align_comments(out: Vec<u8>, cfg: &FormatConfig) -> Vec<u8> {
-    if !cfg.align.comments_enabled() || !out.windows(2).any(|w| w == b"--") {
-        return out;
-    }
-    let parsed = Parsed::new(out);
-    if !parsed.errors.is_empty() {
+/// Align trailing comments in `parsed`, the printed output (`\n` line endings).
+pub(crate) fn align_comments(parsed: Parsed, cfg: &FormatConfig) -> Vec<u8> {
+    if !cfg.align.comments_enabled() || !parsed.errors.is_empty() {
         return parsed.source;
     }
     let source = parsed.source();
@@ -238,27 +234,18 @@ pub(crate) fn align_comments(out: Vec<u8>, cfg: &FormatConfig) -> Vec<u8> {
             }
         })
         .collect();
-    let mut regions: Vec<(usize, Region, SyntaxNode)> = Vec::new();
-    let mut region_key = |t: &SyntaxToken| {
-        innermost_region(t).map(|(r, n)| {
-            let key = n.offset();
-            if !regions.iter().any(|(k, _, _)| *k == key) {
-                regions.push((key, r, n));
-            }
-            key
-        })
-    };
     let tokens = parsed.tokens();
     let directives = crate::format::directives(&parsed);
+    // Pass 1 (cheap): trailing comments, first token and `fmt off` state of each line.
+    let mut first_token: Vec<Option<usize>> = vec![None; lines.len()];
+    let mut commented: Vec<(usize, usize)> = Vec::new(); // (line, token index)
     for (i, t) in tokens.iter().enumerate() {
         if t.kind() == TokenKind::Eof {
             break;
         }
         let line = line_of(t.text_offset());
         lines[line].disabled |= crate::format::disabled_at(&directives, t.text_offset());
-        if i == 0 || line_of(tokens[i - 1].text_offset()) != line {
-            lines[line].region = region_key(t);
-        }
+        first_token[line].get_or_insert(i);
         let Some(next) = tokens.get(i + 1) else {
             continue;
         };
@@ -269,11 +256,42 @@ pub(crate) fn align_comments(out: Vec<u8>, cfg: &FormatConfig) -> Vec<u8> {
                 TriviaPiece::LineComment(_) => {
                     lines[line].comment = Some(offset);
                     lines[line].code_end = t.text_range().end;
-                    lines[line].comment_region = region_key(t);
+                    commented.push((line, i));
                     break;
                 }
                 p if p.is_newline() => break,
                 p => offset += p.byte_len(),
+            }
+        }
+    }
+    if commented.is_empty() {
+        return parsed.source;
+    }
+    // Pass 2: regions of the commented lines; other lines are classified only inside those.
+    let mut regions: Vec<(usize, Region, SyntaxNode)> = Vec::new();
+    let mut region_key = |t: &SyntaxToken| {
+        innermost_region(t).map(|(r, n)| {
+            let key = n.offset();
+            if !regions.iter().any(|(k, _, _)| *k == key) {
+                regions.push((key, r, n));
+            }
+            key
+        })
+    };
+    for &(line, i) in &commented {
+        lines[line].comment_region = region_key(&tokens[i]);
+    }
+    let spans: Vec<std::ops::Range<usize>> =
+        regions.iter().map(|(_, _, n)| n.text_range()).collect();
+    for range in spans {
+        for l in line_of(range.start)..=line_of(range.end.saturating_sub(1)) {
+            let line = &lines[l];
+            if line.region.is_some() || line.blank || line.comment_only || line.disabled {
+                continue;
+            }
+            if let Some(i) = first_token[l] {
+                // Only the innermost region matters; nested regions are resolved the same way.
+                lines[l].region = innermost_region(&tokens[i]).map(|(_, n)| n.offset());
             }
         }
     }

@@ -297,9 +297,11 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
         indent: cfg.indent,
         tabs: cfg.tabs,
     };
-    let out = doc::print(doc, builder.groups(), &opts);
-    let out = align::align_comments(out, cfg);
-    verify::equivalent(parsed, &out).map_err(FormatError::Internal)?;
+    let printed = Parsed::new(doc::print(doc, builder.groups(), &opts));
+    verify::equivalent_parsed(parsed, &printed).map_err(FormatError::Internal)?;
+    // Only changes the spaces between code and a trailing comment on the same line, which
+    // cannot change the verified tokens and comments.
+    let out = align::align_comments(printed, cfg);
     let mut out = parsed.restore_directives(out);
     let crlf = match cfg.line_ending {
         Some(ending) => ending == config::LineEnding::CrLf,
