@@ -138,11 +138,16 @@ impl Doc {
 pub struct PrintOptions {
     pub width: usize,
     pub indent: usize,
+    /// Indent with tabs (one per level) and align with spaces (VSG `smart_tabs`). A tab is
+    /// assumed to be `indent` columns wide when measuring.
+    pub tabs: bool,
 }
 
 #[derive(Clone, Copy)]
 struct Cmd<'a> {
     indent: usize,
+    /// The part of `indent` that consists of whole indentation levels (printed as tabs).
+    levels: usize,
     flat: bool,
     doc: &'a Doc,
     /// Position inside a [`Doc::Fill`] still to be printed.
@@ -156,9 +161,11 @@ struct Printer<'a> {
     /// Newlines requested but not yet written (0, 1 or 2) and the indentation to use.
     pending: u8,
     pending_indent: usize,
+    pending_levels: usize,
     at_start: bool,
-    /// Indentation of the current line.
+    /// Indentation of the current line, and its part made of whole levels.
     line_indent: usize,
+    line_levels: usize,
     suffix: Vec<u8>,
     modes: Vec<bool>,
 }
@@ -173,13 +180,16 @@ pub fn print(mut doc: Doc, groups: usize, opts: &PrintOptions) -> Vec<u8> {
         col: 0,
         pending: 0,
         pending_indent: 0,
+        pending_levels: 0,
         at_start: true,
         line_indent: 0,
+        line_levels: 0,
         suffix: Vec::new(),
         modes: vec![false; groups],
     };
     let mut stack = vec![Cmd {
         indent: 0,
+        levels: 0,
         flat: false,
         doc: &doc,
         fill: 0,
@@ -198,10 +208,10 @@ impl<'a> Printer<'a> {
     fn step(&mut self, cmd: Cmd<'a>, stack: &mut Vec<Cmd<'a>>) {
         match cmd.doc {
             Doc::Nil | Doc::BreakParent => {}
-            Doc::Atom { text, width, space } => self.atom(text, *width, *space, cmd.indent),
+            Doc::Atom { text, width, space } => self.atom(text, *width, *space, &cmd),
             Doc::Line if cmd.flat => {}
-            Doc::Line | Doc::Hard => self.newline(1, cmd.indent),
-            Doc::Blank(n) => self.newline(n.saturating_add(1), cmd.indent),
+            Doc::Line | Doc::Hard => self.newline(1, cmd.indent, cmd.levels),
+            Doc::Blank(n) => self.newline(n.saturating_add(1), cmd.indent, cmd.levels),
             Doc::Suffix(s) => self.suffix.extend_from_slice(s),
             Doc::Concat(v) => stack.extend(v.iter().rev().map(|doc| Cmd {
                 doc,
@@ -255,26 +265,32 @@ impl<'a> Printer<'a> {
             }
             Doc::Indent(d) => stack.push(Cmd {
                 indent: cmd.indent + self.opts.indent,
+                levels: deeper(cmd.indent, cmd.levels, self.opts.indent),
                 doc: d,
                 ..cmd
             }),
             Doc::Align(d) => {
-                let (target, line_indent) =
+                let (target, line_indent, line_levels) =
                     if self.pending > 0 || self.at_start || !self.suffix.is_empty() {
-                        (cmd.indent, cmd.indent)
+                        (cmd.indent, cmd.indent, cmd.levels)
                     } else {
                         let space = usize::from(d.first_atom_space().unwrap_or(false));
-                        (self.col + space, self.line_indent)
+                        (self.col + space, self.line_indent, self.line_levels)
                     };
                 // Bounded alignment: past 40% of the width, continuation lines use a fixed
                 // double indent instead, so deep alignment never leaves no room on the right.
-                let indent = if target * 5 > self.opts.width * 2 {
-                    line_indent + 2 * self.opts.indent
+                let (indent, levels) = if target * 5 > self.opts.width * 2 {
+                    let once = deeper(line_indent, line_levels, self.opts.indent);
+                    (
+                        line_indent + 2 * self.opts.indent,
+                        deeper(line_indent + self.opts.indent, once, self.opts.indent),
+                    )
                 } else {
-                    target
+                    (target, line_levels)
                 };
                 stack.push(Cmd {
                     indent,
+                    levels,
                     doc: d,
                     ..cmd
                 });
@@ -299,6 +315,7 @@ impl<'a> Printer<'a> {
             }
             Doc::Hug { value, forced } => {
                 let continuation = cmd.indent + self.opts.indent;
+                let levels = deeper(cmd.indent, cmd.levels, self.opts.indent);
                 let flat = Cmd {
                     flat: true,
                     doc: value,
@@ -311,17 +328,19 @@ impl<'a> Printer<'a> {
                 if cmd.flat || (!forced && self.fits(flat, stack)) {
                     stack.push(flat);
                 } else if !forced && self.fits_from(continuation, true, flat, stack) {
-                    self.newline(1, continuation);
+                    self.newline(1, continuation, levels);
                     stack.push(Cmd {
                         indent: continuation,
+                        levels,
                         ..flat
                     });
                 } else if !value.starts_with_break() && self.fits(broken, stack) {
                     stack.push(broken);
                 } else {
-                    self.newline(1, continuation);
+                    self.newline(1, continuation, levels);
                     stack.push(Cmd {
                         indent: continuation,
+                        levels,
                         ..broken
                     });
                 }
@@ -340,20 +359,36 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn newline(&mut self, n: u8, indent: usize) {
+    fn newline(&mut self, n: u8, indent: usize, levels: usize) {
         if self.out.is_empty() {
             return;
         }
         self.pending = self.pending.max(n);
         self.pending_indent = indent;
+        self.pending_levels = levels;
     }
 
-    fn atom(&mut self, text: &[u8], width: usize, space: bool, indent: usize) {
+    fn indent_to(&mut self, indent: usize, levels: usize) {
+        if self.opts.tabs && self.opts.indent > 0 {
+            self.out
+                .extend(std::iter::repeat_n(b'\t', levels / self.opts.indent));
+            self.out
+                .extend(std::iter::repeat_n(b' ', indent - levels));
+        } else {
+            self.out.extend(std::iter::repeat_n(b' ', indent));
+        }
+        self.col = indent;
+        self.line_indent = indent;
+        self.line_levels = levels;
+    }
+
+    fn atom(&mut self, text: &[u8], width: usize, space: bool, cmd: &Cmd<'_>) {
         if !self.suffix.is_empty() {
             self.out.append(&mut self.suffix);
             if self.pending == 0 {
                 self.pending = 1;
-                self.pending_indent = indent;
+                self.pending_indent = cmd.indent;
+                self.pending_levels = cmd.levels;
             }
         }
         if self.pending > 0 {
@@ -361,13 +396,9 @@ impl<'a> Printer<'a> {
                 self.out.push(b'\n');
             }
             self.pending = 0;
-            indent_to(&mut self.out, self.pending_indent);
-            self.col = self.pending_indent;
-            self.line_indent = self.pending_indent;
+            self.indent_to(self.pending_indent, self.pending_levels);
         } else if self.at_start {
-            indent_to(&mut self.out, indent);
-            self.col = indent;
-            self.line_indent = indent;
+            self.indent_to(cmd.indent, cmd.levels);
         } else if space {
             self.out.push(b' ');
             self.col += 1;
@@ -473,8 +504,13 @@ impl<'a> Printer<'a> {
     }
 }
 
-fn indent_to(out: &mut Vec<u8>, n: usize) {
-    out.extend(std::iter::repeat_n(b' ', n));
+/// The levels part of an indentation one level deeper: alignment spaces stay spaces.
+fn deeper(indent: usize, levels: usize, step: usize) -> usize {
+    if levels == indent {
+        levels + step
+    } else {
+        levels
+    }
 }
 
 /// Tab stop used when measuring text containing tabs (only comments can contain tabs).
@@ -537,7 +573,11 @@ mod tests {
     }
 
     fn opts(width: usize) -> PrintOptions {
-        PrintOptions { width, indent: 2 }
+        PrintOptions {
+            width,
+            indent: 2,
+            tabs: false,
+        }
     }
 
     #[test]

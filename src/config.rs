@@ -22,8 +22,10 @@ pub enum KeywordCase {
 pub struct FormatConfig {
     /// Target line width in display columns (see `docs/line-folding.md`).
     pub width: usize,
-    /// Spaces per indentation level.
+    /// Columns per indentation level.
     pub indent: usize,
+    /// Indent with tabs and align with spaces (VSG `indent_style: smart_tabs`).
+    pub tabs: bool,
     pub keyword_case: KeywordCase,
     /// Output line ending; `None` keeps the line ending of the input.
     pub line_ending: Option<LineEnding>,
@@ -44,6 +46,7 @@ impl Default for FormatConfig {
         FormatConfig {
             width: 120,
             indent: 2,
+            tabs: false,
             keyword_case: KeywordCase::Lower,
             line_ending: None,
             blank: crate::blank::BlankSettings::default(),
@@ -361,6 +364,11 @@ impl Config {
         {
             self.format.indent = usize::try_from(size).unwrap_or(2);
         }
+        match self.global.options.get("indent_style").and_then(Value::as_str) {
+            Some("smart_tabs") => self.format.tabs = true,
+            Some("spaces") | None => {}
+            Some(other) => self.warn(&format!("indent_style `{other}` is not supported")),
+        }
         let case = ["case::keyword", "case"]
             .iter()
             .find_map(|g| self.groups.get(*g).and_then(|l| l.options.get("case")))
@@ -535,7 +543,7 @@ fn merge_layer(layer: &mut RuleLayer, settings: &Value, name: &str) -> Result<()
                 );
             }
             // VSG phases do not exist in vsg-rs; see docs/compatibility.md.
-            "phase" | "indent_style" | "user_error_message" => {}
+            "phase" | "user_error_message" => {}
             _ => {
                 layer.options.insert(key.to_owned(), value.clone());
             }
@@ -559,6 +567,15 @@ mod tests {
         assert_eq!(cfg.format.keyword_case, KeywordCase::Upper);
         assert_eq!(cfg.format.line_ending, Some(LineEnding::CrLf));
         assert!(cfg.warnings.iter().any(|w| w.contains("indent")));
+        assert!(!cfg.format.tabs);
+        let tabs = Config::parse("rule:\n  global:\n    indent_style: smart_tabs\n").unwrap();
+        assert!(tabs.format.tabs);
+        let out = crate::format(
+            b"entity e is\nport (a : bit);\nend;\n".to_vec(),
+            &tabs.format,
+        )
+        .unwrap();
+        assert_eq!(out, b"entity e is\n\tport (\n\t\ta : bit\n\t);\nend;\n");
         let info = crate::rules::info("entity_015").unwrap();
         let rule = cfg.rule(info);
         assert!(!rule.enabled);

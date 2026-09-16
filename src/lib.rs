@@ -191,6 +191,7 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
     let opts = doc::PrintOptions {
         width: cfg.width,
         indent: cfg.indent,
+        tabs: cfg.tabs,
     };
     let out = doc::print(doc, builder.groups(), &opts);
     let mut out = align::align_comments(out, cfg);
