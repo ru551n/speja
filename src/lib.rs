@@ -224,6 +224,39 @@ pub fn apply_edits(source: &[u8], edits: &[TextEdit]) -> Vec<u8> {
     out
 }
 
+fn is_blank_line(line: &[u8]) -> bool {
+    line.iter().all(u8::is_ascii_whitespace)
+}
+
+/// Split a changed hunk into single-line changes and blank-line insertions/removals when its
+/// non-blank lines correspond one to one; otherwise keep it whole.
+fn split_hunk(
+    old: &[&[u8]],
+    new: &[&[u8]],
+    o: &Range<usize>,
+    n: &Range<usize>,
+) -> Vec<(Range<usize>, Range<usize>)> {
+    let old_code: Vec<usize> = o.clone().filter(|&i| !is_blank_line(old[i])).collect();
+    let new_code: Vec<usize> = n.clone().filter(|&j| !is_blank_line(new[j])).collect();
+    if old_code.len() != new_code.len() {
+        return vec![(o.clone(), n.clone())];
+    }
+    let mut out = Vec::new();
+    let (mut oi, mut nj) = (o.start, n.start);
+    for (&i, &j) in old_code.iter().zip(&new_code).chain([(&o.end, &n.end)]) {
+        // Blank lines in front of this pair of lines.
+        if i - oi != j - nj {
+            out.push((oi..i, nj..j));
+        }
+        if i < o.end && old[i] != new[j] {
+            out.push((i..i + 1, j..j + 1));
+        }
+        oi = i + 1;
+        nj = j + 1;
+    }
+    out
+}
+
 /// Format only the lines touched by the byte range `range` (expanded to whole lines).
 ///
 /// The whole snapshot is formatted and diffed line by line against the source; the returned
@@ -275,19 +308,11 @@ pub fn format_range(
             hunks.push((o, n));
         }
     }
-    // Equal-length hunks are also tried line by line, so adjacent statements stay separate.
+    // Hunks are also tried line by line (blank lines as separate edits), so adjacent
+    // statements stay separate.
     let fine: Vec<(Range<usize>, Range<usize>)> = hunks
         .iter()
-        .flat_map(|(o, n)| {
-            if o.len() == n.len() {
-                o.clone()
-                    .zip(n.clone())
-                    .map(|(i, j)| (i..i + 1, j..j + 1))
-                    .collect()
-            } else {
-                vec![(o.clone(), n.clone())]
-            }
-        })
+        .flat_map(|(o, n)| split_hunk(&old, &new, o, n))
         .collect();
     let to_edit = |(o, n): &(Range<usize>, Range<usize>)| TextEdit {
         start: offset(o.start),
@@ -328,9 +353,17 @@ fn to_crlf(text: &[u8]) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    /// Blank-line rules would insert lines around the statements; keep the tests about ranges.
+    fn cfg() -> FormatConfig {
+        FormatConfig {
+            blank: blank::BlankSettings::preserve(),
+            ..FormatConfig::default()
+        }
+    }
+
     fn range_format(src: &str, range: Range<usize>) -> (Vec<TextEdit>, String) {
         let parsed = Parsed::new(src.as_bytes().to_vec());
-        let edits = format_range(&parsed, &FormatConfig::default(), range).unwrap();
+        let edits = format_range(&parsed, &cfg(), range).unwrap();
         let out = apply_edits(parsed.source(), &edits);
         assert!(Parsed::new(out.clone()).syntax_errors().is_empty());
         (edits, String::from_utf8(out).unwrap())
@@ -351,8 +384,7 @@ mod tests {
     fn range_on_formatted_lines_changes_nothing() {
         let (edits, _) = range_format(SRC, 0..0);
         assert!(edits.is_empty());
-        let full =
-            String::from_utf8(format(SRC.into(), &FormatConfig::default()).unwrap()).unwrap();
+        let full = String::from_utf8(format(SRC.into(), &cfg()).unwrap()).unwrap();
         let (edits, out) = range_format(&full, 0..0);
         assert!(edits.is_empty());
         assert_eq!(out, full);
@@ -360,7 +392,7 @@ mod tests {
 
     #[test]
     fn range_whole_file_equals_format() {
-        let full = format(SRC.into(), &FormatConfig::default()).unwrap();
+        let full = format(SRC.into(), &cfg()).unwrap();
         let (_, out) = range_format(SRC, 0..SRC.len());
         assert_eq!(out.as_bytes(), full);
     }
