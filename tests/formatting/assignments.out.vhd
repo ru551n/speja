@@ -1,6 +1,8 @@
 -- vsg-rs-test: width=60
 architecture rtl of assignments is
+
 begin
+
   short <= a;
   sum <= operand_one
          + operand_two
@@ -34,13 +36,19 @@ begin
     idle when reset_state | error_state,
     running when start_state,
     done when others;
+
   process (all) is
+
     variable v : integer;
+
   begin
+
     v := first_variable_term * second_variable_term
          - third_variable_term / fourth_term;
     v := 2 ** (bit_width - 1)
          + abs (negative_value)
          + (-offset_value) mod modulus_value;
+
   end process;
+
 end architecture;

@@ -29,6 +29,8 @@ pub(crate) struct Builder<'a> {
     item_starts: HashSet<usize>,
     /// Alignment padding requested for tokens (by text offset).
     pads: HashMap<usize, Pad>,
+    /// Blank-line policy for tokens (by text offset).
+    blank: HashMap<usize, crate::blank::Style>,
     /// Formatting directives (`fmt off` = `false`), by the offset of the token they precede.
     directives: Vec<(usize, bool)>,
 }
@@ -340,6 +342,7 @@ impl<'a> Builder<'a> {
             item_starts: HashSet::new(),
             pads: HashMap::new(),
             directives: directives(parsed),
+            blank: crate::blank::policies(parsed, &cfg.blank),
         }
     }
 
@@ -378,35 +381,82 @@ impl<'a> Builder<'a> {
     /// Own-line and inline comments before `t`, with the line breaks around them.
     /// Emitted at most once per token.
     fn leading(&mut self, t: &SyntaxToken) -> Doc {
+        use crate::blank::Style;
         if !self.comments_done.insert(t.text_offset()) {
             return Doc::Nil;
         }
         let blank_ok = self.item_starts.contains(&t.text_offset());
-        let brk = |n: usize| {
-            if blank_ok && n >= 2 {
-                Doc::Blank
+        let settings = &self.cfg.blank;
+        // Formatter-off regions keep their blank lines. The gap in front of a token belongs to
+        // the region of the previous token (a region starts after its `fmt off` comment).
+        let disabled = self.disabled(t.text_offset());
+        let gap_disabled = self
+            .parsed
+            .prev_token(t)
+            .is_some_and(|p| self.disabled(p.text_offset()));
+        let policy = self
+            .blank
+            .get(&t.text_offset())
+            .copied()
+            .filter(|_| blank_ok && !gap_disabled);
+        let (cs, nl_after) = comments(t, self.parsed.prev_token(t).is_some());
+        let own: Vec<&CommentInfo> = cs.iter().filter(|c| !c.trailing).collect();
+        // Blank lines in each gap: in front of each own-line comment, then in front of `t`.
+        let keep = |n: usize| {
+            if blank_ok {
+                n.saturating_sub(1).min(settings.max_blank_lines)
             } else {
-                Doc::Hard
+                0
             }
         };
-        let (cs, nl_after) = comments(t, self.parsed.prev_token(t).is_some());
+        let mut blanks: Vec<usize> = own
+            .iter()
+            .map(|c| keep(c.nl_before))
+            .chain([keep(nl_after)])
+            .collect();
+        match policy {
+            Some(Style::Require) => blanks[0] = 1,
+            Some(Style::NoCode) if own.is_empty() => blanks[0] = 1,
+            Some(Style::NoBlank) => blanks.iter_mut().for_each(|b| *b = 0),
+            _ => {}
+        }
+        if blank_ok && !disabled {
+            for (i, c) in own.iter().enumerate() {
+                match settings.pragma(&c.text) {
+                    // pragma_400 (no code above) and pragma_401 (no blank line below).
+                    Some(true) => {
+                        if i == 0 {
+                            blanks[0] = blanks[0].max(1);
+                        }
+                        blanks[i + 1] = 0;
+                    }
+                    // pragma_402 (no blank line above) and pragma_403 (blank line below).
+                    Some(false) => {
+                        blanks[i] = 0;
+                        blanks[i + 1] = blanks[i + 1].max(1);
+                    }
+                    None => {}
+                }
+            }
+        }
+        let blank = |n: usize| Doc::Blank(u8::try_from(n.min(255)).unwrap_or(u8::MAX));
         let mut out = Vec::new();
         let mut last_block = None;
-        let mut total_nl = nl_after;
-        for c in cs.iter().filter(|c| !c.trailing) {
-            total_nl += c.nl_before;
+        for (i, c) in own.iter().enumerate() {
             // A line comment always ends its line.
-            if c.nl_before > 0 || last_block == Some(false) {
-                out.push(brk(c.nl_before));
+            if blanks[i] > 0 {
+                out.push(blank(blanks[i]));
+            } else if c.nl_before > 0 || last_block == Some(false) {
+                out.push(Doc::Hard);
             }
             out.push(self.comment_atom(c));
             last_block = Some(c.block);
         }
-        match last_block {
-            Some(_) if nl_after > 0 => out.push(brk(nl_after)),
-            Some(false) => out.push(Doc::Hard),
-            None if blank_ok && total_nl >= 2 => out.push(Doc::Blank),
-            _ => {}
+        let last = blanks[own.len()];
+        if last > 0 {
+            out.push(blank(last));
+        } else if nl_after > 0 && last_block.is_some() || last_block == Some(false) {
+            out.push(Doc::Hard);
         }
         concat(out)
     }

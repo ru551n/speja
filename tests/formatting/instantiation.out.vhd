@@ -1,5 +1,6 @@
 -- vsg-rs-test: width=80
 architecture rtl of top is
+
   component fifo is
     generic (
       width : positive := 8
@@ -9,7 +10,9 @@ architecture rtl of top is
       data : out   std_logic_vector(width - 1 downto 0)
     );
   end component;
+
 begin
+
   fifo_inst : entity work.fifo(rtl)
     generic map (
       width => data_width,
@@ -23,6 +26,7 @@ begin
       rd_data => open,
       count   => open
     );
+
   comp_inst : fifo
     generic map (
       8
@@ -31,12 +35,14 @@ begin
       clk,
       data_out
     );
+
   positional_inst : component fifo
     port map (
       clk, -- the clock
       -- the data
       data_out
     );
+
   long_actual_inst : entity work.adder
     port map (
       a => some_function_with_a_long_name(
@@ -46,4 +52,5 @@ begin
       ),
       b => b
     );
+
 end architecture;

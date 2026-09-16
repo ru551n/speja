@@ -30,8 +30,8 @@ pub enum Doc {
     Line,
     /// Always a newline; forces all enclosing groups to break.
     Hard,
-    /// A blank line (two newlines); forces all enclosing groups to break.
-    Blank,
+    /// The given number of blank lines; forces all enclosing groups to break.
+    Blank(u8),
     /// Zero-width marker that forces all enclosing groups to break.
     BreakParent,
     /// End-of-line text (a trailing comment). Does not count towards the width.
@@ -79,7 +79,7 @@ impl Doc {
     /// Compute `broken` for every group: a group containing a forced break is always broken.
     fn propagate(&mut self) -> bool {
         match self {
-            Doc::Hard | Doc::Blank | Doc::BreakParent => true,
+            Doc::Hard | Doc::Blank(_) | Doc::BreakParent => true,
             Doc::Nil | Doc::Line | Doc::Suffix(_) => false,
             Doc::Atom { text, .. } => text.contains(&b'\n'),
             Doc::Concat(v) | Doc::Fill(v) => v.iter_mut().fold(false, |acc, d| d.propagate() | acc),
@@ -110,7 +110,7 @@ impl Doc {
     /// Whether printing starts with a forced line break (an own-line comment).
     fn starts_with_break(&self) -> bool {
         match self {
-            Doc::Hard | Doc::Blank => true,
+            Doc::Hard | Doc::Blank(_) => true,
             Doc::Concat(v) | Doc::Fill(v) => v
                 .iter()
                 .find(|d| !matches!(d, Doc::Nil) && !matches!(d, Doc::Concat(c) if c.is_empty()))
@@ -129,7 +129,7 @@ impl Doc {
             | Doc::Hug { value: d, .. }
             | Doc::Group { doc: d, .. } => d.first_atom_space(),
             Doc::Choice(alts) => alts.first().and_then(Doc::first_atom_space),
-            Doc::Line | Doc::Hard | Doc::Blank => Some(false),
+            Doc::Line | Doc::Hard | Doc::Blank(_) => Some(false),
             _ => None,
         }
     }
@@ -201,7 +201,7 @@ impl<'a> Printer<'a> {
             Doc::Atom { text, width, space } => self.atom(text, *width, *space, cmd.indent),
             Doc::Line if cmd.flat => {}
             Doc::Line | Doc::Hard => self.newline(1, cmd.indent),
-            Doc::Blank => self.newline(2, cmd.indent),
+            Doc::Blank(n) => self.newline(n.saturating_add(1), cmd.indent),
             Doc::Suffix(s) => self.suffix.extend_from_slice(s),
             Doc::Concat(v) => stack.extend(v.iter().rev().map(|doc| Cmd {
                 doc,
@@ -429,7 +429,7 @@ impl<'a> Printer<'a> {
                     col += width;
                 }
                 Doc::Line if cmd.flat => {}
-                Doc::Line | Doc::Hard | Doc::Blank => return true,
+                Doc::Line | Doc::Hard | Doc::Blank(_) => return true,
                 Doc::Concat(v) | Doc::Fill(v) => {
                     work.extend(v.iter().rev().map(|doc| Cmd {
                         doc,

@@ -1,8 +1,11 @@
 -- vsg-rs-test: width=70
 architecture sim of tb is
+
 begin
+
   process
   begin
+
     assert x = 1;
     assert data_out = expected_data
       report "Data mismatch at index "
@@ -22,5 +25,7 @@ begin
     wait for clock_period
              * number_of_cycles_to_wait_for_the_reset_to_finish;
     wait;
+
   end process;
+
 end architecture;

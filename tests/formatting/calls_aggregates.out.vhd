@@ -1,5 +1,6 @@
 -- vsg-rs-test: width=60
 architecture rtl of calls is
+
   constant init : record_type := (
     field_one   => 1,
     field_two   => x"FF",
@@ -24,9 +25,12 @@ architecture rtl of calls is
   );
   signal s : std_logic_vector(7 downto 0) :=
     std_logic_vector(to_unsigned(initial_value, 8));
+
 begin
+
   process
   begin
+
     write_register(
       address => control_register_address,
       data    => enable_bit or reset_bit,
@@ -49,5 +53,7 @@ begin
       others => '-'
     );
     wait;
+
   end process;
+
 end architecture;

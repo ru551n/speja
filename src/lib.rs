@@ -4,6 +4,7 @@
 //! lint the same tree. Formatting output is verified by re-parsing it and comparing the token
 //! stream and comments against the original before it is returned.
 
+pub mod blank;
 pub mod config;
 mod doc;
 mod fix;

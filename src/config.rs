@@ -27,6 +27,8 @@ pub struct FormatConfig {
     pub keyword_case: KeywordCase,
     /// Output line ending; `None` keeps the line ending of the input.
     pub line_ending: Option<LineEnding>,
+    /// Blank-line policy (VSG `blank_line` rules).
+    pub blank: crate::blank::BlankSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +44,7 @@ impl Default for FormatConfig {
             indent: 2,
             keyword_case: KeywordCase::Lower,
             line_ending: None,
+            blank: crate::blank::BlankSettings::default(),
         }
     }
 }
@@ -99,6 +102,8 @@ pub struct Config {
     global: RuleLayer,
     groups: BTreeMap<String, RuleLayer>,
     rules: BTreeMap<String, RuleLayer>,
+    /// `pragma.patterns` from the configuration: (open, close) regular expressions.
+    pragma_patterns: Option<(Vec<String>, Vec<String>)>,
     /// `file_rules`: (path pattern, `rule` block) applied to matching files.
     file_rules: Vec<(String, Value)>,
     /// Problems found while loading that did not prevent loading.
@@ -118,6 +123,28 @@ impl fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
+
+const fn formatter_rule(id: &'static str) -> crate::rules::RuleInfo {
+    crate::rules::RuleInfo {
+        id,
+        groups: &["blank_line"],
+        severity: Severity::Error,
+        enabled_by_default: true,
+        description: "Blank line policy (applied by the formatter).",
+    }
+}
+
+static WHITESPACE_200: crate::rules::RuleInfo = crate::rules::RuleInfo {
+    groups: &["whitespace"],
+    ..formatter_rule("whitespace_200")
+};
+
+static PRAGMA_RULES: [crate::rules::RuleInfo; 4] = [
+    formatter_rule("pragma_400"),
+    formatter_rule("pragma_401"),
+    formatter_rule("pragma_402"),
+    formatter_rule("pragma_403"),
+];
 
 /// File names looked up by [`discover`], in order of preference.
 pub const CONFIG_FILE_NAMES: [&str; 4] =
@@ -178,11 +205,40 @@ impl Config {
                 // Files are selected on the command line.
                 "file_list" => self.warn("file_list is ignored; pass files on the command line"),
                 "file_rules" => self.merge_file_rules(value)?,
-                "local_rules" | "indent" | "pragma" => {
+                "pragma" => self.merge_pragma(value)?,
+                "local_rules" | "indent" => {
                     self.warn(&format!("`{key}` is not supported yet and is ignored"));
                 }
                 _ => self.warn(&format!("unknown top-level key `{key}` ignored")),
             }
+        }
+        Ok(())
+    }
+
+    fn merge_pragma(&mut self, value: &Value) -> Result<(), String> {
+        let patterns = value.as_mapping().and_then(|m| m.get("patterns"));
+        let list = |key: &str| -> Result<Vec<String>, String> {
+            let Some(items) = patterns
+                .and_then(|p| p.as_mapping())
+                .and_then(|p| p.get(key))
+            else {
+                return Ok(Vec::new());
+            };
+            let items = items
+                .as_sequence()
+                .ok_or_else(|| format!("`pragma.patterns.{key}` must be a list"))?;
+            items
+                .iter()
+                .map(|i| {
+                    let text = i.as_str().ok_or("pragma patterns must be strings")?;
+                    regex::Regex::new(text).map_err(|e| format!("pragma pattern {text:?}: {e}"))?;
+                    Ok(text.to_owned())
+                })
+                .collect()
+        };
+        let (open, close) = (list("open")?, list("close")?);
+        if !open.is_empty() || !close.is_empty() {
+            self.pragma_patterns = Some((open, close));
         }
         Ok(())
     }
@@ -296,12 +352,56 @@ impl Config {
             Some(other) => self.warn(&format!("keyword case `{other}` is not supported")),
             None => {}
         }
+        self.resolve_blank_lines();
         let keyword_case_disabled = ["case::keyword", "case"]
             .iter()
             .any(|g| self.groups.get(*g).and_then(|l| l.disable) == Some(true));
         if keyword_case_disabled {
             self.format.keyword_case = KeywordCase::Preserve;
         }
+    }
+
+    fn resolve_blank_lines(&mut self) {
+        use crate::blank::{BlankSettings, Pragmas, Style};
+        let mut blank = BlankSettings::preserve();
+        for rule in crate::blank::rules() {
+            let settings = self.rule(&rule.info);
+            if !settings.enabled {
+                continue;
+            }
+            let style = match settings.option_str("style") {
+                Some(text) => {
+                    if let Some(style) = Style::parse(text) {
+                        Some(style)
+                    } else {
+                        self.warn(&format!("{}: unsupported style `{text}`", rule.info.id));
+                        rule.style
+                    }
+                }
+                None => rule.style,
+            };
+            if rule.info.id == "library_003" {
+                blank.allow_library_clause =
+                    settings.option_str("allow_library_clause") == Some("yes");
+            }
+            blank.rules.insert(rule.info.id, style);
+        }
+        let limit = self.rule(&WHITESPACE_200);
+        blank.max_blank_lines = if limit.enabled {
+            limit.option_usize("blank_lines_allowed").unwrap_or(1)
+        } else {
+            usize::from(u8::MAX)
+        };
+        let pragmas_enabled = PRAGMA_RULES.iter().any(|r| self.rule(r).enabled);
+        blank.pragmas = pragmas_enabled.then(|| match &self.pragma_patterns {
+            Some((open, close)) => {
+                let open: Vec<&str> = open.iter().map(String::as_str).collect();
+                let close: Vec<&str> = close.iter().map(String::as_str).collect();
+                Pragmas::new(&open, &close)
+            }
+            None => Pragmas::default(),
+        });
+        self.format.blank = blank;
     }
 
     fn layer_option(&self, rule: &str, groups: &[&str], key: &str) -> Option<&Value> {
