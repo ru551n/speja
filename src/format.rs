@@ -29,6 +29,8 @@ pub(crate) struct Builder<'a> {
     item_starts: HashSet<usize>,
     /// Alignment padding requested for tokens (by text offset).
     pads: HashMap<usize, Pad>,
+    /// Formatting directives (`fmt off` = `false`), by the offset of the token they precede.
+    directives: Vec<(usize, bool)>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -106,6 +108,27 @@ pub(crate) fn comments(t: &SyntaxToken, has_prev: bool) -> (Vec<CommentInfo>, us
         newline_after |= c.nl_before > 0 || !c.block;
     }
     (out, nl)
+}
+
+/// `-- vsg-rs: fmt off` / `-- vsg-rs: fmt on` (and VSG's `-- vsg_off` / `-- vsg_on`) comments,
+/// with the offset of the token that follows them, in source order.
+fn directives(parsed: &Parsed) -> Vec<(usize, bool)> {
+    let mut out = Vec::new();
+    for t in parsed.tokens() {
+        for piece in t.leading_trivia() {
+            let TriviaPiece::LineComment(c) = piece else {
+                continue;
+            };
+            let text = String::from_utf8_lossy(c.as_bytes()).to_ascii_lowercase();
+            let body = text.trim_start_matches('-').trim();
+            match body {
+                "vsg-rs: fmt off" | "vsg_off" => out.push((t.text_offset(), false)),
+                "vsg-rs: fmt on" | "vsg_on" => out.push((t.text_offset(), true)),
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 fn newline_count(p: &TriviaPiece) -> usize {
@@ -316,6 +339,7 @@ impl<'a> Builder<'a> {
             comments_done: HashSet::new(),
             item_starts: HashSet::new(),
             pads: HashMap::new(),
+            directives: directives(parsed),
         }
     }
 
@@ -473,16 +497,41 @@ impl<'a> Builder<'a> {
     }
 
     pub(crate) fn node(&mut self, n: &SyntaxNode) -> Doc {
+        if n.kind() == N::DesignFile {
+            // The design file marks its items (and their blank lines) itself.
+            return self.node_body(n);
+        }
+        let first = n.first_token();
+        if self.item_starts.contains(&first.text_offset()) && self.disabled(first.text_offset()) {
+            return self.verbatim(n);
+        }
         // Comments in front of a node stay outside of the groups built for it, so their line
         // breaks do not force the node itself to break.
-        // The design file marks its items (and their blank lines) itself.
-        let lead = if n.kind() == N::DesignFile {
-            Doc::Nil
-        } else {
-            self.leading(&n.first_token())
-        };
+        let lead = self.leading(&first);
         let doc = self.node_body(n);
         concat(vec![lead, doc])
+    }
+
+    /// Whether formatting is switched off at a token.
+    fn disabled(&self, offset: usize) -> bool {
+        let i = self.directives.partition_point(|(o, _)| *o <= offset);
+        i > 0 && !self.directives[i - 1].1
+    }
+
+    /// An item inside a `fmt off` region, printed as written (only its first line is
+    /// re-indented).
+    fn verbatim(&mut self, n: &SyntaxNode) -> Doc {
+        let (first, last) = (n.first_token(), n.last_token());
+        let lead = self.leading(&first);
+        let text =
+            normalize_newlines(&self.parsed.source()[first.text_offset()..last.text_range().end]);
+        let width = display_width(&text, self.utf8, 0);
+        let atom = Doc::Atom {
+            text: text.into(),
+            width,
+            space: self.space_before(&first),
+        };
+        concat(vec![lead, atom, self.trailing(&last)])
     }
 
     fn node_body(&mut self, n: &SyntaxNode) -> Doc {

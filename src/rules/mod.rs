@@ -238,13 +238,80 @@ fn run(cx: &Context<'_>) -> Vec<Violation> {
             }
         }
     }
+    let suppressions = suppressions(cx.parsed);
+    if !suppressions.is_empty() {
+        out.retain(|v| !suppressed(&suppressions, v));
+    }
     out.sort_by(|a, b| (a.start, a.rule, a.end).cmp(&(b.start, b.rule, b.end)));
     out
+}
+
+/// A VSG `-- vsg_off [rule ...]` (`on == false`) or `-- vsg_on [rule ...]` comment. An empty
+/// rule list applies to all rules.
+struct Suppression {
+    offset: usize,
+    on: bool,
+    rules: Vec<String>,
+}
+
+fn suppressions(parsed: &Parsed) -> Vec<Suppression> {
+    let mut out = Vec::new();
+    for t in parsed.tokens() {
+        for piece in t.leading_trivia() {
+            let vhdl_syntax::tokens::TriviaPiece::LineComment(c) = piece else {
+                continue;
+            };
+            let text = String::from_utf8_lossy(c.as_bytes()).to_ascii_lowercase();
+            let mut words = text.trim_start_matches('-').split_whitespace();
+            let on = match words.next() {
+                Some("vsg_off") => false,
+                Some("vsg_on") => true,
+                _ => continue,
+            };
+            out.push(Suppression {
+                offset: t.text_offset(),
+                on,
+                rules: words.map(str::to_owned).collect(),
+            });
+        }
+    }
+    out
+}
+
+fn suppressed(suppressions: &[Suppression], v: &Violation) -> bool {
+    let mut off = false;
+    for s in suppressions.iter().take_while(|s| s.offset <= v.start) {
+        if s.rules.is_empty() || s.rules.iter().any(|r| r == v.rule) {
+            off = !s.on;
+        }
+    }
+    off
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vsg_off_comments_suppress_rules() {
+        let src = "entity a is\nend;\n-- vsg_off entity_019\nentity b is\nend;\n-- vsg_on\n-- vsg_off\nentity c is\nend;\n-- vsg_on\nentity d is\nend;\n";
+        let starts = ["entity a", "entity b", "entity c", "entity d"].map(|e| src.find(e).unwrap());
+        let found: Vec<(usize, &str)> =
+            check(&Parsed::new(src.as_bytes().to_vec()), &Config::default())
+                .into_iter()
+                .map(|v| (starts.iter().rposition(|s| *s <= v.start).unwrap(), v.rule))
+                .collect();
+        assert_eq!(
+            found,
+            [
+                (0, "entity_015"),
+                (0, "entity_019"),
+                (1, "entity_015"),
+                (3, "entity_015"),
+                (3, "entity_019"),
+            ]
+        );
+    }
 
     #[test]
     fn catalog_is_sorted_and_contains_implemented_rules() {
