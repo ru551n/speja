@@ -53,7 +53,11 @@ fn main() {
     let run = |src: Vec<u8>| -> Result<Vec<u8>, FormatError> {
         let parsed = Parsed::new(src);
         if let Some(mode) = &fix {
-            vsg_rs::fix_with(&parsed, &config, mode == "unsafe").map(|o| o.output)
+            let options = vsg_rs::FixOptions {
+                unsafe_fixes: mode == "unsafe",
+                ..Default::default()
+            };
+            vsg_rs::fix_with(&parsed, &config, &options).map(|o| o.output)
         } else {
             vsg_rs::format_parsed(&parsed, &cfg)
         }

@@ -26,7 +26,7 @@ use vhdl_syntax::tokens::TriviaPiece;
 
 pub use config::{Config, FormatConfig};
 pub use doc::display_width;
-pub use fix::{FixOutcome, fix, fix_edits, fix_with};
+pub use fix::{FixOptions, FixOutcome, fix, fix_edits, fix_with};
 
 /// One immutable source snapshot and its (single) parse.
 pub struct Parsed {
@@ -79,14 +79,14 @@ impl Parsed {
         let mut directives = Vec::new();
         if tokens.iter().any(|t| t.kind() == TokenKind::ToolDirective) {
             let mut masked = source.clone();
-            for t in tokens.iter().filter(|t| t.kind() == TokenKind::ToolDirective) {
+            for t in tokens
+                .iter()
+                .filter(|t| t.kind() == TokenKind::ToolDirective)
+            {
                 let r = t.text_range();
                 // Only directives that end their line can become comments.
                 let rest = &source[r.end..];
-                let line_end = rest
-                    .iter()
-                    .position(|&b| b == b'\n')
-                    .unwrap_or(rest.len());
+                let line_end = rest.iter().position(|&b| b == b'\n').unwrap_or(rest.len());
                 if r.len() < 2 || !rest[..line_end].iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
@@ -158,7 +158,10 @@ impl Parsed {
                 .iter()
                 .rposition(|&b| b == b'\n')
                 .map_or(0, |p| p + 1);
-            if output[line_start..offset].iter().all(|b| matches!(b, b' ' | b'\t')) {
+            if output[line_start..offset]
+                .iter()
+                .all(|b| matches!(b, b' ' | b'\t'))
+            {
                 result.extend_from_slice(&output[pos..line_start]);
                 pos = offset;
             }

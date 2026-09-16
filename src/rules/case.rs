@@ -132,7 +132,7 @@ fn case_rule(id: &'static str, label: bool, description: &'static str, check: Ch
             } else {
                 &["case", "case::name"]
             },
-            severity: Severity::Warning,
+            severity: Severity::Error,
             enabled_by_default: true,
             description,
         },
@@ -562,7 +562,7 @@ macro_rules! consistency_rules {
             info: RuleInfo {
                 id: $id,
                 groups: &[],
-                severity: Severity::Warning,
+                severity: Severity::Error,
                 enabled_by_default: true,
                 description: $desc,
             },

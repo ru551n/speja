@@ -364,7 +364,12 @@ impl Config {
         {
             self.format.indent = usize::try_from(size).unwrap_or(2);
         }
-        match self.global.options.get("indent_style").and_then(Value::as_str) {
+        match self
+            .global
+            .options
+            .get("indent_style")
+            .and_then(Value::as_str)
+        {
             Some("smart_tabs") => self.format.tabs = true,
             Some("spaces") | None => {}
             Some(other) => self.warn(&format!("indent_style `{other}` is not supported")),

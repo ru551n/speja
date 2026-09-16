@@ -25,7 +25,7 @@ fn rule(
         info: RuleInfo {
             id,
             groups,
-            severity: Severity::Warning,
+            severity: Severity::Error,
             enabled_by_default: enabled,
             description,
         },
@@ -710,13 +710,20 @@ pub(super) fn rules() -> Vec<Rule> {
             "Words reserved in any VHDL standard are not used as identifiers.",
             reserved_words,
         ),
-        rule(
-            "comment_012",
-            &[],
-            false,
-            "Comments do not contain the configured keywords.",
-            comment_keywords,
-        ),
+        Rule {
+            info: RuleInfo {
+                severity: Severity::Warning,
+                ..rule(
+                    "comment_012",
+                    &[],
+                    false,
+                    "Comments do not contain the configured keywords.",
+                    comment_keywords,
+                )
+                .info
+            },
+            check: comment_keywords,
+        },
         rule(
             "comment_011",
             &["structure"],

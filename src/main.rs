@@ -68,6 +68,10 @@ enum Command {
         /// Also apply fixes that may change behaviour or drop comments (review the result).
         #[arg(long)]
         unsafe_fixes: bool,
+        /// Fix only the rules (and lines) listed in a VSG `--fix_only` JSON/YAML file; the
+        /// result is not formatted.
+        #[arg(long, alias = "fix_only", value_name = "FILE")]
+        fix_only: Option<PathBuf>,
     },
     /// List the implemented rules (`--all`: every VSG rule and who handles it).
     Rules {
@@ -103,6 +107,12 @@ enum OutputFormat {
     Sarif,
     /// JUnit XML (one test case per file)
     Junit,
+    /// GitLab code quality JSON (VSG `--quality_report`)
+    Gitlab,
+    /// VSG `-of syntastic`
+    Syntastic,
+    /// VSG `-of summary`
+    Summary,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -117,7 +127,7 @@ enum Mode {
     },
     Fix {
         diff: bool,
-        unsafe_fixes: bool,
+        options: &'static vsg_rs::FixOptions,
     },
 }
 
@@ -157,7 +167,25 @@ fn main() -> ExitCode {
             input,
             diff,
             unsafe_fixes,
-        } => (input, Mode::Fix { diff, unsafe_fixes }, OutputFormat::Text),
+            fix_only,
+        } => {
+            let only = match fix_only.map(|p| {
+                std::fs::read_to_string(&p)
+                    .map_err(|e| e.to_string())
+                    .and_then(|text| vsg_rs::FixOptions::parse_fix_only(&text))
+                    .map_err(|e| format!("{}: {e}", p.display()))
+            }) {
+                Some(Err(e)) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::from(EXIT_ERROR);
+                }
+                Some(Ok(only)) => Some(only),
+                None => None,
+            };
+            // Lives for the whole run; `Mode` is `Copy`.
+            let options = Box::leak(Box::new(vsg_rs::FixOptions { unsafe_fixes, only }));
+            (input, Mode::Fix { diff, options }, OutputFormat::Text)
+        }
         Command::Rules { all } => return list_rules(all),
         Command::Explain { rule } => return explain(&rule),
     };
@@ -343,17 +371,15 @@ fn process(name: &str, source: Vec<u8>, cfg: &Config, mode: Mode) -> Report {
             .map(|edits| vsg_rs::apply_edits(src, &edits))
         }
         Mode::Format { .. } => vsg_rs::format_parsed(&parsed, &cfg.format),
-        Mode::Fix { unsafe_fixes, .. } => {
-            vsg_rs::fix_with(&parsed, cfg, unsafe_fixes).map(|outcome| {
-                let fixed = Parsed::new(outcome.output);
-                report.diagnostics = outcome
-                    .remaining
-                    .iter()
-                    .map(|v| diagnostic(name, &fixed, v))
-                    .collect();
-                fixed.source().to_vec()
-            })
-        }
+        Mode::Fix { options, .. } => vsg_rs::fix_with(&parsed, cfg, options).map(|outcome| {
+            let fixed = Parsed::new(outcome.output);
+            report.diagnostics = outcome
+                .remaining
+                .iter()
+                .map(|v| diagnostic(name, &fixed, v))
+                .collect();
+            fixed.source().to_vec()
+        }),
         Mode::Lint { check_format } => {
             if parsed.syntax_errors().is_empty() {
                 if !check_format {
@@ -594,6 +620,9 @@ fn emit(
             .and_then(|()| writeln!(lint_stream)),
         OutputFormat::Sarif => writeln!(lint_stream, "{}", report::sarif(&diagnostics)),
         OutputFormat::Junit => write!(lint_stream, "{}", report::junit(&files, &diagnostics)),
+        OutputFormat::Gitlab => writeln!(lint_stream, "{}", report::gitlab(&diagnostics)),
+        OutputFormat::Syntastic => write!(lint_stream, "{}", report::syntastic(&diagnostics)),
+        OutputFormat::Summary => write!(lint_stream, "{}", report::summary(&files, &diagnostics)),
         OutputFormat::Text => diagnostics.iter().try_for_each(|d| {
             let fix = match d.fix {
                 "safe" => " [fixable]",

@@ -372,8 +372,7 @@ impl<'a> Printer<'a> {
         if self.opts.tabs && self.opts.indent > 0 {
             self.out
                 .extend(std::iter::repeat_n(b'\t', levels / self.opts.indent));
-            self.out
-                .extend(std::iter::repeat_n(b' ', indent - levels));
+            self.out.extend(std::iter::repeat_n(b' ', indent - levels));
         } else {
             self.out.extend(std::iter::repeat_n(b' ', indent));
         }

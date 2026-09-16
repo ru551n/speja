@@ -963,7 +963,11 @@ mod tests {
     fn fixed(src: &str, yaml: &str, unsafe_fixes: bool) -> String {
         let config = Config::parse(yaml).unwrap();
         let parsed = Parsed::new(src.as_bytes().to_vec());
-        let out = crate::fix::fix_with(&parsed, &config, unsafe_fixes).unwrap();
+        let options = crate::fix::FixOptions {
+            unsafe_fixes,
+            ..Default::default()
+        };
+        let out = crate::fix::fix_with(&parsed, &config, &options).unwrap();
         String::from_utf8(out.output).unwrap()
     }
 

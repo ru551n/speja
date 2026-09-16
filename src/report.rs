@@ -1,4 +1,5 @@
-//! Machine-readable reports: SARIF 2.1.0 and JUnit XML.
+//! Machine-readable reports: SARIF 2.1.0, JUnit XML, GitLab code quality, and VSG's
+//! `syntastic` and `summary` console formats.
 
 use std::fmt::Write as _;
 
@@ -109,4 +110,77 @@ pub fn junit(files: &[String], diagnostics: &[Diagnostic]) -> String {
     }
     out.push_str("  </testsuite>\n</testsuites>\n");
     out
+}
+
+/// VSG's `-of syntastic`: `ERROR: file(line)rule -- message`.
+pub fn syntastic(diagnostics: &[Diagnostic]) -> String {
+    let mut out = String::new();
+    for d in diagnostics {
+        let _ = writeln!(
+            out,
+            "{}: {}({}){} -- {}",
+            d.severity.to_uppercase(),
+            d.file,
+            d.line,
+            d.rule,
+            d.message
+        );
+    }
+    out
+}
+
+/// VSG's `-of summary`: one line per file with the number of errors and warnings.
+pub fn summary(files: &[String], diagnostics: &[Diagnostic]) -> String {
+    let mut out = String::new();
+    for file in files {
+        let count = |severity: &str| {
+            diagnostics
+                .iter()
+                .filter(|d| &d.file == file && d.severity == severity)
+                .count()
+        };
+        let (errors, warnings) = (count("error"), count("warning"));
+        let status = if errors > 0 { "ERROR" } else { "OK" };
+        let _ = writeln!(
+            out,
+            "File: {file} {status} [Error: {errors}] [Warning: {warnings}]"
+        );
+    }
+    out
+}
+
+/// 64-bit FNV-1a, stable across platforms and releases.
+fn fnv1a(bytes: impl IntoIterator<Item = u8>, seed: u64) -> u64 {
+    bytes.into_iter().fold(seed, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// GitLab code quality report (VSG `--quality_report`).
+pub fn gitlab(diagnostics: &[Diagnostic]) -> String {
+    let issues: Vec<_> = diagnostics
+        .iter()
+        .map(|d| {
+            let key = format!(
+                "{}\0{}\0{}\0{}\0{}",
+                d.file, d.rule, d.line, d.column, d.message
+            );
+            let fingerprint = format!(
+                "{:016x}{:016x}",
+                fnv1a(key.bytes(), 0xcbf2_9ce4_8422_2325),
+                fnv1a(key.bytes().rev(), 0x8422_2325_cbf2_9ce4)
+            );
+            json!({
+                "description": format!("{} :: {}", d.rule, d.message),
+                "check_name": d.rule,
+                "fingerprint": fingerprint,
+                "severity": if d.severity == "error" { "critical" } else { "major" },
+                "location": {
+                    "path": d.file.replace('\\', "/"),
+                    "lines": { "begin": d.line }
+                }
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&issues).unwrap_or_default()
 }

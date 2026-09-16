@@ -7,6 +7,8 @@
 //! position order of their violations, so the result does not depend on rule registration
 //! order. The final snapshot is formatted once.
 
+use std::collections::BTreeMap;
+
 use crate::config::Config;
 use crate::rules::{self, Edit, FixSafety, Violation};
 use crate::{FormatError, Parsed, TextEdit, apply_edits, format_parsed};
@@ -107,16 +109,56 @@ fn apply(source: &[u8], edits: &[Edit]) -> Vec<u8> {
     apply_edits(source, &fix_edits(source, edits))
 }
 
-/// Apply all safe fixes and format the result.
-pub fn fix(parsed: &Parsed, config: &Config) -> Result<FixOutcome, FormatError> {
-    fix_with(parsed, config, false)
+/// Options for [`fix_with`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FixOptions {
+    /// Also apply fixes that may change behaviour.
+    pub unsafe_fixes: bool,
+    /// VSG `--fix_only`: fix only these rules, on all lines (`None`) or on the given 1-based
+    /// lines, and do not format.
+    pub only: Option<BTreeMap<String, Option<Vec<usize>>>>,
 }
 
-/// [`fix`], also applying unsafe fixes (which may change behaviour) if `unsafe_fixes`.
+impl FixOptions {
+    /// Read a VSG `--fix_only` file: `{"fix": {"rule": {"<rule>": ["all"] | [line, ...]}}}`.
+    pub fn parse_fix_only(text: &str) -> Result<BTreeMap<String, Option<Vec<usize>>>, String> {
+        let doc: yaml_serde::Value = yaml_serde::from_str(text).map_err(|e| e.to_string())?;
+        let rules = doc
+            .get("fix")
+            .and_then(|f| f.get("rule"))
+            .and_then(yaml_serde::Value::as_mapping)
+            .ok_or("expected {\"fix\": {\"rule\": {...}}}")?;
+        let mut out = BTreeMap::new();
+        for (rule, value) in rules {
+            let rule = rule.as_str().ok_or("rule names must be strings")?;
+            let items = value
+                .as_sequence()
+                .ok_or_else(|| format!("{rule}: expected a list"))?;
+            let lines = if items.iter().any(|i| i.as_str() == Some("all")) {
+                None
+            } else {
+                let lines: Option<Vec<usize>> = items
+                    .iter()
+                    .map(|i| i.as_u64().and_then(|n| usize::try_from(n).ok()))
+                    .collect();
+                Some(lines.ok_or_else(|| format!("{rule}: expected \"all\" or line numbers"))?)
+            };
+            out.insert(rule.to_owned(), lines);
+        }
+        Ok(out)
+    }
+}
+
+/// Apply all safe fixes and format the result.
+pub fn fix(parsed: &Parsed, config: &Config) -> Result<FixOutcome, FormatError> {
+    fix_with(parsed, config, &FixOptions::default())
+}
+
+/// [`fix`] with options (unsafe fixes, VSG `--fix_only`).
 pub fn fix_with(
     parsed: &Parsed,
     config: &Config,
-    unsafe_fixes: bool,
+    options: &FixOptions,
 ) -> Result<FixOutcome, FormatError> {
     if !parsed.syntax_errors().is_empty() {
         return Err(FormatError::Syntax(parsed.syntax_errors().to_vec()));
@@ -125,8 +167,15 @@ pub fn fix_with(
     let mut fixed: Option<Parsed> = None;
     for _ in 0..MAX_ROUNDS {
         let current = fixed.as_ref().unwrap_or(parsed);
-        let violations = rules::check_for_fixes(current, config);
-        let (edits, accepted, deferred) = resolve(&violations, unsafe_fixes);
+        let mut violations = rules::check_for_fixes(current, config);
+        if let Some(only) = &options.only {
+            violations.retain(|v| match only.get(v.rule) {
+                Some(None) => true,
+                Some(Some(lines)) => lines.contains(&current.line_col(v.start).0),
+                None => false,
+            });
+        }
+        let (edits, accepted, deferred) = resolve(&violations, options.unsafe_fixes);
         if edits.is_empty() {
             break;
         }
@@ -144,9 +193,17 @@ pub fn fix_with(
         }
     }
     let fixed = fixed.as_ref().unwrap_or(parsed);
-    let output = format_parsed(fixed, &config.format)?;
+    let output = if options.only.is_some() {
+        fixed.source().to_vec()
+    } else {
+        format_parsed(fixed, &config.format)?
+    };
     let result = Parsed::new(output);
-    let remaining = rules::check_canonical(&result, config);
+    let remaining = if options.only.is_some() {
+        rules::check(&result, config)
+    } else {
+        rules::check_canonical(&result, config)
+    };
     Ok(FixOutcome {
         output: result.source().to_vec(),
         applied,
@@ -190,6 +247,22 @@ mod tests {
         let out = run(src);
         assert_eq!(String::from_utf8(out.output).unwrap(), src);
         assert_eq!(out.remaining[0].rule, "port_012");
+    }
+
+    #[test]
+    fn fix_only() {
+        let only = FixOptions::parse_fix_only(
+            r#"{"fix": {"rule": {"entity_015": ["all"], "entity_019": [9]}}}"#,
+        )
+        .unwrap();
+        let options = FixOptions {
+            only: Some(only),
+            ..FixOptions::default()
+        };
+        let src = "entity E is\nend;\n";
+        let out = fix_with(&Parsed::new(src.into()), &Config::default(), &options).unwrap();
+        assert_eq!(out.output, b"entity E is\nend entity;\n");
+        assert!(FixOptions::parse_fix_only(r#"{"fix": {"rule": {"a": [true]}}}"#).is_err());
     }
 
     #[test]
