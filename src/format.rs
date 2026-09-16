@@ -117,7 +117,13 @@ pub(crate) fn comments(t: &SyntaxToken, has_prev: bool) -> (Vec<CommentInfo>, us
 
 /// `-- vsg-rs: fmt off` / `-- vsg-rs: fmt on` (and VSG's `-- vsg_off` / `-- vsg_on`) comments,
 /// with the offset of the token that follows them, in source order.
-fn directives(parsed: &Parsed) -> Vec<(usize, bool)> {
+/// Whether formatting is switched off at `offset`, given [`directives`].
+pub(crate) fn disabled_at(directives: &[(usize, bool)], offset: usize) -> bool {
+    let i = directives.partition_point(|(o, _)| *o <= offset);
+    i > 0 && !directives[i - 1].1
+}
+
+pub(crate) fn directives(parsed: &Parsed) -> Vec<(usize, bool)> {
     let mut out = Vec::new();
     for t in parsed.tokens() {
         for piece in t.leading_trivia() {
@@ -389,13 +395,11 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// Own-line and inline comments before `t`, with the line breaks around them.
-    /// Emitted at most once per token.
-    fn leading(&mut self, t: &SyntaxToken) -> Doc {
+    /// The layout of the gap before `t`: its own-line comments, the blank lines to print in front
+    /// of each of them and in front of `t` (one more entry than comments), and the number of
+    /// newlines after the last comment in the source.
+    fn gap(&self, t: &SyntaxToken) -> (Vec<CommentInfo>, Vec<usize>, usize) {
         use crate::blank::Style;
-        if !self.comments_done.insert(t.text_offset()) {
-            return Doc::Nil;
-        }
         let blank_ok = self.item_starts.contains(&t.text_offset());
         let settings = &self.cfg.blank;
         // Formatter-off regions keep their blank lines. The gap in front of a token belongs to
@@ -411,7 +415,7 @@ impl<'a> Builder<'a> {
             .copied()
             .filter(|_| blank_ok && !gap_disabled);
         let (cs, nl_after) = comments(t, self.parsed.prev_token(t).is_some());
-        let own: Vec<&CommentInfo> = cs.iter().filter(|c| !c.trailing).collect();
+        let own: Vec<CommentInfo> = cs.into_iter().filter(|c| !c.trailing).collect();
         // Blank lines in each gap: in front of each own-line comment, then in front of `t`.
         let keep = |n: usize| {
             if blank_ok {
@@ -450,6 +454,16 @@ impl<'a> Builder<'a> {
                 }
             }
         }
+        (own, blanks, nl_after)
+    }
+
+    /// Own-line and inline comments before `t`, with the line breaks around them.
+    /// Emitted at most once per token.
+    fn leading(&mut self, t: &SyntaxToken) -> Doc {
+        if !self.comments_done.insert(t.text_offset()) {
+            return Doc::Nil;
+        }
+        let (own, blanks, nl_after) = self.gap(t);
         let blank = |n: usize| Doc::Blank(u8::try_from(n.min(255)).unwrap_or(u8::MAX));
         let mut out = Vec::new();
         let mut last_block = None;
@@ -582,8 +596,7 @@ impl<'a> Builder<'a> {
 
     /// Whether formatting is switched off at a token.
     fn disabled(&self, offset: usize) -> bool {
-        let i = self.directives.partition_point(|(o, _)| *o <= offset);
-        i > 0 && !self.directives[i - 1].1
+        disabled_at(&self.directives, offset)
     }
 
     /// An item inside a `fmt off` region, printed as written (only its first line is
@@ -829,6 +842,10 @@ impl<'a> Builder<'a> {
             let items: Vec<SyntaxElement> = n.children_with_tokens().collect();
             self.align_items(&items, None);
         }
+        for c in n.children_with_tokens().filter(SyntaxElement::is_node) {
+            self.mark_item(&c);
+        }
+        self.align_statements(n);
         let mut out = Vec::new();
         for c in n.children_with_tokens() {
             if c.is_node() {
@@ -986,6 +1003,117 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// VSG alignment of consecutive declarations (names, `:` and `:=`) and assignments
+    /// (`<=` and `:=`) among the children of an item list.
+    fn align_statements(&mut self, n: &SyntaxNode) {
+        let align = self.cfg.align.clone();
+        let (family, declarations) = match n.kind() {
+            k if is_declarative_part(k) => (align.declaration_colons, true),
+            N::ArchitectureStatementPart | N::BlockStatementPart => {
+                (align.concurrent_assignments, false)
+            }
+            N::ProcessStatementPart | N::SubprogramStatementPart | N::SequenceOfStatements => {
+                (align.sequential_assignments, false)
+            }
+            _ => return,
+        };
+        let mut groups: Vec<Vec<SyntaxNode>> = vec![Vec::new()];
+        for c in n.children() {
+            let first = c.first_token();
+            let (own, blanks, _) = self.gap(&first);
+            // Group boundaries follow the declarations' own families for names and `:=`; the
+            // colon family decides for declarations.
+            let ends = (family.blank_line_ends_group && blanks.iter().any(|b| *b > 0))
+                || (family.comment_line_ends_group && !own.is_empty())
+                || self.disabled(first.text_offset());
+            if ends {
+                groups.push(Vec::new());
+            }
+            let alignable = if declarations {
+                is_alignable_declaration(c.kind())
+            } else {
+                assignment_operator(&c).is_some()
+            };
+            if alignable && !self.disabled(first.text_offset()) {
+                groups.last_mut().expect("non-empty").push(c);
+            } else {
+                groups.push(Vec::new());
+            }
+        }
+        for group in groups.iter().filter(|g| g.len() > 1) {
+            if declarations {
+                self.align_declarations(group, &align);
+            } else if family.enabled {
+                let ops: Vec<(SyntaxNode, SyntaxToken)> = group
+                    .iter()
+                    .filter_map(|c| assignment_operator(c).map(|op| (c.clone(), op)))
+                    .collect();
+                self.pad_to_common_column(&ops, &HashMap::new());
+            }
+        }
+    }
+
+    fn align_declarations(&mut self, group: &[SyntaxNode], align: &crate::align::AlignSettings) {
+        let mut shift: HashMap<usize, usize> = HashMap::new();
+        if align.declaration_names.enabled {
+            let names: Vec<(SyntaxNode, SyntaxToken)> = group
+                .iter()
+                .filter_map(|d| declared_name(d).map(|t| (d.clone(), t)))
+                .collect();
+            for (d, pad) in self.pad_to_common_column(&names, &shift) {
+                *shift.entry(d).or_default() += pad;
+            }
+        }
+        if align.declaration_colons.enabled {
+            let colons: Vec<(SyntaxNode, SyntaxToken)> = group
+                .iter()
+                .filter_map(|d| direct_token(d, |k| k == T::Colon).map(|t| (d.clone(), t)))
+                .collect();
+            for (d, pad) in self.pad_to_common_column(&colons, &shift) {
+                *shift.entry(d).or_default() += pad;
+            }
+        }
+        if align.declaration_assignments.enabled {
+            let assigns: Vec<(SyntaxNode, SyntaxToken)> = group
+                .iter()
+                .filter_map(|d| {
+                    d.children()
+                        .find(|c| c.kind() == N::InitialValue)
+                        .map(|v| (d.clone(), v.first_token()))
+                })
+                .collect();
+            self.pad_to_common_column(&assigns, &shift);
+        }
+    }
+
+    /// Pad in front of each token so that all start in the same column (the rightmost one).
+    /// `shift` holds padding already requested earlier in each node (by node offset). Returns
+    /// the padding added per node offset.
+    fn pad_to_common_column(
+        &mut self,
+        targets: &[(SyntaxNode, SyntaxToken)],
+        shift: &HashMap<usize, usize>,
+    ) -> Vec<(usize, usize)> {
+        let widths: Vec<(usize, &SyntaxToken, usize)> = targets
+            .iter()
+            .filter_map(|(n, t)| {
+                let w = self.flat_width_before(n, t)? + shift.get(&n.offset()).unwrap_or(&0);
+                (w <= self.cfg.width / 2).then_some((n.offset(), t, w))
+            })
+            .collect();
+        if widths.len() < 2 {
+            return Vec::new();
+        }
+        let max = widths.iter().map(|(_, _, w)| *w).max().unwrap_or(0);
+        let mut added = Vec::new();
+        for (node, t, w) in widths {
+            let pad = self.pads.entry(t.text_offset()).or_default();
+            pad.before += max - w;
+            added.push((node, max - w));
+        }
+        added
+    }
+
     /// Flat width of the tokens of `n` before `sep`, or `None` if comments intervene.
     fn flat_width_before(&self, n: &SyntaxNode, sep: &SyntaxToken) -> Option<usize> {
         let start = self.parsed.token_index(&n.first_token())?;
@@ -1101,6 +1229,63 @@ impl<'a> Builder<'a> {
 
 /// Width that port modes are padded to (the width of `inout`), matching VSG's default layout.
 const MODE_WIDTH: usize = 5;
+
+fn is_declarative_part(k: N) -> bool {
+    use N::*;
+    matches!(
+        k,
+        ArchitectureDeclarativePart
+            | BlockDeclarativePart
+            | ProcessDeclarativePart
+            | PackageDeclarativePart
+            | PackageBodyDeclarativePart
+            | SubprogramDeclarativePart
+            | ProtectedTypeBodyDeclarativePart
+            | ProtectedTypeDeclarativePart
+            | EntityDeclarativePart
+    )
+}
+
+fn is_alignable_declaration(k: N) -> bool {
+    use N::*;
+    matches!(
+        k,
+        SignalDeclaration
+            | ConstantDeclaration
+            | VariableDeclaration
+            | FileDeclaration
+            | AliasDeclaration
+            | FullTypeDeclaration
+            | IncompleteTypeDeclaration
+            | SubtypeDeclaration
+            | AttributeDeclaration
+    )
+}
+
+/// The first declared identifier of a declaration.
+fn declared_name(d: &SyntaxNode) -> Option<SyntaxToken> {
+    d.children()
+        .find(|c| c.kind() == N::IdentifierList)
+        .map(|l| l.first_token())
+        .or_else(|| direct_token(d, |k| k == T::Identifier))
+}
+
+/// The `<=` or `:=` of a simple or conditional assignment statement.
+fn assignment_operator(n: &SyntaxNode) -> Option<SyntaxToken> {
+    use N::*;
+    let op = match n.kind() {
+        ConcurrentSimpleSignalAssignment
+        | ConcurrentConditionalSignalAssignment
+        | SimpleWaveformAssignment
+        | ConditionalWaveformAssignment
+        | SimpleForceAssignment
+        | ConditionalForceAssignment
+        | SimpleReleaseAssignment => T::LTE,
+        SimpleVariableAssignment | ConditionalVariableAssignment => T::ColonEq,
+        _ => return None,
+    };
+    direct_token(n, |k| k == op)
+}
 
 fn want_space(p: &SyntaxToken, t: &SyntaxToken) -> bool {
     match (p.kind(), t.kind()) {

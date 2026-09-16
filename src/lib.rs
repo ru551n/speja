@@ -4,6 +4,7 @@
 //! lint the same tree. Formatting output is verified by re-parsing it and comparing the token
 //! stream and comments against the original before it is returned.
 
+pub mod align;
 pub mod blank;
 pub mod config;
 mod doc;
@@ -191,7 +192,8 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
         width: cfg.width,
         indent: cfg.indent,
     };
-    let mut out = doc::print(doc, builder.groups(), &opts);
+    let out = doc::print(doc, builder.groups(), &opts);
+    let mut out = align::align_comments(out, cfg);
     verify::equivalent(parsed, &out).map_err(FormatError::Internal)?;
     let crlf = match cfg.line_ending {
         Some(ending) => ending == config::LineEnding::CrLf,

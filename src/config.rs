@@ -29,6 +29,8 @@ pub struct FormatConfig {
     pub line_ending: Option<LineEnding>,
     /// Blank-line policy (VSG `blank_line` rules).
     pub blank: crate::blank::BlankSettings,
+    /// Alignment policy (VSG `alignment` rules).
+    pub align: crate::align::AlignSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +47,7 @@ impl Default for FormatConfig {
             keyword_case: KeywordCase::Lower,
             line_ending: None,
             blank: crate::blank::BlankSettings::default(),
+            align: crate::align::AlignSettings::default(),
         }
     }
 }
@@ -370,12 +373,34 @@ impl Config {
             None => {}
         }
         self.resolve_blank_lines();
+        self.resolve_alignment();
         let keyword_case_disabled = ["case::keyword", "case"]
             .iter()
             .any(|g| self.groups.get(*g).and_then(|l| l.disable) == Some(true));
         if keyword_case_disabled {
             self.format.keyword_case = KeywordCase::Preserve;
         }
+    }
+
+    fn resolve_alignment(&mut self) {
+        let mut align = crate::align::AlignSettings::default();
+        for (info, family) in crate::align::RULES.iter().zip(align.families_mut()) {
+            let settings = self.rule(info);
+            let yes = |key: &str, default: bool| match settings.option_str(key) {
+                Some(v) => v == "yes",
+                None => settings.option_bool(key).unwrap_or(default),
+            };
+            family.enabled = settings.enabled;
+            family.blank_line_ends_group =
+                yes("blank_line_ends_group", family.blank_line_ends_group);
+            family.comment_line_ends_group =
+                yes("comment_line_ends_group", family.comment_line_ends_group);
+            family.include_lines_without_comments = yes(
+                "include_lines_without_comments",
+                family.include_lines_without_comments,
+            );
+        }
+        self.format.align = align;
     }
 
     fn resolve_blank_lines(&mut self) {

@@ -16,12 +16,13 @@ begin
     ),
     argument_zeta
   );
-  flag <= ((a and b)
-           or (c
-               and (d
-                    or (e
-                        and (f
-                            or (g and (h or (i and j))))))))
-          xor ((k or l) and (m or n));
+  flag   <= ((a and b)
+             or (c
+                 and (d
+                      or (e
+                          and (f
+                              or (g
+                                  and (h or (i and j))))))))
+            xor ((k or l) and (m or n));
 
 end architecture;
