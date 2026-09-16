@@ -12,8 +12,8 @@ are ones that cannot be folded safely.
   byte. Tabs (which can only appear in comments) advance to the next multiple of 4. Line
   endings are not counted. The same function is used by the layout engine and by the
   `length_001` lint.
-* The target decides layout. Any separate warning or error threshold only affects diagnostics
-  and never changes formatting.
+* The target decides layout. `length_001.error_length` (a separate error threshold) only affects
+  diagnostics and never changes formatting.
 
 ## Model
 
@@ -46,7 +46,8 @@ Two special forms:
 | Interface clause, generic/port map | always broken | one element per line, `:` / `=>` aligned |
 | Operator chain of equal precedence | before each operator | operator first on each continuation line, aligned with the first operand |
 | Parenthesized expression | inside the parentheses | contents aligned after `(` |
-| Declaration value (`:= value`) | before `:=` | `:= value` on an indented continuation line |
+| Declaration value (`:= value`) | before `:=`; for calls, aggregates and qualified expressions after `:=` | the value on an indented continuation line |
+| Object declaration subtype (`signal s : subtype`) | after `:` | the subtype on an indented continuation line |
 | Named association (`formal => actual`) | after `=>` | actual on an indented continuation line |
 | Simple assignment (`target <= value`) | after `<=` / `:=`, only if the first line of the value cannot fit | value on an indented continuation line |
 | Conditional assignment | after each `else` (always); before `when` | `when condition` indented under its value |

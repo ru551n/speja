@@ -80,10 +80,29 @@ After those rules, a space is always inserted where the lexer requires one.
 See `compatibility.md` for the VSG configuration mapping. Formatter settings: `width` (from
 `length_001.length`, default 120), `indent` (default 2) and keyword case (default lower).
 
+## Formatter-off regions
+
+```vhdl
+-- vsg-rs: fmt off
+constant table : lut_t := (x"00", x"01",
+                           x"02", x"03");
+-- vsg-rs: fmt on
+```
+
+* A line comment `-- vsg-rs: fmt off` switches formatting off until `-- vsg-rs: fmt on` or the end
+  of the file. VSG's `-- vsg_off` / `-- vsg_on`, without rule names, work the same way (and
+  also suppress all rules, as in VSG).
+* The unit is the *item*: a design unit, context item, declaration, statement, list element
+  (port, association) or selected-assignment alternative that **starts** inside the region is
+  printed exactly as written, except that its first line is indented like its neighbours.
+  To keep a single statement inside an architecture as written, put the comments around that
+  statement, not around the architecture.
+* The output check still applies, and `length_001` still reports long lines inside regions.
+  Fixes from `vsg-rs fix` still apply inside `fmt off` regions (not inside `vsg_off` regions,
+  where rules are suppressed).
+
 ## Not yet implemented
 
-* Formatter disable regions (`-- vsg-rs: fmt off` / `fmt on`). A syntax and its behaviour need to
-  be designed first.
 * Required blank lines (VSG inserts blank lines around processes, instances and `begin`).
   vsg-rs currently keeps blank lines from the source and collapses them.
 * Identifier case, tabs for indentation, range formatting.

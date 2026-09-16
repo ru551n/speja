@@ -49,7 +49,7 @@ quadratic on long lists (10,000-element aggregate: 10 s, now 25 ms). An upstream
 
 ## Known costs
 
-* `check` formats each file twice (once for `length_001`, once for the format check) and
-  `fix` formats three times. Sharing the formatted snapshot would remove most of that.
+* `check` formats each file once (the result is shared by `length_001` and the format check);
+  `fix` formats the fixed source once.
 * Output verification parses the output a second time. It stays enabled because it is what
   makes format-on-save safe.

@@ -29,7 +29,7 @@ Test references are fixtures in `tests/formatting/`.
 | Record type declaration | supported | one element per line, `:` aligned | `declarations` |
 | Enumeration type | supported | one literal per line when broken | `declarations` |
 | Physical type | supported | units always one per line | `declarations` |
-| Signal / variable / constant declaration | supported | breaks before `:=`, hugs aggregates and calls | `declarations`, `calls_aggregates` |
+| Signal / variable / constant declaration | supported | breaks after `:` for long subtypes and before/after `:=` | `declarations`, `calls_aggregates` |
 | File declaration | supported | breaks before `open` / `is` | `declarations` |
 | Alias declaration | supported | breaks before `is` | `declarations` |
 | Attribute declaration / specification | supported | breaks before `is` | `declarations` |
@@ -64,6 +64,7 @@ Test references are fixtures in `tests/formatting/`.
 | Signatures (`[t return t]`) | planned | kept on one line | — |
 | PSL, VHDL-2019 tool directives | blocked by frontend | files with tool directives are refused; PSL does not parse | — |
 | Comments (trailing, own-line, block) | supported | never moved or wrapped; trailing comments force a break | `comments` |
+| Formatter-off regions | supported | items inside are kept as written | `fmt_off` |
 | Nested constructs | supported | bounded alignment prevents staircases | `deep_nesting` |
 | Malformed / recovered syntax | not formatted | file is left untouched, error reported | `tests/cli.rs` |
 
@@ -77,13 +78,16 @@ IEEE libraries), September 2026:
 |---|---|---|---|---|
 | 120 | 1548 | 0 | 0 | 63 |
 | 80 | 1548 | 0 | 0 | 737 |
-| 40 | 1548 | 0 | 0 | 23,822 |
+| 40 | 1548 | 0 | 0 | 20,779 |
 
 At width 120, every remaining long line inspected was a single string literal, a long selected
 name, or a declaration whose identifier and type mark alone exceed the width. Those are
 unavoidable overflows. At narrower widths the count is dominated by long identifiers and
 indentation depth.
 
-**Not yet claimed**: production-ready automatic `length_001` fixing. Missing pieces: a break after
-`:` in object declarations with very long type marks, signatures, and review of the real-world
-long-line classification at widths below 80.
+**Not yet claimed**: production-ready automatic `length_001` fixing. Missing pieces: signatures,
+and review of the real-world long-line classification at widths below 80.
+
+The randomized tests in `src/fuzz.rs` check that layout does not depend on source whitespace and
+that token deletions never cause an internal error. Set `VSG_FUZZ_DIRS` to run them over a
+local corpus.

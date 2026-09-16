@@ -45,6 +45,7 @@ cat foo.vhd | vsg-rs fmt --stdin-filename foo.vhd -   # editor integration
 
 vsg-rs lint src/                       # report rule violations
 vsg-rs check src/                      # CI: violations and unformatted files
+vsg-rs check --output-format sarif src/ > vsg.sarif   # also json, junit
 vsg-rs fix src/                        # apply all safe fixes, then format
 vsg-rs rules --all                     # every VSG rule and how vsg-rs handles it
 ```
@@ -58,7 +59,15 @@ rule:
     length: 100
   process_016:
     disable: true
+file_rules:
+  legacy/**/*.vhd:
+    rule:
+      length_001:
+        disable: true
 ```
+
+Formatting can be switched off for a region with `-- vsg-rs: fmt off` / `-- vsg-rs: fmt on`;
+VSG's `-- vsg_off [rule ...]` / `-- vsg_on` comments suppress rules.
 
 ### Editor integration
 

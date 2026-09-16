@@ -22,7 +22,9 @@ vsg-rs accepts VSG configuration documents in YAML or JSON.
 | rule options such as `action` (`add`/`remove`) and `parenthesis` (`insert`/`remove`) | supported by the rules that define them |
 | `linesep` | supported (`"\n"` or `"\r\n"`); without it, the input's line ending is kept |
 | `file_list` | ignored with a warning; pass files and directories on the command line |
-| `file_rules`, `local_rules`, `indent`, `pragma` | not supported yet; ignored with a warning |
+| `file_rules` | supported, as a mapping or a list; keys are paths or glob patterns (`*`, `?`, `**`); a relative pattern matches any path ending with it |
+| `local_rules`, `indent`, `pragma` | not supported; ignored with a warning |
+| `rule.length_001.error_length` | vsg-rs extension: lines longer than this are reported with severity `error` (formatting still uses `length`) |
 | unknown rule ids | warning; the settings are ignored |
 
 Settings of VSG rules that vsg-rs does not implement individually (for example most whitespace,
@@ -47,7 +49,9 @@ with `-c` or by copying it to one of these names.
 | `vsg --stdin` | `vsg-rs lint -`, `vsg-rs fix -`, `vsg-rs fmt -` with `--stdin-filename` |
 | `-c FILE` | `-c FILE` / `--config FILE` |
 | `-of vsg`, `-js FILE` | `--output-format text` (default) / `--output-format json` (stdout) |
-| `-j` (JUnit), `--quality_report`, `-of syntastic` | not yet |
+| `-j FILE` (JUnit) | `--output-format junit` (stdout) |
+| — | `--output-format sarif` (SARIF 2.1.0, for code scanning) |
+| `--quality_report`, `-of syntastic` | not yet |
 | `-b` (backup) | not needed: files are replaced atomically and only after verification |
 | `--force_fix` | not provided: files with syntax errors are never modified |
 | `-p N` (jobs) | automatic (all cores) |
@@ -83,6 +87,9 @@ VSG returns 0 or 1. vsg-rs distinguishes:
 * **`if_002`.** A condition that is a single name ending in a parenthesized part
   (`rising_edge(clk)`, `valid(i)`) counts as enclosed, which matches what VSG 3.35 does in
   practice.
+* **`-- vsg_off [rules]` / `-- vsg_on [rules]`** suppress the listed rules (all rules without a
+  list) between the comments, as in VSG. A bare `-- vsg_off` also switches formatting off (see
+  `formatting.md`); `-- vsg-rs: fmt off` switches off only formatting.
 * **Line width** is measured in characters (Unicode scalar values for UTF-8 files), not bytes.
 
 ## Known gaps
