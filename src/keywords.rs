@@ -1,9 +1,98 @@
 //! VSG `case::keyword` rules and the reserved words each one controls (from the rule
-//! descriptions of VSG 3.35). The formatter applies keyword case per word, so a word shared by
-//! several rules (for example `end`) takes one case.
+//! descriptions of VSG 3.35). A rule applies to its keywords inside the construct its id names;
+//! a keyword takes the case of the innermost such construct.
+
+use vhdl_syntax::syntax::NodeKind as N;
 
 use crate::config::Severity;
 use crate::rules::RuleInfo;
+
+/// The constructs a keyword rule applies to, from its id prefix (`entity_010`: the `end` of
+/// entities). Empty: everywhere. Subprogram bodies count as their specification's kind.
+pub(crate) fn constructs(rule: &str) -> &'static [N] {
+    use N::*;
+    let prefix = rule.rsplit_once('_').map_or(rule, |(p, _)| p);
+    match prefix {
+        "after" => &[AfterClause],
+        "alias_declaration" => &[AliasDeclaration],
+        "architecture" => &[ArchitectureBody],
+        "array_constraint" => &[IndexConstraint],
+        "assert" => &[Assertion],
+        "attribute_declaration" => &[AttributeDeclaration],
+        "attribute_specification" => &[AttributeSpecification],
+        "block" => &[BlockStatement],
+        "case" => &[CaseStatement],
+        "case_generate_alternative" => &[CaseGenerateAlternative],
+        "case_generate_statement" => &[CaseGenerateStatement],
+        "choice" => &[OthersChoice],
+        "component" => &[ComponentDeclaration],
+        "conditional_expressions" => &[ConditionalExpressions],
+        "conditional_waveforms" => &[ConditionalWaveforms],
+        "constant" => &[ConstantDeclaration],
+        "constrained_array_definition" => &[ConstrainedArrayDefinition],
+        "context" => &[ContextDeclaration],
+        "context_ref" => &[ContextReference],
+        "delay_mechanism" => &[InertialDelayMechanism, TransportDelayMechanism],
+        "entity" => &[EntityDeclaration],
+        "entity_specification" => &[EntitySpecification],
+        "exit_statement" => &[ExitStatement],
+        "external_constant_name" => &[ExternalConstantName],
+        "external_signal_name" => &[ExternalSignalName],
+        "external_variable_name" => &[ExternalVariableName],
+        "file" => &[FileDeclaration],
+        "file_open_information" => &[FileOpenInformation],
+        "file_type_definition" => &[FileTypeDefinition],
+        "for_generate_statement" => &[ForGenerateStatement],
+        "function" => &[FunctionSpecification],
+        "generate" => &[
+            ForGenerateStatement,
+            IfGenerateStatement,
+            CaseGenerateStatement,
+        ],
+        "generic" => &[GenericClause],
+        "generic_map" => &[GenericMapAspect],
+        "if" => &[IfStatement],
+        "if_generate_statement" => &[IfGenerateStatement],
+        "index_subtype_definition" => &[IndexSubtypeDefinition],
+        "instantiation" => &[ComponentInstantiationStatement],
+        "interface_incomplete_type_declaration" => &[InterfaceIncompleteTypeDeclaration],
+        "iteration_scheme" => &[ForScheme, WhileScheme],
+        "library" => &[LibraryClause],
+        "loop_statement" => &[LoopStatement],
+        "next_statement" => &[NextStatement],
+        "null_statement" => &[NullStatement],
+        "package" => &[PackageDeclaration],
+        "package_body" => &[PackageBody],
+        "package_instantiation" => &[PackageInstantiationDeclaration],
+        "parameter_specification" => &[ParameterSpecification],
+        "port" => &[PortClause],
+        "port_map" => &[PortMapAspect],
+        "procedure" => &[ProcedureSpecification],
+        "procedure_call" => &[ProcedureCallStatement],
+        "process" => &[ProcessStatement],
+        "protected_type" => &[ProtectedTypeDeclaration],
+        "protected_type_body" => &[ProtectedTypeBody],
+        "range" | "range_constraint" => &[RangeConstraint],
+        "record_type_definition" => &[RecordTypeDefinition],
+        "report_statement" => &[ReportStatement],
+        "return_statement" => &[ReturnStatement],
+        "selected_assignment" => &[
+            ConcurrentSelectedSignalAssignment,
+            SelectedWaveformAssignment,
+            SelectedVariableAssignment,
+            SelectedForceAssignment,
+        ],
+        "signal" => &[SignalDeclaration],
+        "subprogram_instantiation" => &[SubprogramInstantiationDeclaration],
+        "subtype" => &[SubtypeDeclaration],
+        "type" => &[FullTypeDeclaration, IncompleteTypeDeclaration],
+        "unbounded_array_definition" => &[UnboundedArrayDefinition],
+        "use_clause" => &[UseClause],
+        "variable" => &[VariableDeclaration],
+        "wait" => &[WaitStatement],
+        _ => &[],
+    }
+}
 
 const fn info(id: &'static str) -> RuleInfo {
     RuleInfo {
@@ -202,4 +291,22 @@ table! {
     ("wait_501", &["on"]),
     ("wait_502", &["until"]),
     ("wait_503", &["for"]),
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_rule_prefix_is_mapped() {
+        let unmapped: Vec<&str> = super::RULES
+            .iter()
+            .map(|(info, _)| info.id)
+            .filter(|id| super::constructs(id).is_empty())
+            .filter(|id| {
+                !["logical_operator", "shift_operator", "subprogram_kind"]
+                    .iter()
+                    .any(|p| id.starts_with(p))
+            })
+            .collect();
+        assert!(unmapped.is_empty(), "{unmapped:?}");
+    }
 }

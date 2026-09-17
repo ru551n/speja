@@ -27,8 +27,11 @@ pub struct FormatConfig {
     /// Indent with tabs and align with spaces (VSG `indent_style: smart_tabs`).
     pub tabs: bool,
     pub keyword_case: KeywordCase,
-    /// Keywords (lower case) whose case differs from `keyword_case` (per-keyword VSG rules).
+    /// Keywords (lower case) whose case differs from `keyword_case` everywhere.
     pub keyword_case_overrides: BTreeMap<String, KeywordCase>,
+    /// Keywords whose case differs inside particular constructs (per-keyword VSG rules).
+    pub keyword_case_in:
+        std::collections::HashMap<String, Vec<(vhdl_syntax::syntax::NodeKind, KeywordCase)>>,
     /// Output line ending; `None` keeps the line ending of the input.
     pub line_ending: Option<LineEnding>,
     /// Blank-line policy (VSG `blank_line` rules).
@@ -53,6 +56,7 @@ impl Default for FormatConfig {
             tabs: false,
             keyword_case: KeywordCase::Lower,
             keyword_case_overrides: BTreeMap::new(),
+            keyword_case_in: std::collections::HashMap::new(),
             line_ending: None,
             blank: crate::blank::BlankSettings::default(),
             align: crate::align::AlignSettings::default(),
@@ -423,10 +427,16 @@ impl Config {
     }
 
     /// Per-rule keyword case: a rule that is disabled or configured with another case than the
-    /// keyword group applies to its keywords everywhere.
+    /// keyword group applies to its keywords inside its construct (everywhere for operator
+    /// rules).
     fn resolve_keyword_rules(&mut self) {
         let default = self.format.keyword_case;
-        let mut overrides: BTreeMap<String, (KeywordCase, &'static str)> = BTreeMap::new();
+        let mut everywhere: BTreeMap<String, KeywordCase> = BTreeMap::new();
+        let mut contextual: std::collections::HashMap<
+            String,
+            Vec<(vhdl_syntax::syntax::NodeKind, KeywordCase)>,
+        > = std::collections::HashMap::new();
+        let mut conflicts = Vec::new();
         for (info, words) in crate::keywords::RULES {
             let settings = self.rule(info);
             let case = if !settings.enabled || !settings.fixable {
@@ -441,24 +451,39 @@ impl Config {
             if case == default {
                 continue;
             }
+            let kinds = crate::keywords::constructs(info.id);
             for word in *words {
-                match overrides.get(*word) {
-                    Some((other, rule)) if *other != case => {
-                        let message = format!(
-                            "{} and {rule} configure different cases for `{word}`; using {rule}",
-                            info.id
-                        );
-                        self.warn(&message);
+                if kinds.is_empty() {
+                    if everywhere
+                        .insert((*word).to_owned(), case)
+                        .is_some_and(|c| c != case)
+                    {
+                        conflicts.push(format!("`{word}`"));
                     }
-                    Some(_) => {}
-                    None => {
-                        overrides.insert((*word).to_owned(), (case, info.id));
+                    continue;
+                }
+                let entries = contextual.entry((*word).to_owned()).or_default();
+                for kind in kinds {
+                    match entries.iter().find(|(k, _)| k == kind) {
+                        Some((_, c)) if *c != case => {
+                            conflicts.push(format!("`{word}` ({})", info.id))
+                        }
+                        Some(_) => {}
+                        None => entries.push((*kind, case)),
                     }
                 }
             }
         }
-        self.format.keyword_case_overrides =
-            overrides.into_iter().map(|(w, (c, _))| (w, c)).collect();
+        conflicts.dedup();
+        if !conflicts.is_empty() {
+            let message = format!(
+                "keyword case rules disagree for {}; the first rule wins",
+                conflicts.join(", ")
+            );
+            self.warn(&message);
+        }
+        self.format.keyword_case_overrides = everywhere;
+        self.format.keyword_case_in = contextual;
     }
 
     fn resolve_alignment(&mut self) {

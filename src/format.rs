@@ -514,12 +514,12 @@ impl<'a> Builder<'a> {
     pub(crate) fn token_text(&self, t: &SyntaxToken) -> Rc<[u8]> {
         let bytes = t.text().as_bytes();
         let case = match t.kind() {
-            T::Keyword(_) if !self.cfg.keyword_case_overrides.is_empty() => self
-                .cfg
-                .keyword_case_overrides
-                .get(std::str::from_utf8(&bytes.to_ascii_lowercase()).unwrap_or_default())
-                .copied()
-                .unwrap_or(self.cfg.keyword_case),
+            T::Keyword(_)
+                if !(self.cfg.keyword_case_overrides.is_empty()
+                    && self.cfg.keyword_case_in.is_empty()) =>
+            {
+                self.keyword_case(t, &String::from_utf8_lossy(&bytes.to_ascii_lowercase()))
+            }
             _ => self.cfg.keyword_case,
         };
         match (t.kind(), case) {
@@ -527,6 +527,26 @@ impl<'a> Builder<'a> {
             (T::Keyword(_), KeywordCase::Upper) => bytes.to_ascii_uppercase().into(),
             _ => bytes.into(),
         }
+    }
+
+    /// The case of keyword `word`: from the innermost construct with a rule for it, else from
+    /// a rule for it everywhere, else the keyword default.
+    fn keyword_case(&self, t: &SyntaxToken, word: &str) -> KeywordCase {
+        if let Some(entries) = self.cfg.keyword_case_in.get(word) {
+            let mut node = Some(t.parent());
+            while let Some(n) = node {
+                let kind = construct_kind(&n);
+                if let Some((_, case)) = entries.iter().find(|(k, _)| *k == kind) {
+                    return *case;
+                }
+                node = n.parent();
+            }
+        }
+        self.cfg
+            .keyword_case_overrides
+            .get(word)
+            .copied()
+            .unwrap_or(self.cfg.keyword_case)
     }
 
     fn atom(&self, t: &SyntaxToken) -> Doc {
@@ -1281,6 +1301,20 @@ impl<'a> Builder<'a> {
 
 /// Width that port modes are padded to (the width of `inout`), matching VSG's default layout.
 const MODE_WIDTH: usize = 5;
+
+/// The kind of a construct for keyword rules; subprogram bodies and declarations count as
+/// their function or procedure specification.
+fn construct_kind(n: &SyntaxNode) -> N {
+    let spec = match n.kind() {
+        N::SubprogramBody => n
+            .children()
+            .find(|c| c.kind() == N::SubprogramBodyPreamble)
+            .and_then(|p| p.first_child()),
+        N::SubprogramDeclaration => n.first_child(),
+        _ => None,
+    };
+    spec.map_or(n.kind(), |s| s.kind())
+}
 
 /// The construct whose `indent.tokens` settings apply to the children of `n`.
 fn indent_construct(n: &SyntaxNode) -> N {
