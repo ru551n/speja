@@ -159,9 +159,9 @@ fn random_config(rng: &mut Rng) -> String {
     let mut yaml = String::from("rule:\n  global:\n");
     let _ = writeln!(yaml, "    case: {}", pick(rng, &["lower", "upper"]));
     let _ = writeln!(yaml, "    indent_size: {}", pick(rng, &["2", "3", "4"]));
-    let _ = write!(
+    let _ = writeln!(
         yaml,
-        "    indent_style: {}\n",
+        "    indent_style: {}",
         pick(rng, &["spaces", "smart_tabs"])
     );
     let mut groups = String::new();
