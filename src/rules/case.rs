@@ -111,12 +111,15 @@ fn check_case(
             continue;
         }
         let name = text(&t);
-        let fix = match required(settings, &name) {
+        let (fix, message) = match required(settings, &name) {
             Ok(None) => continue,
-            Ok(Some(fixed)) => Some(rename(&t, fixed)),
-            Err(()) => None,
+            Ok(Some(fixed)) => (
+                Some(rename(&t, fixed.clone())),
+                format!("Change \"{name}\" to \"{fixed}\""),
+            ),
+            Err(()) => (None, format!("Change \"{name}\" to {policy} case")),
         };
-        let mut v = violation(settings, rule, &t, format!("`{name}` is not {policy} case"));
+        let mut v = violation(settings, rule, &t, message);
         v.fix = fix;
         out.push(v);
     }
@@ -542,12 +545,21 @@ fn check_consistency(
                     settings,
                     rule,
                     t,
-                    format!("`{name}` differs from its declaration `{want}`"),
+                    format!("{}Change {name} to {want}", mismatch_prefix(rule)),
                 );
                 v.fix = Some(rename(t, want.clone()));
                 out.push(v);
             }
         }
+    }
+}
+
+fn mismatch_prefix(rule: &str) -> &'static str {
+    match rule {
+        "architecture_600" => "Generic case mismatch:  ",
+        "architecture_601" => "Port case mismatch:  ",
+        "function_508" | "procedure_509" => "Parameter case mismatch:  ",
+        _ => "",
     }
 }
 
@@ -692,7 +704,7 @@ fn exponents(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>
             settings,
             "exponent_500",
             t,
-            format!("write the exponent as `{want}`"),
+            format!("Change \"{}\" to \"{want}\"", &literal[pos..=pos]),
         );
         v.fix = Some(Fix {
             safety: FixSafety::Safe,

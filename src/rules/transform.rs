@@ -143,12 +143,7 @@ fn remove_labels(
         } else {
             FixSafety::Safe
         };
-        let mut v = violation(
-            settings,
-            rule,
-            &name_token,
-            format!("remove the label `{name}`"),
-        );
+        let mut v = violation(settings, rule, &name_token, "Remove Label");
         v.fix = fix(safety, edits);
         out.push(v);
     }
@@ -157,12 +152,7 @@ fn remove_labels(
 fn case_end_labels(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
     for n in cx.nodes(N::CaseStatement) {
         if let Some(t) = case_end_label(n) {
-            let mut v = violation(
-                settings,
-                "case_020",
-                &t,
-                "remove the label after `end case`",
-            );
+            let mut v = violation(settings, "case_020", &t, "Remove Label");
             v.fix = fix(
                 FixSafety::Safe,
                 vec![edit(code_end_before(cx, &t), t.text_range().end, "")],
@@ -209,7 +199,7 @@ fn port_modes(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation
                 continue;
             }
             let at = colon.text_range().end;
-            let mut v = violation(settings, "port_023", &colon, "add the port mode `in`");
+            let mut v = violation(settings, "port_023", &colon, "Add mode or view");
             v.fix = fix(FixSafety::Safe, vec![edit(at, at, " in")]);
             out.push(v);
         }
@@ -244,12 +234,7 @@ fn split_declarations(
         let (Some(list), true) = (child(&decl, N::IdentifierList), ids.len() > limit) else {
             continue;
         };
-        let mut v = violation(
-            settings,
-            rule,
-            &ids[1],
-            format!("declare `{}` in a separate declaration", text(&ids[1])),
-        );
+        let mut v = violation(settings, rule, &ids[1], split_message(rule, &ids));
         // Comments inside the declaration would be lost or duplicated.
         if !has_inner_comment(&decl) {
             let range = decl.text_range();
@@ -285,6 +270,20 @@ fn split_declarations(
     }
 }
 
+fn split_message(rule: &str, ids: &[SyntaxToken]) -> String {
+    match rule {
+        "port_026" => {
+            let names: Vec<String> = ids.iter().map(text).collect();
+            format!(
+                "Split identifiers {} to individual lines.",
+                names.join(", ")
+            )
+        }
+        "signal_015" => "Split signal declaration into individual declarations".into(),
+        _ => "Split variable declaration into individual declarations".into(),
+    }
+}
+
 /// `context a, b;` → `context a; context b;`.
 fn split_context_references(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
     for r in cx.nodes(N::ContextReference) {
@@ -298,7 +297,7 @@ fn split_context_references(cx: &Context<'_>, settings: &RuleSettings, out: &mut
             settings,
             "context_ref_009",
             &names[1].first_token(),
-            "reference one context per context reference",
+            "Split context references into individual references",
         );
         if !has_inner_comment(r) {
             let replacement = names
@@ -330,7 +329,7 @@ fn default_values(
                 settings,
                 rule,
                 &init.first_token(),
-                "remove the default value",
+                "Remove default assignment.",
             );
             v.fix = fix(FixSafety::Unsafe, vec![delete_node(cx, &init)]);
             out.push(v);
@@ -350,14 +349,24 @@ fn component_keyword(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Vi
                     .parsed
                     .next_token(&k)
                     .map_or(k.text_range().end, SyntaxToken::text_offset);
-                let mut v = violation(settings, "instantiation_033", &k, "remove `component`");
+                let mut v = violation(
+                    settings,
+                    "instantiation_033",
+                    &k,
+                    "Remove *component* keyword",
+                );
                 v.fix = fix(FixSafety::Safe, vec![edit(k.text_offset(), end, "")]);
                 out.push(v);
             }
             (None, false) => {
                 let first = inst.first_token();
                 let at = first.text_offset();
-                let mut v = violation(settings, "instantiation_033", &first, "add `component`");
+                let mut v = violation(
+                    settings,
+                    "instantiation_033",
+                    &first,
+                    "Add *component* keyword",
+                );
                 v.fix = fix(FixSafety::Safe, vec![edit(at, at, "component ")]);
                 out.push(v);
             }
@@ -368,9 +377,9 @@ fn component_keyword(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Vi
 
 fn instantiation_method(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
     let (kind, message) = if settings.option_str("method") == Some("entity") {
-        (N::InstantiatedComponent, "use an entity instantiation")
+        (N::InstantiatedComponent, "Change to entity instantiation")
     } else {
-        (N::InstantiatedEntity, "use a component instantiation")
+        (N::InstantiatedEntity, "Change to component instantiation")
     };
     for inst in cx.nodes(kind) {
         out.push(violation(
@@ -395,7 +404,7 @@ fn architecture_names(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<V
                     settings,
                     "instantiation_036",
                     &arch.first_token(),
-                    "remove the architecture name",
+                    "Remove architecture identifier",
                 );
                 // The binding then depends on the most recently analyzed architecture.
                 v.fix = fix(FixSafety::Unsafe, vec![delete_node(cx, &arch)]);
@@ -405,7 +414,7 @@ fn architecture_names(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<V
                 settings,
                 "instantiation_036",
                 &name.last_token(),
-                "add the architecture name",
+                "Add architecture identifier",
             )),
             _ => {}
         }
@@ -430,7 +439,7 @@ fn positional(
                     settings,
                     rule,
                     &e.first_token(),
-                    "use named association",
+                    "Add formal_part to positional assignment.",
                 ));
             }
         }
@@ -468,7 +477,7 @@ fn trailing_comments(
                         severity: settings.severity,
                         start: offset,
                         end,
-                        message: "remove the comment".into(),
+                        message: "Remove comment.".into(),
                         fix: fix(FixSafety::Unsafe, vec![edit(start, end, "")]),
                     });
                 }
@@ -510,11 +519,16 @@ fn comments_in_statements(
 ) {
     for n in kinds.iter().flat_map(|k| cx.nodes(*k)) {
         if let Some(t) = all_tokens(n).iter().skip(1).find(|t| has_comment(t)) {
+            let what = if rule == "sequential_006" {
+                "sequential"
+            } else {
+                "variable"
+            };
             out.push(violation(
                 settings,
                 rule,
                 t,
-                "move the comment out of the statement",
+                format!("Remove comments inside {what} assignment"),
             ));
         }
     }
@@ -652,7 +666,7 @@ fn missing_after(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violat
                 settings,
                 "after_001",
                 &a.first_token(),
-                "add an `after` delay",
+                format!("Add after {magnitude} {units} to signal in clock process"),
             );
             v.fix = fix(
                 FixSafety::Unsafe,
@@ -670,7 +684,7 @@ fn reset_after(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violatio
                 settings,
                 "after_003",
                 &after.first_token(),
-                "remove the `after` delay from the reset branch",
+                "Remove *after* from signals in reset portion of a clock process",
             );
             v.fix = fix(FixSafety::Unsafe, vec![delete_node(cx, &after)]);
             out.push(v);
@@ -713,7 +727,13 @@ fn clock_style(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violatio
                 settings,
                 "process_029",
                 first,
-                format!("write the clock condition as `{replacement}`"),
+                if want_edge {
+                    "Change event to rising_edge format.".to_owned()
+                } else if c.rising {
+                    "Change rising_edge to event format.".to_owned()
+                } else {
+                    "Change falling_edge to event format.".to_owned()
+                },
             );
             // The two forms differ for transitions from and to metavalues ('X', 'H', 'L').
             v.fix = fix(

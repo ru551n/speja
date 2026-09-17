@@ -156,6 +156,15 @@ fn fnv1a(bytes: impl IntoIterator<Item = u8>, seed: u64) -> u64 {
     })
 }
 
+/// A stable 128-bit hex fingerprint of `key`.
+pub fn fingerprint(key: &str) -> String {
+    format!(
+        "{:016x}{:016x}",
+        fnv1a(key.bytes(), 0xcbf2_9ce4_8422_2325),
+        fnv1a(key.bytes().rev(), 0x8422_2325_cbf2_9ce4)
+    )
+}
+
 /// GitLab code quality report (VSG `--quality_report`).
 pub fn gitlab(diagnostics: &[Diagnostic]) -> String {
     let issues: Vec<_> = diagnostics
@@ -165,11 +174,7 @@ pub fn gitlab(diagnostics: &[Diagnostic]) -> String {
                 "{}\0{}\0{}\0{}\0{}",
                 d.file, d.rule, d.line, d.column, d.message
             );
-            let fingerprint = format!(
-                "{:016x}{:016x}",
-                fnv1a(key.bytes(), 0xcbf2_9ce4_8422_2325),
-                fnv1a(key.bytes().rev(), 0x8422_2325_cbf2_9ce4)
-            );
+            let fingerprint = fingerprint(&key);
             json!({
                 "description": format!("{} :: {}", d.rule, d.message),
                 "check_name": d.rule,

@@ -416,6 +416,40 @@ fn record_name(n: &SyntaxNode) -> Option<SyntaxToken> {
         .and_then(|p| direct_token(&p, T::Identifier))
 }
 
+/// VSG's solution text for adding (`add`) or removing a closing keyword or name.
+fn solution(rule: &str, add: bool, arg: &str) -> String {
+    if !add {
+        return match rule {
+            "entity_015" | "architecture_010" | "package_007" | "package_body_002"
+            | "context_021" | "function_018" | "procedure_012" => {
+                format!("Remove *{arg}* keyword")
+            }
+            _ => format!("Remove {arg}"),
+        };
+    }
+    match rule {
+        "architecture_010" => "Add architecture keyword.".into(),
+        "function_018" => "Add function keyword".into(),
+        "procedure_012" => "Add procedure keyword".into(),
+        "package_body_002" => "Add *package body* keywords".into(),
+        "entity_015" | "package_007" | "context_021" => format!("Add *{arg}* keyword"),
+        "entity_019" => "Add entity simple name".into(),
+        "architecture_024" => "Add architecture simple name".into(),
+        "package_014" | "package_body_003" => "Add package name.".into(),
+        "component_022" => "Add component_simple_name".into(),
+        // Sic: VSG 3.35's text.
+        "context_022" => "Add context simple same".into(),
+        "function_020" => "Add function designator".into(),
+        "procedure_014" => "Add procedure designator".into(),
+        "generate_011" => format!("Add label {arg}"),
+        "block_007" => "Add label".into(),
+        "process_018" => "Add a label for the \"end process\".".into(),
+        "loop_statement_007" => "Add a label for the \"end loop\".".into(),
+        "record_type_definition_005" => "Add record type simple name".into(),
+        _ => format!("Add {arg}"),
+    }
+}
+
 fn wants_removal(settings: &RuleSettings) -> bool {
     settings.option_str("action") == Some("remove")
 }
@@ -483,17 +517,12 @@ fn closing_keywords(
             .collect();
         if wants_removal(settings) {
             if let Some(first) = present.first() {
-                let mut v = violation(
-                    settings,
-                    rule,
-                    first,
-                    format!("remove `{words}` after `end`"),
-                );
+                let mut v = violation(settings, rule, first, solution(rule, false, &words));
                 v.fix = Some(safe(present.iter().map(|t| delete(cx, t)).collect()));
                 out.push(v);
             }
         } else if present.is_empty() {
-            let mut v = violation(settings, rule, end, format!("add `{words}` after `end`"));
+            let mut v = violation(settings, rule, end, solution(rule, true, &words));
             v.fix = Some(safe(vec![insert(
                 end.text_range().end,
                 format!(" {words}"),
@@ -552,7 +581,12 @@ fn name_in_epilogue(
         .find(|t| matches!(t.kind(), T::Identifier | T::StringLiteral));
     match (closing, wants_removal(settings)) {
         (Some(closing), true) => {
-            let mut v = violation(settings, rule, closing, "remove the name after `end`");
+            let mut v = violation(
+                settings,
+                rule,
+                closing,
+                solution(rule, false, &text(closing)),
+            );
             v.fix = Some(safe(vec![delete(cx, closing)]));
             out.push(v);
         }
@@ -566,7 +600,7 @@ fn name_in_epilogue(
             };
             // Inserted as the end-name case rule wants it, so a second run finds nothing.
             let name = super::case::spelling(cx, end_name_case_rule(rule), text(name));
-            let mut v = violation(settings, rule, last, format!("add `{name}` after `end`"));
+            let mut v = violation(settings, rule, last, solution(rule, true, &name));
             v.fix = Some(safe(vec![insert(at, format!(" {name}"), 1)]));
             out.push(v);
         }
@@ -600,13 +634,13 @@ fn subprogram_keyword(
         let present = tokens.iter().find(|t| t.kind() == T::Keyword(keyword));
         match (present, wants_removal(settings)) {
             (Some(t), true) => {
-                let mut v = violation(settings, rule, t, format!("remove `{word}` after `end`"));
+                let mut v = violation(settings, rule, t, solution(rule, false, &word));
                 v.fix = Some(safe(vec![delete(cx, t)]));
                 out.push(v);
             }
             (None, false) => {
                 let end = &tokens[0];
-                let mut v = violation(settings, rule, end, format!("add `{word}` after `end`"));
+                let mut v = violation(settings, rule, end, solution(rule, true, &word));
                 v.fix = Some(safe(vec![insert(
                     end.text_range().end,
                     format!(" {word}"),
@@ -659,13 +693,13 @@ fn optional_is(
             wants_removal(settings),
         ) {
             (Some(is), true) => {
-                let mut v = violation(settings, rule, &is, "remove the optional `is`");
+                let mut v = violation(settings, rule, &is, "Remove *is* keyword");
                 v.fix = Some(safe(vec![delete(cx, &is)]));
                 out.push(v);
             }
             (None, false) => {
                 let last = preamble.last_token();
-                let mut v = violation(settings, rule, &last, "add the optional `is`");
+                let mut v = violation(settings, rule, &last, "Add *is* keyword");
                 v.fix = Some(safe(vec![insert(last.text_range().end, " is".into(), 2)]));
                 out.push(v);
             }
@@ -688,7 +722,7 @@ fn missing_label(
                 settings,
                 rule,
                 &n.first_token(),
-                format!("add a label to the {what}"),
+                format!("Add label for {what} statement"),
             ));
         }
     }
@@ -730,12 +764,7 @@ fn if_parentheses(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Viola
                 && is_parenthesized_expression(&cond);
             let (first, last) = (cond.first_token(), cond.last_token());
             if remove && parenthesized {
-                let mut v = violation(
-                    settings,
-                    "if_002",
-                    &first,
-                    "remove the parentheses around the condition",
-                );
+                let mut v = violation(settings, "if_002", &first, "Remove ()'s from condition.");
                 v.fix = Some(safe(vec![
                     Edit {
                         start: first.text_offset(),
@@ -752,12 +781,7 @@ fn if_parentheses(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Viola
                 ]));
                 out.push(v);
             } else if !remove && !enclosed(&cond) {
-                let mut v = violation(
-                    settings,
-                    "if_002",
-                    &first,
-                    "enclose the condition in parentheses",
-                );
+                let mut v = violation(settings, "if_002", &first, "Enclose condition in ()'s.");
                 v.fix = Some(safe(vec![
                     insert(first.text_offset(), "(".into(), 0),
                     insert(last.text_range().end, ")".into(), 0),
@@ -782,12 +806,7 @@ fn port_defaults(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violat
                 .parsed
                 .prev_token(&assign)
                 .map_or(assign.text_offset(), |p| p.text_range().end);
-            let mut v = violation(
-                settings,
-                "port_012",
-                &assign,
-                "remove the default value of the port",
-            );
+            let mut v = violation(settings, "port_012", &assign, "Remove assignment");
             v.fix = Some(Fix {
                 safety: FixSafety::Unsafe,
                 edits: vec![Edit {

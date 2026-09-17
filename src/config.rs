@@ -130,6 +130,9 @@ pub struct Config {
     rules: BTreeMap<String, RuleLayer>,
     /// `pragma.patterns` from the configuration: (open, close) regular expressions.
     pragma_patterns: Option<(Vec<String>, Vec<String>)>,
+    /// The `indent` and `pragma` blocks as written (for the effective configuration).
+    raw_indent: Option<Value>,
+    raw_pragma: Option<Value>,
     /// `file_rules`: (path pattern, `rule` block) applied to matching files.
     file_rules: Vec<(String, Value)>,
     /// Problems found while loading that did not prevent loading.
@@ -231,9 +234,15 @@ impl Config {
                 // Files are selected on the command line.
                 "file_list" => self.warn("file_list is ignored; pass files on the command line"),
                 "file_rules" => self.merge_file_rules(value)?,
-                "pragma" => self.merge_pragma(value)?,
-                "local_rules" | "indent" => {
-                    self.warn(&format!("`{key}` is not supported and is ignored"));
+                "pragma" => {
+                    self.merge_pragma(value)?;
+                    merge_value(self.raw_pragma.get_or_insert(Value::Null), value);
+                }
+                "indent" => merge_value(self.raw_indent.get_or_insert(Value::Null), value),
+                "local_rules" => {
+                    self.warn(
+                        "`local_rules` (Python rule plugins) is not supported and is ignored",
+                    );
                 }
                 _ => self.warn(&format!("unknown top-level key `{key}` ignored")),
             }
@@ -517,14 +526,146 @@ impl Config {
     /// Effective settings for a rule: rule-specific settings override its groups, which
     /// override `global`, which override the rule's defaults.
     pub fn rule(&self, info: &crate::rules::RuleInfo) -> RuleSettings {
+        self.layered(
+            info.id,
+            info.groups,
+            info.enabled_by_default,
+            info.severity,
+            BTreeMap::new(),
+        )
+    }
+
+    /// Settings of any VSG rule by id, starting from VSG's defaults.
+    pub fn rule_by_id(&self, id: &str) -> Option<RuleSettings> {
+        let defaults = crate::vsg_defaults::defaults()["rule"].get(id)?;
+        let mut options: BTreeMap<String, Value> = BTreeMap::new();
+        for (k, v) in defaults.as_object().into_iter().flatten() {
+            if !matches!(k.as_str(), "disable" | "severity" | "fixable")
+                && let Ok(v) = yaml_serde::to_value(v)
+            {
+                options.insert(k.clone(), v);
+            }
+        }
+        let mut groups: Vec<&'static str> = crate::vsg_defaults::groups(id).to_vec();
+        if let Some(info) = crate::rules::info(id) {
+            for g in info.groups {
+                if !groups.contains(g) {
+                    groups.push(g);
+                }
+            }
+        }
+        let severity = if defaults["severity"] == "Warning" {
+            Severity::Warning
+        } else {
+            Severity::Error
+        };
+        let enabled = !defaults["disable"].as_bool().unwrap_or(false);
+        let mut settings = self.layered(id, &groups, enabled, severity, options);
+        if let Some(fixable) = defaults["fixable"].as_bool() {
+            let explicit = self.rules.get(id).and_then(|l| l.fixable).is_some()
+                || self.global.fixable.is_some()
+                || groups
+                    .iter()
+                    .any(|g| self.groups.get(*g).and_then(|l| l.fixable).is_some());
+            if !explicit {
+                settings.fixable = fixable;
+            }
+        }
+        Some(settings)
+    }
+
+    /// Disable every rule outside `group` (VSG `--style indent_only`).
+    pub fn enable_only_group(&mut self, group: &str) {
+        self.global.disable = Some(true);
+        self.groups.entry(group.to_owned()).or_default().disable = Some(false);
+    }
+
+    /// Number of enabled VSG rules.
+    pub fn enabled_rule_count(&self) -> usize {
+        crate::vsg_defaults::rule_ids()
+            // VSG does not count rules without a phase.
+            .filter(|id| {
+                crate::vsg_defaults::defaults()["rule"][*id]
+                    .get("phase")
+                    .is_some()
+            })
+            .filter(|id| self.rule_by_id(id).is_some_and(|s| s.enabled))
+            .count()
+    }
+
+    /// The configuration of one rule as `vsg -rc` prints it.
+    pub fn rule_configuration(&self, id: &str) -> Option<serde_json::Value> {
+        // VSG prints the common attributes first.
+        const COMMON: [&str; 7] = [
+            "indent_style",
+            "indent_size",
+            "phase",
+            "disable",
+            "fixable",
+            "severity",
+            "user_error_message",
+        ];
+        let s = self.rule_by_id(id)?;
+        let mut out = serde_json::Map::new();
+        let defaults = &crate::vsg_defaults::defaults()["rule"][id];
+        let mut keys: Vec<(&String, &serde_json::Value)> =
+            defaults.as_object().into_iter().flatten().collect();
+        keys.sort_by_key(|(k, _)| COMMON.iter().position(|c| c == k).unwrap_or(COMMON.len()));
+        for (k, v) in keys {
+            let value = match k.as_str() {
+                "disable" => serde_json::Value::Bool(!s.enabled),
+                "fixable" => serde_json::Value::Bool(s.fixable),
+                "severity" => serde_json::Value::String(match s.severity {
+                    Severity::Error => "Error".into(),
+                    Severity::Warning => "Warning".into(),
+                }),
+                _ => s
+                    .options
+                    .get(k)
+                    .and_then(|v| serde_json::to_value(v).ok())
+                    .unwrap_or_else(|| v.clone()),
+            };
+            out.insert(k.clone(), value);
+        }
+        Some(serde_json::Value::Object(out))
+    }
+
+    /// The whole effective configuration as `vsg -oc` writes it.
+    pub fn effective_configuration(&self) -> serde_json::Value {
+        let defaults = crate::vsg_defaults::defaults();
+        let overlay = |base: &serde_json::Value, raw: &Option<Value>| {
+            let mut base = base.clone();
+            if let Some(raw) = raw.as_ref().and_then(|r| serde_json::to_value(r).ok()) {
+                merge_json(&mut base, &raw);
+            }
+            base
+        };
+        let rules: serde_json::Map<String, serde_json::Value> = crate::vsg_defaults::rule_ids()
+            .filter_map(|id| Some((id.to_owned(), self.rule_configuration(id)?)))
+            .collect();
+        serde_json::json!({
+            "indent": overlay(&defaults["indent"], &self.raw_indent),
+            "pragma": overlay(&defaults["pragma"], &self.raw_pragma),
+            "rule": rules,
+        })
+    }
+
+    fn layered(
+        &self,
+        id: &str,
+        groups: &[&str],
+        enabled: bool,
+        severity: Severity,
+        options: BTreeMap<String, Value>,
+    ) -> RuleSettings {
         let mut layers = vec![&self.global];
-        layers.extend(info.groups.iter().filter_map(|g| self.groups.get(*g)));
-        layers.extend(self.rules.get(info.id));
+        layers.extend(groups.iter().filter_map(|g| self.groups.get(*g)));
+        layers.extend(self.rules.get(id));
         let mut settings = RuleSettings {
-            enabled: info.enabled_by_default,
-            severity: info.severity,
+            enabled,
+            severity,
             fixable: true,
-            options: BTreeMap::new(),
+            options,
         };
         for layer in layers {
             if let Some(disable) = layer.disable {
@@ -541,6 +682,39 @@ impl Config {
             }
         }
         settings
+    }
+}
+
+/// Merge `overlay` into `base` (mappings recursively, everything else replaced).
+fn merge_value(base: &mut Value, overlay: &Value) {
+    match (base, overlay) {
+        (Value::Mapping(b), Value::Mapping(o)) => {
+            for (k, v) in o {
+                match b.get_mut(k) {
+                    Some(existing) => merge_value(existing, v),
+                    None => {
+                        b.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        (b, o) => *b = o.clone(),
+    }
+}
+
+fn merge_json(base: &mut serde_json::Value, overlay: &serde_json::Value) {
+    match (base, overlay) {
+        (serde_json::Value::Object(b), serde_json::Value::Object(o)) => {
+            for (k, v) in o {
+                match b.get_mut(k) {
+                    Some(existing) => merge_json(existing, v),
+                    None => {
+                        b.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        (b, o) => *b = o.clone(),
     }
 }
 
@@ -620,7 +794,7 @@ mod tests {
         let out = crate::format(b"Entity e is\nEnd Entity;\n".to_vec(), &per_rule.format).unwrap();
         assert_eq!(out, b"ENTITY e is\nEnd ENTITY;\n");
         assert_eq!(cfg.format.line_ending, Some(LineEnding::CrLf));
-        assert!(cfg.warnings.iter().any(|w| w.contains("indent")));
+        assert!(cfg.warnings.is_empty(), "{:?}", cfg.warnings);
         assert!(!cfg.format.tabs);
         let tabs = Config::parse("rule:\n  global:\n    indent_style: smart_tabs\n").unwrap();
         assert!(tabs.format.tabs);

@@ -96,7 +96,7 @@ fn check(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
             },
             start,
             end,
-            message: format!("line is {w} columns long, limit is {width}; {hint}"),
+            message: format!("Reduce line to less than {width} characters ({w}; {hint})"),
             fix: None,
         });
     }

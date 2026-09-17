@@ -13,10 +13,12 @@ mod format;
 mod keywords;
 pub mod rules;
 mod verify;
+pub mod vsg_defaults;
 
 #[cfg(test)]
 mod fuzz;
 
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
 
@@ -324,6 +326,73 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
         out = to_crlf(&out);
     }
     Ok(out)
+}
+
+/// Starts of lines whose first element is a token or an own-line comment, keyed by position
+/// in the token stream: `(token index, comment index or usize::MAX for the token)` → offset of
+/// the line start and of the first non-blank character.
+fn line_heads(parsed: &Parsed) -> HashMap<(usize, usize), (usize, usize)> {
+    let src = parsed.source();
+    let line_start = |offset: usize| {
+        src[..offset]
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |p| p + 1)
+    };
+    let starts_line = |offset: usize| {
+        let start = line_start(offset);
+        src[start..offset]
+            .iter()
+            .all(|b| matches!(b, b' ' | b'\t'))
+            .then_some(start)
+    };
+    let mut out = HashMap::new();
+    for (i, t) in parsed.tokens().iter().enumerate() {
+        let trivia = t.leading_trivia();
+        let len: usize = trivia.into_iter().map(TriviaPiece::byte_len).sum();
+        let mut offset = t.text_offset() - len;
+        let mut k = 0;
+        for piece in trivia {
+            if matches!(
+                piece,
+                TriviaPiece::LineComment(_) | TriviaPiece::BlockComment(_)
+            ) {
+                if let Some(start) = starts_line(offset) {
+                    out.insert((i, k), (start, offset));
+                }
+                k += 1;
+            }
+            offset += piece.byte_len();
+        }
+        if t.kind() != TokenKind::Eof
+            && let Some(start) = starts_line(t.text_offset())
+        {
+            out.insert((i, usize::MAX), (start, t.text_offset()));
+        }
+    }
+    out
+}
+
+/// Re-indent a snapshot without changing anything else (VSG `--style indent_only`): each line
+/// that starts with a token or comment gets the indentation that the token or comment has in
+/// the formatted output, if it starts a line there too.
+pub fn reindent(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, FormatError> {
+    let formatted = Parsed::new(format_parsed(parsed, cfg)?);
+    let target = line_heads(&formatted);
+    let mut edits: Vec<TextEdit> = line_heads(parsed)
+        .into_iter()
+        .filter_map(|(key, (start, first))| {
+            let (fstart, ffirst) = target.get(&key)?;
+            let indent = &formatted.source()[*fstart..*ffirst];
+            (indent != &parsed.source()[start..first]).then(|| TextEdit {
+                start,
+                end: first,
+                text: indent.to_vec(),
+            })
+        })
+        .collect();
+    edits.sort_by_key(|e| e.start);
+    Ok(apply_edits(parsed.source(), &edits))
 }
 
 /// Replace `start..end` (byte offsets into the original source) with `text`.

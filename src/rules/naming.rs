@@ -57,11 +57,19 @@ fn check_affix(
     select: Select,
 ) {
     let (key, kind) = if prefix {
-        ("prefixes", "prefix")
+        ("prefixes", "Prefix")
     } else {
-        ("suffixes", "suffix")
+        ("suffixes", "Suffix")
     };
     let affixes = list_option(settings, key, defaults);
+    let shown = {
+        let configured = settings.option_list(key);
+        if configured.is_empty() && !settings.has_option(key) {
+            defaults.join(", ")
+        } else {
+            configured.join(", ")
+        }
+    };
     let exceptions = list_option(settings, "exceptions", &[]);
     for t in select(cx) {
         let name = text(&t).to_ascii_lowercase();
@@ -81,11 +89,7 @@ fn check_affix(
                 settings,
                 rule,
                 &t,
-                format!(
-                    "`{}` does not have a valid {kind} ({})",
-                    text(&t),
-                    affixes.join(", ")
-                ),
+                format!("{kind} {} with one of the following: {shown}", text(&t)),
             ));
         }
     }
@@ -259,9 +263,8 @@ fn architecture_names(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<V
                 "architecture_025",
                 &t,
                 format!(
-                    "architecture name `{}` is not one of: {}",
-                    text(&t),
-                    names.join(", ")
+                    "Architecture identifier must match a name from this list: {}",
+                    settings.option_list("names").join(", ")
                 ),
             ));
         }
@@ -277,7 +280,7 @@ fn restricted_libraries(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec
                     settings,
                     "library_012",
                     &t,
-                    format!("library `{}` is restricted", text(&t)),
+                    format!("Library name is on list of restricted names: {}", text(&t)),
                 ));
             }
         }
@@ -300,7 +303,10 @@ fn restricted_packages(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<
                     settings,
                     "use_clause_001",
                     &package,
-                    format!("package `{}` is restricted", text(&package)),
+                    format!(
+                        "Package name is on list of restricted names: {}",
+                        text(&package)
+                    ),
                 ));
             }
         }
@@ -441,7 +447,7 @@ fn reserved_words(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Viola
                 settings,
                 "reserved_001",
                 t,
-                format!("`{}` is a reserved word", text(t)),
+                format!("Invalid use of reserved word {}", text(t)),
             ));
         }
     }
@@ -510,7 +516,7 @@ fn comment_keywords(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Vio
                 settings,
                 "comment_012",
                 &c,
-                format!("comment contains `{k}`"),
+                format!("Comment keyword {k} detected."),
             ));
         }
     }
@@ -541,7 +547,7 @@ fn inline_comments(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Viol
             settings,
             "comment_011",
             &c,
-            "move the comment above the code".into(),
+            "Move inline comment to previous line.".into(),
         );
         v.fix = Some(Fix {
             safety: FixSafety::Safe,
@@ -632,6 +638,39 @@ fn check_edge(settings: &RuleSettings, line: &str, footer: bool) -> Option<Strin
     (line.chars().count() > max).then(|| format!("must not extend past column {max}"))
 }
 
+/// The header (`footer == false`) or footer line the configuration asks for.
+fn expected_edge(settings: &RuleSettings, footer: bool) -> String {
+    let edge = if footer { "footer" } else { "header" };
+    let opt = |k: &str| {
+        settings
+            .option_str(&format!("{edge}_{k}"))
+            .map(str::to_owned)
+    };
+    let left = opt("left").unwrap_or_default();
+    let left_repeat = opt("left_repeat").unwrap_or_else(|| "-".into());
+    let right_repeat = opt("right_repeat").unwrap_or_else(|| left_repeat.clone());
+    let title = opt("string").unwrap_or_default();
+    let max = settings
+        .option_usize(&format!("max_{edge}_column"))
+        .unwrap_or(120);
+    let fill = max.saturating_sub(2 + left.chars().count() + title.chars().count());
+    let before = match opt("alignment").as_deref() {
+        Some("left") => 0,
+        Some("right") => fill,
+        _ => fill / 2,
+    };
+    let repeat = |s: &str, n: usize| s.chars().cycle().take(n).collect::<String>();
+    format!(
+        "--{left}{}{title}{}",
+        repeat(&left_repeat, if title.is_empty() { fill } else { before }),
+        if title.is_empty() {
+            String::new()
+        } else {
+            repeat(&right_repeat, fill - before)
+        }
+    )
+}
+
 #[derive(Clone, Copy)]
 enum BlockPart {
     Header,
@@ -654,11 +693,20 @@ fn block_comment(
         let last = &block[block.len() - 1];
         let problems: Vec<(&CommentAt, String)> = match part {
             BlockPart::Header => check_edge(settings, &block[0].text, false)
-                .map(|m| (&block[0], format!("block comment header {m}")))
+                .map(|_| {
+                    let expected = expected_edge(settings, false);
+                    (
+                        &block[0],
+                        format!("Change block comment header to : {expected}"),
+                    )
+                })
                 .into_iter()
                 .collect(),
             BlockPart::Footer => check_edge(settings, &last.text, true)
-                .map(|m| (last, format!("block comment footer {m}")))
+                .map(|_| {
+                    let expected = expected_edge(settings, true);
+                    (last, format!("Change block comment footer to : {expected}"))
+                })
                 .into_iter()
                 .collect(),
             BlockPart::Body => {
@@ -669,7 +717,7 @@ fn block_comment(
                 block[1..block.len() - 1]
                     .iter()
                     .filter(|c| !c.text.starts_with(&prefix))
-                    .map(|c| (c, format!("block comment line must start with `{prefix}`")))
+                    .map(|c| (c, format!("Add comment left \"{left}\"")))
                     .collect()
             }
         };

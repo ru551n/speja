@@ -10,6 +10,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
 mod report;
+mod vsg_cli;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use rayon::prelude::*;
@@ -44,12 +45,15 @@ enum Command {
         #[arg(long, value_name = "START:END", value_parser = parse_line_range)]
         range: Option<(usize, usize)>,
     },
-    /// Report rule violations.
+    /// Report rule violations (nothing is modified unless `--fix` is given).
     Lint {
         #[command(flatten)]
         input: Input,
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         output_format: OutputFormat,
+        /// Apply safe fixes and format, like `vsg-rs fix` (VSG's `--fix`).
+        #[arg(long)]
+        fix: bool,
     },
     /// Report rule violations and files that are not formatted (for CI).
     Check {
@@ -136,7 +140,17 @@ const EXIT_FINDINGS: u8 = 1;
 /// Exit status: a file could not be processed, or invalid usage.
 const EXIT_ERROR: u8 = 2;
 
+/// Subcommands of the vsg-rs interface; any other invocation uses VSG's command line.
+const SUBCOMMANDS: [&str; 7] = ["fmt", "lint", "check", "fix", "rules", "explain", "help"];
+
 fn main() -> ExitCode {
+    let argv: Vec<String> = std::env::args().collect();
+    if !argv
+        .get(1)
+        .is_some_and(|a| SUBCOMMANDS.contains(&a.as_str()))
+    {
+        return vsg_cli::main(argv);
+    }
     let cli = Cli::parse();
     let (input, mode, output_format) = match cli.command {
         Command::Fmt {
@@ -151,7 +165,23 @@ fn main() -> ExitCode {
         ),
         Command::Lint {
             input,
+            output_format: _,
+            fix: true,
+        } => {
+            let options = Box::leak(Box::default());
+            (
+                input,
+                Mode::Fix {
+                    diff: false,
+                    options,
+                },
+                OutputFormat::Text,
+            )
+        }
+        Command::Lint {
+            input,
             output_format,
+            fix: false,
         } => (
             input,
             Mode::Lint {
@@ -412,17 +442,10 @@ fn process(name: &str, source: Vec<u8>, cfg: &Config, mode: Mode) -> Report {
             }
             if let Mode::Lint { check_format: true } = mode {
                 if report.changed {
-                    report.diagnostics.push(Diagnostic {
-                        file: name.to_owned(),
-                        line: 1,
-                        column: 1,
-                        end_line: 1,
-                        end_column: 1,
-                        rule: "format".into(),
-                        severity: Severity::Error.to_string(),
-                        message: "file is not formatted; run `vsg-rs fmt`".into(),
-                        fix: "format",
-                    });
+                    report
+                        .diagnostics
+                        .extend(format_findings(name, parsed.source(), &output));
+                    report.diagnostics.sort_by_key(|d| (d.line, d.column));
                 }
             } else {
                 report.output = Some(output);
@@ -431,6 +454,54 @@ fn process(name: &str, source: Vec<u8>, cfg: &Config, mode: Mode) -> Report {
         Err(e) => report.error = Some(describe_error(&parsed, &e)),
     }
     report
+}
+
+/// One finding per changed range of lines between the source and its formatting.
+fn format_findings(name: &str, old: &[u8], new: &[u8]) -> Vec<Diagnostic> {
+    let old_lines: Vec<&[u8]> = old.split_inclusive(|&b| b == b'\n').collect();
+    let new_lines: Vec<&[u8]> = new.split_inclusive(|&b| b == b'\n').collect();
+    let mut out = Vec::new();
+    for op in similar::capture_diff_slices(similar::Algorithm::Myers, &old_lines, &new_lines) {
+        let (tag, o, n) = op.as_tag_tuple();
+        if tag == similar::DiffTag::Equal {
+            continue;
+        }
+        let first = o.start + 1;
+        let last = o.end.max(o.start + 1);
+        let message = match tag {
+            similar::DiffTag::Insert => format!("formatting inserts {} line(s) here", n.len()),
+            similar::DiffTag::Delete if o.len() == 1 => "formatting removes this line".to_owned(),
+            similar::DiffTag::Delete => format!("formatting removes lines {first}-{last}"),
+            _ if o.len() == 1 => "line is not formatted".to_owned(),
+            _ => format!("lines {first}-{last} are not formatted"),
+        };
+        out.push(Diagnostic {
+            file: name.to_owned(),
+            line: first.min(old_lines.len().max(1)),
+            column: 1,
+            end_line: last.min(old_lines.len().max(1)),
+            end_column: 1,
+            rule: "format".into(),
+            severity: Severity::Error.to_string(),
+            message: message.clone(),
+            fix: "format",
+        });
+    }
+    if out.is_empty() {
+        // Only the final newline or line endings differ.
+        out.push(Diagnostic {
+            file: name.to_owned(),
+            line: old_lines.len().max(1),
+            column: 1,
+            end_line: old_lines.len().max(1),
+            end_column: 1,
+            rule: "format".into(),
+            severity: Severity::Error.to_string(),
+            message: "file is not formatted".into(),
+            fix: "format",
+        });
+    }
+    out
 }
 
 /// Replace `path` with `contents` without ever leaving a partially written file.
