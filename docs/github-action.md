@@ -16,7 +16,7 @@ jobs:
       security-events: write   # only for sarif-upload
     steps:
       - uses: actions/checkout@v6
-      - uses: ru551n/vsg-rs@v0.9.2
+      - uses: ru551n/vsg-rs@v0.9.3
         with:
           args: -c vsg.yaml --recursive src
           sarif-upload: true

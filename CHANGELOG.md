@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.3
+
+* SARIF reports describe each rule (name, description and a link to VSG's documentation), so
+  code scanning alerts and pull request comments show which rule was violated.
+* The README explains how to use the GitHub Action.
+
 ## 0.9.2
 
 * A GitHub Action (`uses: ru551n/vsg-rs@v0.9.2`): downloads the release binary, runs vsg-rs,

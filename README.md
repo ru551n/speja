@@ -158,14 +158,48 @@ for VS Code, Neovim, Helix and Emacs.
 
 ### GitHub Action
 
+vsg-rs is also a GitHub Action. Add a workflow such as `.github/workflows/vhdl-style.yml`:
+
 ```yaml
-- uses: ru551n/vsg-rs@v0.9.2
-  with:
-    args: -c vsg.yaml --recursive src
-    sarif-upload: true   # code scanning alerts; needs security-events: write
+name: VHDL style
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  vsg:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # only needed for sarif-upload
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ru551n/vsg-rs@v0.9.3
+        with:
+          args: -c vsg.yaml --recursive src   # any vsg-rs arguments
+          sarif-upload: true                  # optional: code scanning alerts
 ```
 
-Findings appear as annotations and in the job summary. See [GitHub Action](docs/github-action.md).
+The action downloads the vsg-rs release of its own tag (checked against `SHA256SUMS`) and
+runs `vsg-rs` with `args`. Then:
+
+* **Annotations**: each violation is shown on its line in the pull request's *Files changed*
+  tab and in the run (GitHub shows at most 10 errors and 10 warnings per step).
+* **Job summary**: a table of violations per rule on the run page.
+* **Code scanning** (`sarif-upload: true`): violations become alerts under
+  *Security → Code scanning*. Pull requests get review comments for the alerts they introduce;
+  alerts close when fixed. Free for public repositories. Running the workflow on pushes to the
+  default branch gives pull requests a baseline to compare with.
+* **Result**: the step fails when vsg-rs reports error-severity violations
+  (`fail-on-violations: false` only reports them).
+
+Other inputs: `version` (a release tag or `latest`), `working-directory`,
+`annotations: false`, and `token`. Outputs: `exit-code`, `sarif-file` and `version`. Linux,
+Windows and macOS runners are supported. To fix the reported violations locally, run the same
+arguments with `--fix`. See [GitHub Action](docs/github-action.md) for details, and
+[ru551n/vhdl-ai-test#7](https://github.com/ru551n/vhdl-ai-test/pull/7) for an example pull
+request.
 
 ### Python
 

@@ -642,6 +642,31 @@ fn sarif_uri(name: &str) -> String {
     }
 }
 
+/// SARIF metadata of a rule: code scanning shows the name and description with each alert.
+fn sarif_rule(id: &str) -> serde_json::Value {
+    let description = match (rules::info(id), id) {
+        (Some(info), _) => info.description.to_owned(),
+        (None, "format") => "Layout that differs from the formatted file (run --fix)".to_owned(),
+        (None, "source_file_001") => "Input files exist and can be read".to_owned(),
+        (None, _) => "Layout checked by the formatter (run --fix)".to_owned(),
+    };
+    let mut rule = serde_json::json!({
+        "id": id,
+        "name": id,
+        "shortDescription": { "text": description },
+    });
+    if let Some((prefix, number)) = id.rsplit_once('_')
+        && vsg_rs::vsg_defaults::rule_ids().any(|known| known == id)
+    {
+        rule["helpUri"] = format!(
+            "https://vhdl-style-guide.readthedocs.io/en/latest/{prefix}_rules.html#{}-{number}",
+            prefix.replace('_', "-")
+        )
+        .into();
+    }
+    rule
+}
+
 fn sarif_report(results: &[FileResult]) -> String {
     let mut rules: Vec<&str> = results
         .iter()
@@ -674,7 +699,8 @@ fn sarif_report(results: &[FileResult]) -> String {
                 "driver": {
                     "name": "vsg-rs",
                     "version": env!("CARGO_PKG_VERSION"),
-                    "rules": rules.iter().map(|r| serde_json::json!({ "id": r })).collect::<Vec<_>>(),
+                    "informationUri": "https://github.com/ru551n/vsg-rs",
+                    "rules": rules.iter().map(|r| sarif_rule(r)).collect::<Vec<_>>(),
                 }
             },
             "results": findings,
