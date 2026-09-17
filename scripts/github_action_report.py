@@ -83,7 +83,7 @@ def pr_lines(repo: str, number: int) -> tuple[dict, dict]:
             if m:
                 line = int(m.group(3))
                 continue
-            if text.startswith("-") or text.startswith("\\"):
+            if text.startswith(("-", "\\")):
                 continue
             visible[f["filename"]][line] = text[1:]
             if text.startswith("+"):
