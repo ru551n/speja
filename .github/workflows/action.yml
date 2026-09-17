@@ -14,6 +14,11 @@ on:
       - "scripts/github_action_report.py"
       - ".github/workflows/action.yml"
   workflow_dispatch:
+    inputs:
+      upload:
+        description: Also upload to code scanning (use a scratch branch; this creates alerts)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -25,6 +30,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v6
       - name: Create an input with violations
@@ -40,6 +48,7 @@ jobs:
           args: --recursive src
           working-directory: action-test
           fail-on-violations: "false"
+          sarif-upload: ${{ inputs.upload && matrix.os == 'ubuntu-latest' }}
       - name: Check the outputs
         shell: bash
         env:
