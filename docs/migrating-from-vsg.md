@@ -25,8 +25,10 @@ Differences to expect:
   phase and reports everything. `-fp` and `-ap` are accepted and have no effect.
 * **Layout findings.** Every place where `--fix` would change the layout is reported, under
   the VSG rule for that kind of change, or as `format` when no VSG rule covers it.
-* **Configuration warnings.** Settings vsg-rs does not support (`local_rules`, some
-  `indent.tokens` details) are reported as warnings on stderr. `-lr` is refused.
+* **Configuration warnings.** Settings vsg-rs does not support (some `indent.tokens` details)
+  are reported as warnings on stderr.
+* **Local rules** (`-lr`, `local_rules`) still need VSG: keep it installed, or point
+  `VSG_RS_VSG` at it (for example `uvx --from vsg==3.35.0 vsg`).
 
 `scripts/compare_vsg.py` in this repository compares the findings of both tools per rule on
 your files.

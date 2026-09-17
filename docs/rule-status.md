@@ -234,6 +234,7 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 ## Not supported
 
 * VSG's `indent.tokens` per-token indentation (see `formatting.md`).
-* VSG's `local_rules` (Python rule plugins).
+* VSG's `local_rules` (Python rule plugins) are not run by vsg-rs itself but by an installed VSG
+  (see `compatibility.md`).
 * Several `case::keyword` rules name the same keyword in different constructs (for example
   `end`); vsg-rs applies one case per keyword and warns when the configured cases conflict.

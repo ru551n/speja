@@ -13,6 +13,8 @@ use vsg_rs::config::Config;
 use vsg_rs::rules::{self, Project, Violation};
 use vsg_rs::{FixOptions, FormatError, Parsed};
 
+use crate::local_rules::LocalRules;
+
 /// One reported violation.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Diagnostic {
@@ -739,12 +741,63 @@ fn project(files: &[PathBuf]) -> Project {
         .reduce(Project::new, Project::merge)
 }
 
+/// Add what the local rules report on the final text of each input to its results.
+fn check_local_rules(
+    local: &LocalRules,
+    files: &[PathBuf],
+    stdin_source: &[u8],
+    args: &Args,
+    results: &mut [FileResult],
+) -> Result<(), String> {
+    let mut targets: Vec<(usize, PathBuf)> = Vec::new();
+    for (i, r) in results.iter().enumerate() {
+        if r.error.is_some() || r.violations.iter().any(|v| v.rule == "source_file_001") {
+            continue;
+        }
+        let name = if args.stdin {
+            args.stdin_filename
+                .clone()
+                .unwrap_or_else(|| "stdin.vhd".into())
+        } else {
+            files[i].clone()
+        };
+        let target = match (&r.output, args.stdin) {
+            (Some(text), _) => local.scratch_copy(&format!("out{i}"), &name, text),
+            (None, true) => local.scratch_copy("out-stdin", &name, stdin_source),
+            (None, false) => Ok(name),
+        }
+        .map_err(|e| e.to_string())?;
+        targets.push((i, target));
+    }
+    let paths: Vec<PathBuf> = targets.iter().map(|(_, p)| p.clone()).collect();
+    let by_path: std::collections::HashMap<String, usize> = targets
+        .iter()
+        .map(|(i, p)| (p.to_string_lossy().into_owned(), *i))
+        .collect();
+    for finding in local.run(&paths, false)? {
+        if let Some(&i) = by_path.get(&finding.path) {
+            results[i].violations.push(Diagnostic {
+                line: finding.line,
+                column: 1,
+                rule: finding.rule,
+                severity: finding.severity,
+                message: finding.message,
+            });
+        }
+    }
+    for r in results.iter_mut() {
+        r.violations.sort_by_key(|v| v.line);
+    }
+    Ok(())
+}
+
 /// Set in worker processes (see [`in_workers`]).
 const WORKER_ENV: &str = "VSG_RS_WORKER";
 
 /// Check the files at `indices`, in parallel.
 fn process(
     files: &[PathBuf],
+    sources: &[Option<PathBuf>],
     indices: &[usize],
     cfg: &Config,
     args: &Args,
@@ -758,7 +811,8 @@ fn process(
             if path.is_dir() {
                 return directory_result(name);
             }
-            match std::fs::read(path) {
+            let read_from = sources.get(i).and_then(Option::as_ref).unwrap_or(path);
+            match std::fs::read(read_from) {
                 Ok(source) => check(&name, source, &cfg.for_path(path), args, options),
                 Err(e) => FileResult {
                     name,
@@ -861,6 +915,8 @@ fn run_worker(files: &[PathBuf], cfg: &Config, args: &Args, mut options: FixOpti
         index: Option<Vec<usize>>,
         check: Option<Vec<usize>>,
         project: Option<Project>,
+        #[serde(default)]
+        sources: Vec<Option<PathBuf>>,
     }
     let mut input = Vec::new();
     let Ok(request) = io::stdin()
@@ -876,7 +932,14 @@ fn run_worker(files: &[PathBuf], cfg: &Config, args: &Args, mut options: FixOpti
     } else {
         options.project = request.project.map(Arc::new);
         let indices = request.check.unwrap_or_default();
-        serde_json::to_vec(&process(files, &indices, cfg, args, &options))
+        serde_json::to_vec(&process(
+            files,
+            &request.sources,
+            &indices,
+            cfg,
+            args,
+            &options,
+        ))
     };
     match reply.map(|r| io::stdout().write_all(&r)) {
         Ok(Ok(())) => ExitCode::SUCCESS,
@@ -899,13 +962,6 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     }
     if args.list_rules {
         return list_rules();
-    }
-    if args.local_rules.is_some() {
-        eprintln!(
-            "ERROR: local rules are Python plugins for VSG's own rule engine and cannot be \
-             loaded by vsg-rs."
-        );
-        return ExitCode::from(1);
     }
     if let Some(jobs) = args.jobs.or(worker.then_some(1)) {
         let _ = rayon::ThreadPoolBuilder::new()
@@ -937,7 +993,22 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    for w in cfg.warnings.iter().filter(|_| !worker) {
+    // As in VSG, `local_rules` in the configuration wins over `-lr`.
+    let local_rules_dir = cfg.local_rules.clone().or_else(|| {
+        args.local_rules
+            .as_deref()
+            .map(|d| vsg_rs::config::expand_path(&d.to_string_lossy()))
+    });
+    let local_rule_setting = |w: &&String| {
+        local_rules_dir.is_some()
+            && w.ends_with("is not implemented by vsg-rs; its settings are ignored")
+    };
+    for w in cfg
+        .warnings
+        .iter()
+        .filter(|_| !worker)
+        .filter(|w| !local_rule_setting(w))
+    {
         eprintln!("WARNING: {w}");
     }
     if args.style == Some(Style::IndentOnly) {
@@ -1010,6 +1081,37 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     if worker {
         return run_worker(&files, &cfg, &args, options);
     }
+    let local = match local_rules_dir {
+        Some(dir) => match LocalRules::new(dir, configuration.clone(), args.jobs) {
+            Ok(local) => Some(local),
+            Err(e) => {
+                eprintln!("ERROR: {e}");
+                return ExitCode::from(1);
+            }
+        },
+        None => None,
+    };
+    // With --fix, the local rules fix copies of the files first; vsg-rs continues from them.
+    let mut sources: Vec<Option<PathBuf>> = vec![None; files.len()];
+    if let Some(local) = local.as_ref().filter(|_| args.fix && !args.stdin) {
+        let copies: Vec<(usize, PathBuf)> = files
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_file())
+            .filter_map(|(i, f)| {
+                let source = std::fs::read(f).ok()?;
+                Some((i, local.scratch_copy(&format!("in{i}"), f, &source).ok()?))
+            })
+            .collect();
+        let paths: Vec<PathBuf> = copies.iter().map(|(_, c)| c.clone()).collect();
+        if let Err(e) = local.run(&paths, true) {
+            eprintln!("ERROR: {e}");
+            return ExitCode::from(1);
+        }
+        for (i, copy) in copies {
+            sources[i] = Some(copy);
+        }
+    }
     let workers = if args.stdin {
         Vec::new()
     } else {
@@ -1033,12 +1135,32 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     let start = std::time::Instant::now();
     let mut stdin_source = Vec::new();
     let mut used_workers = false;
-    let results: Vec<FileResult> = if args.stdin {
+    let mut results: Vec<FileResult> = if args.stdin {
         if let Err(e) = io::stdin().read_to_end(&mut stdin_source) {
             eprintln!("ERROR: stdin: {e}");
             return ExitCode::from(1);
         }
-        let source = stdin_source.clone();
+        let mut source = stdin_source.clone();
+        if let Some(local) = local.as_ref().filter(|_| args.fix && args.range.is_none()) {
+            let name = args
+                .stdin_filename
+                .clone()
+                .unwrap_or_else(|| "stdin.vhd".into());
+            let fixed = local
+                .scratch_copy("stdin", &name, &source)
+                .map_err(|e| e.to_string())
+                .and_then(|copy| {
+                    local.run(std::slice::from_ref(&copy), true)?;
+                    std::fs::read(&copy).map_err(|e| e.to_string())
+                });
+            match fixed {
+                Ok(fixed) => source = fixed,
+                Err(e) => {
+                    eprintln!("ERROR: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        }
         let (name, cfg) = match &args.stdin_filename {
             Some(path) => (path.display().to_string(), cfg.for_path(path)),
             None => ("stdin".to_owned(), std::borrow::Cow::Borrowed(&cfg)),
@@ -1046,11 +1168,11 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
         vec![check(&name, source, &cfg, &args, &options)]
     } else {
         let project = serde_json::to_value(options.project.as_deref()).unwrap_or_default();
-        let request = |chunk: &[usize]| serde_json::json!({ "check": chunk, "project": project });
+        let request = |chunk: &[usize]| serde_json::json!({ "check": chunk, "project": project, "sources": sources });
         in_workers(command_line, &workers, request).map_or_else(
             || {
                 let all: Vec<usize> = (0..files.len()).collect();
-                process(&files, &all, &cfg, &args, &options)
+                process(&files, &sources, &all, &cfg, &args, &options)
             },
             |parts: Vec<Vec<FileResult>>| {
                 used_workers = true;
@@ -1074,6 +1196,12 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
         );
     }
     let mut failed = false;
+    if let Some(local) = &local
+        && let Err(e) = check_local_rules(local, &files, &stdin_source, &args, &mut results)
+    {
+        eprintln!("ERROR: {e}");
+        failed = true;
+    }
     let mut report = String::new();
     for (i, r) in results.iter().enumerate() {
         if let Some(e) = &r.error {

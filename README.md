@@ -104,8 +104,8 @@ rules and lines, as in VSG.
 
 With `--stdin --fix`, the fixed source is written to stdout and the report to stderr (VSG 3.35
 cannot fix stdin). `-fp` and `-ap` are accepted and have no effect, `--force_fix` has no effect
-(files with syntax errors are never changed), and `-lr` (VSG's Python rule plugins) is not
-supported. See [compatibility](docs/compatibility.md) for the details.
+(files with syntax errors are never changed), and local rules (`-lr`, VSG's Python rule plugins)
+are run by an installed VSG (see below). See [compatibility](docs/compatibility.md) for the details.
 
 ### Configuration
 
@@ -137,6 +137,11 @@ file_rules:
       length_001:
         disable: true
 ```
+
+Local rules (`-lr DIR` or `local_rules: DIR`) are VSG Python plugins, so vsg-rs runs them with
+an installed VSG (`vsg` on the path, or the command in `VSG_RS_VSG`, for example
+`uvx --from vsg==3.35.0 vsg`) with all built-in rules disabled, and merges their findings;
+with `--fix`, their fixes are applied first.
 
 Blank-line, alignment, keyword-case and indentation rules configure the formatter
 ([formatting](docs/formatting.md)). Formatting can be switched off for a region with

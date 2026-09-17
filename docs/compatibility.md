@@ -30,7 +30,7 @@ vsg-rs accepts VSG configuration documents in YAML or JSON.
 | `file_rules` | supported, as a mapping or a list; keys are paths or glob patterns (`*`, `?`, `**`); a relative pattern matches any path ending with it |
 | `pragma.patterns` | supported (`open`, `close` regular expressions) |
 | `indent.tokens` | supported for construct-level indentation (see `formatting.md`); other settings are reported |
-| `local_rules` | not supported; ignored with a warning |
+| `local_rules` | supported by running VSG (see below); settings of local rules are passed to VSG |
 | `rule.length_001.error_length` | vsg-rs extension: lines longer than this are reported with severity `error` (formatting still uses `length`) |
 | unknown rule ids | warning; the settings are ignored |
 
@@ -57,7 +57,7 @@ layout.
 | Argument | Difference |
 |---|---|
 | `-fp`, `-ap` | accepted, no effect: there is one phase |
-| `-lr` | refused: local rules are Python plugins for VSG's rule engine |
+| `-lr` | runs the local rules with an installed VSG (see below); `local_rules` in the configuration wins, as in VSG |
 | `--force_fix` | accepted, no effect: files with syntax errors are never changed |
 | `--stdin --fix` | prints the fixed source on stdout and the report on stderr (VSG 3.35 fails); exit code 0 when code is printed |
 | `-v` | prints vsg-rs's version |
@@ -110,6 +110,23 @@ could not be processed, missing files and invalid arguments).
   `formatting.md`); `-- vsg-rs: fmt off` switches off only formatting.
 * **Line width** is measured in characters (Unicode scalar values for UTF-8 files), not bytes.
 
+## Local rules
+
+VSG's local rules are Python classes for VSG's own rule engine, so vsg-rs cannot run them
+itself. With `-lr DIR` or `local_rules: DIR`, vsg-rs runs the installed VSG: `vsg` on the path,
+or the command in the environment variable `VSG_RS_VSG` (split at spaces, for example
+`VSG_RS_VSG="uvx --from vsg==3.35.0 vsg"`). VSG gets the same configuration files plus one that
+disables every built-in rule, so that only the local rules run.
+
+* Without `--fix`, VSG checks the inputs and its findings are added to the report.
+* With `--fix`, VSG first fixes copies of the inputs with the local rules; vsg-rs then fixes
+  and formats the copies' contents and writes the originals (or prints the diff). VSG then
+  checks the result, and what the local rules still report is added. The copies have other
+  paths than the originals, so `file_rules` patterns in the configuration do not match them in
+  VSG during fixing. With `--stdin --fix --range`, local rules only report.
+* If VSG cannot be started or fails, the error is printed and the exit code is 1.
+* VSG 3.35 crashes when the configuration sets `severity` for a local rule.
+
 ## Measuring compatibility
 
 `scripts/compare_vsg.py FILE...` runs VSG 3.35 and vsg-rs on the same files and prints the
@@ -117,6 +134,5 @@ findings per rule that both, only VSG, or only vsg-rs report.
 
 ## Known gaps
 
-See `rule-status.md` for rule coverage. Not supported: `local_rules` (Python plugins), and
-`indent.tokens` settings that are not about construct-level indentation (see `formatting.md`).
+See `rule-status.md` for rule coverage. Not supported: `indent.tokens` settings that are not about construct-level indentation (see `formatting.md`).
 The consistency rules check other files only when they are passed in the same run.

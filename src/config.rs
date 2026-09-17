@@ -163,6 +163,10 @@ pub struct Config {
     file_rules: Vec<(String, Value)>,
     /// `file_list`: (path or glob pattern, the configuration file that lists it).
     pub file_list: Vec<(String, PathBuf)>,
+    /// `local_rules`: the directory of VSG rule plugins.
+    pub local_rules: Option<PathBuf>,
+    /// Configured rule ids that vsg-rs does not know (possibly local rules).
+    unknown_rules: Vec<String>,
     /// Problems found while loading that did not prevent loading.
     pub warnings: Vec<String>,
 }
@@ -241,6 +245,15 @@ pub fn expand_pattern(pattern: &str) -> Vec<PathBuf> {
         })
         .map(|p| p.strip_prefix(".").map(Path::to_path_buf).unwrap_or(p))
         .collect()
+}
+
+/// A path with environment variables and a leading `~` expanded, as VSG does.
+pub fn expand_path(text: &str) -> PathBuf {
+    let text = expand_vars(text);
+    match (text.strip_prefix("~/"), std::env::var_os("HOME")) {
+        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
+        _ => PathBuf::from(text),
+    }
 }
 
 /// `$NAME` and `${NAME}` replaced by environment variables; unknown ones are kept.
@@ -348,9 +361,8 @@ impl Config {
                 }
                 "indent" => merge_value(self.raw_indent.get_or_insert(Value::Null), value),
                 "local_rules" => {
-                    self.warn(
-                        "`local_rules` (Python rule plugins) is not supported and is ignored",
-                    );
+                    let dir = value.as_str().ok_or("`local_rules` must be a directory")?;
+                    self.local_rules = Some(expand_path(dir));
                 }
                 _ => self.warn(&format!("unknown top-level key `{key}` ignored")),
             }
@@ -484,9 +496,7 @@ impl Config {
                 }
                 id => {
                     if !crate::rules::is_known_rule(id) {
-                        self.warn(&format!(
-                            "rule `{id}` is not implemented by vsg-rs; its settings are ignored"
-                        ));
+                        self.unknown_rules.push(id.to_owned());
                     }
                     merge_layer(self.rules.entry(id.to_owned()).or_default(), settings, id)?;
                 }
@@ -501,6 +511,14 @@ impl Config {
 
     /// Map VSG rule options that are formatter policy onto the formatter configuration.
     fn resolve_format(&mut self) {
+        // Settings of local rules are for VSG.
+        for id in std::mem::take(&mut self.unknown_rules) {
+            if self.local_rules.is_none() {
+                self.warn(&format!(
+                    "rule `{id}` is not implemented by vsg-rs; its settings are ignored"
+                ));
+            }
+        }
         if let Some(width) = self.layer_option("length_001", &["length"], "length")
             && let Some(width) = width.as_u64().and_then(|w| usize::try_from(w).ok())
         {
@@ -897,11 +915,15 @@ impl Config {
         let rules: serde_json::Map<String, serde_json::Value> = crate::vsg_defaults::rule_ids()
             .filter_map(|id| Some((id.to_owned(), self.rule_configuration(id)?)))
             .collect();
-        serde_json::json!({
+        let mut out = serde_json::json!({
             "indent": overlay(&defaults["indent"], &self.raw_indent),
             "pragma": overlay(&defaults["pragma"], &self.raw_pragma),
             "rule": rules,
-        })
+        });
+        if let Some(dir) = &self.local_rules {
+            out["local_rules"] = dir.to_string_lossy().into();
+        }
+        out
     }
 
     fn layered(

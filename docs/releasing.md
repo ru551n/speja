@@ -50,12 +50,20 @@ licenses), and a `SHA256SUMS` file:
    (console script, `python -m vsg_rs`, stdin formatting, error handling, linting, fixing with
    CRLF line endings);
 4. on tags only: publishes to PyPI with trusted publishing, and creates a GitHub release with
-   the wheels, the sdist, the binary archives and `SHA256SUMS` attached. Build provenance attestations (GitHub and PEP 740) are
-   created only while the repository is public; GitHub does not offer them for private
-   repositories on its Free plan.
+   the wheels, the sdist, the binary archives and `SHA256SUMS` attached, with build provenance
+   attestations (GitHub and PEP 740). Attestations are skipped if the repository is private,
+   because GitHub does not offer them for private repositories on its Free plan.
 
 Manual runs (`gh workflow run release.yml`) and pull requests that touch the packaging do steps
 1 to 3 only.
+
+## crates.io
+
+vsg-rs is not on crates.io yet: crates.io does not accept git dependencies, and vsg-rs needs
+`vhdl_syntax` fixes that are newer than its 0.2.0 release (see `vhdl-frontend.md`). When a
+`vhdl_syntax` release contains them, switch `Cargo.toml` to that version, create an API token
+on crates.io and publish with `cargo publish` (afterwards, crates.io trusted publishing can
+replace the token).
 
 ## One-time setup
 

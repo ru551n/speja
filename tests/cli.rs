@@ -349,3 +349,45 @@ fn worker_processes_match_one_process() {
     let fixed = std::fs::read_to_string(&files[4]).unwrap();
     assert!(!fixed.contains("C_WIDTH"), "{}", &fixed[..200]);
 }
+
+#[test]
+fn local_rules_run_through_vsg() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(dir.path().join("rules")).unwrap();
+    let file = write(dir.path(), "a.vhd", "entity e is\nend entity e; -- TODO\n");
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    let fake = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_vsg.py");
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_vsg-rs"))
+            .args(args)
+            .env("VSG_RS_VSG", format!("{python} {}", fake.display()))
+            .current_dir(dir.path())
+            .output()
+            .expect("run vsg-rs")
+    };
+    let check = run(&["-lr", "rules", "-of", "syntastic", "-f", "a.vhd"]);
+    assert_eq!(check.status.code(), Some(1), "{check:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&check.stdout),
+        "ERROR: a.vhd(2)fake_001 -- Replace TODO\n"
+    );
+    // The configuration's local_rules works too, and --fix applies the local fixes.
+    write(
+        dir.path(),
+        "c.yaml",
+        "local_rules: rules\nrule:\n  fake_001:\n    disable: false\n",
+    );
+    let fix = run(&["-c", "c.yaml", "--fix", "-f", "a.vhd"]);
+    assert!(fix.status.success(), "{fix:?}");
+    assert!(
+        !String::from_utf8_lossy(&fix.stderr).contains("WARNING"),
+        "{fix:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "entity e is\nend entity e; -- DONE\n"
+    );
+    let missing = run(&["-lr", "nowhere", "-f", "a.vhd"]);
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("does not exist"));
+}

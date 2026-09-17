@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+
+* VSG local rules (`-lr DIR`, `local_rules: DIR`) are supported: vsg-rs runs them with an
+  installed VSG (`vsg`, or the command in `VSG_RS_VSG`) with the built-in rules disabled, adds
+  their findings to its report and, with `--fix`, applies their fixes before its own.
+* Settings of rules vsg-rs does not know no longer cause warnings when local rules are used.
+* `-oc` includes `local_rules`.
+* Release artifacts get build provenance attestations now that the repository is public.
+
 ## 0.8.0
 
 Performance.

@@ -2,6 +2,7 @@
 
 use std::process::ExitCode;
 
+mod local_rules;
 mod vsg_cli;
 
 fn main() -> ExitCode {
