@@ -28,6 +28,8 @@ pub enum Doc {
     },
     /// Nothing when flat, a newline when the enclosing group is broken.
     Line,
+    /// `n` spaces between two atoms on the same line (nothing at the start of a line).
+    Space(usize),
     /// Always a newline; forces all enclosing groups to break.
     Hard,
     /// The given number of blank lines; forces all enclosing groups to break.
@@ -84,7 +86,7 @@ impl Doc {
     fn propagate(&mut self) -> bool {
         match self {
             Doc::Hard | Doc::Blank(_) | Doc::BreakParent => true,
-            Doc::Nil | Doc::Line | Doc::Suffix(_) => false,
+            Doc::Nil | Doc::Line | Doc::Suffix(_) | Doc::Space(_) => false,
             Doc::Atom { text, .. } => text.contains(&b'\n'),
             Doc::Concat(v) | Doc::Fill(v) => v.iter_mut().fold(false, |acc, d| d.propagate() | acc),
             Doc::Indent(d) | Doc::Align(d) => d.propagate(),
@@ -145,6 +147,9 @@ pub struct PrintOptions {
     /// Indent with tabs (one per level) and align with spaces (VSG `smart_tabs`). A tab is
     /// assumed to be `indent` columns wide when measuring.
     pub tabs: bool,
+    /// Continuation lines are indented one level instead of aligned (VSG `align_left: yes`,
+    /// `align_paren: no`).
+    pub indent_continuations: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -212,6 +217,12 @@ impl<'a> Printer<'a> {
     fn step(&mut self, cmd: Cmd<'a>, stack: &mut Vec<Cmd<'a>>) {
         match cmd.doc {
             Doc::Nil | Doc::BreakParent => {}
+            Doc::Space(n) => {
+                if self.pending == 0 && !self.at_start && self.suffix.is_empty() {
+                    self.out.extend(std::iter::repeat_n(b' ', *n));
+                    self.col += n;
+                }
+            }
             Doc::Atom { text, width, space } => self.atom(text, *width, *space, &cmd),
             Doc::Line if cmd.flat => {}
             Doc::Line | Doc::Hard => self.newline(1, cmd.indent, cmd.levels),
@@ -268,6 +279,12 @@ impl<'a> Printer<'a> {
                 });
             }
             Doc::Indent(d) => stack.push(Cmd {
+                indent: cmd.indent + self.opts.indent,
+                levels: deeper(cmd.indent, cmd.levels, self.opts.indent),
+                doc: d,
+                ..cmd
+            }),
+            Doc::Align(d) if self.opts.indent_continuations => stack.push(Cmd {
                 indent: cmd.indent + self.opts.indent,
                 levels: deeper(cmd.indent, cmd.levels, self.opts.indent),
                 doc: d,
@@ -450,6 +467,11 @@ impl<'a> Printer<'a> {
             };
             match cmd.doc {
                 Doc::Nil | Doc::Suffix(_) | Doc::BreakParent => {}
+                Doc::Space(n) => {
+                    if !at_start {
+                        col += n;
+                    }
+                }
                 Doc::Atom { width, space, text } => {
                     if text.contains(&b'\n') {
                         return false;
@@ -580,6 +602,7 @@ mod tests {
             width,
             indent: 2,
             tabs: false,
+            indent_continuations: false,
         }
     }
 

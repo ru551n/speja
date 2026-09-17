@@ -313,6 +313,7 @@ pub fn format_parsed(parsed: &Parsed, cfg: &FormatConfig) -> Result<Vec<u8>, For
         width: cfg.width,
         indent: cfg.indent,
         tabs: cfg.tabs,
+        indent_continuations: cfg.indent_continuations,
     };
     let printed = Parsed::new(doc::print(doc, builder.groups(), &opts));
     verify::equivalent_parsed(parsed, &printed).map_err(FormatError::Internal)?;

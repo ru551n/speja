@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0
+
+Formatter options.
+
+* `number_of_spaces` of VSG's 175 spacing rules sets the spaces between the tokens each rule is
+  about, within its construct; `>=N` keeps wider source spacing. The token pairs are generated
+  from VSG's rule documentation (`scripts/gen_spacing_rules.py`).
+* `port_007` to `port_009` `spaces_before` / `spaces_after` set the spaces around port modes.
+* `action: same_line` in `generic_010`, `port_014`, `generic_map_004` and `port_map_004` keeps
+  the closing parenthesis on the last element's line.
+* `align_left: 'yes'` with `align_paren: 'no'` in `concurrent_003` or `sequential_004` indents
+  continuation lines one level instead of aligning them.
+* The randomized fix test and the corpus example (`CONFIG=file`) cover these options.
+
 ## 0.5.0
 
 Correctness.

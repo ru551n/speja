@@ -1,0 +1,12 @@
+rule:
+  port_007: {spaces_after: 1}
+  port_008: {spaces_before: 2, spaces_after: 1}
+  port_014: {action: same_line}
+  generic_map_004: {action: same_line}
+  concurrent_003: {align_left: 'yes', align_paren: 'no'}
+  signal_005: {number_of_spaces: 2}
+  signal_006: {number_of_spaces: 0}
+  architecture_031: {number_of_spaces: 2}
+  entity_013: {number_of_spaces: 2}
+  process_024: {number_of_spaces: ">=1"}
+  if_003: {number_of_spaces: 0}

@@ -43,7 +43,14 @@ fn first_difference(a: &[u8], b: &[u8]) -> String {
 #[allow(clippy::cast_precision_loss)]
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let mut config = Config::default();
+    // CONFIG=path: a VSG configuration file to format and fix with.
+    let mut config = std::env::var("CONFIG").map_or_else(
+        |_| Config::default(),
+        |path| {
+            Config::parse(&std::fs::read_to_string(path).expect("readable CONFIG"))
+                .expect("valid CONFIG")
+        },
+    );
     if args.first().is_some_and(|a| a == "--width") {
         config.format.width = args[1].parse().expect("width must be a number");
         args.drain(..2);

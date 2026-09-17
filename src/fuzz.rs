@@ -193,6 +193,25 @@ fn random_config(rng: &mut Rng) -> String {
     if rng.below(2) == 0 {
         yaml += "  signal_015:\n    consecutive: 1\n  port_023:\n    fixable: true\n";
     }
+    for rule in [
+        "signal_005",
+        "signal_006",
+        "whitespace_007",
+        "process_024",
+        "if_003",
+        "port_020",
+    ] {
+        if rng.below(3) == 0 {
+            let spaces = pick(rng, &["0", "2", "'>=1'", "'>=2'"]);
+            let _ = writeln!(yaml, "  {rule}:\n    number_of_spaces: {spaces}");
+        }
+    }
+    if rng.below(2) == 0 {
+        yaml += "  port_008:\n    spaces_before: 2\n    spaces_after: 1\n  port_014:\n    action: same_line\n  generic_map_004:\n    action: same_line\n";
+    }
+    if rng.below(2) == 0 {
+        yaml += "  concurrent_003:\n    align_left: 'yes'\n    align_paren: 'no'\n";
+    }
     if rng.below(2) == 0 {
         yaml += "indent:\n  tokens:\n    case_statement:\n      case_keyword: {after: \"+1\", token: current}\n      end_keyword: {after: \"-1\", token: \"-1\"}\n    case_statement_alternative:\n      when_keyword: {after: current, token: current}\n";
     }

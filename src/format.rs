@@ -555,11 +555,53 @@ impl<'a> Builder<'a> {
             return Doc::Nil;
         }
         let width = display_width(&text, self.utf8, 0);
-        Doc::Atom {
-            text,
-            width,
-            space: self.space_before(t),
+        let space = self.space_before(t);
+        if space
+            && !self.cfg.spacing.is_empty()
+            && let Some(prev) = self.parsed.prev_token(t)
+            && let Some(spaces) =
+                crate::layout::spacing_for(self.parsed, &self.cfg.spacing, prev, t)
+        {
+            let n = match spaces {
+                crate::layout::Spaces::Exact(n) => n,
+                // Aligned tokens get their spaces from the alignment, which must stay stable.
+                crate::layout::Spaces::AtLeast(n) if self.padded(prev, t) => n,
+                crate::layout::Spaces::AtLeast(n) => {
+                    let gap = &self.parsed.source()[prev.text_range().end..t.text_offset()];
+                    if gap.iter().all(|b| matches!(b, b' ' | b'\t')) {
+                        gap.len().max(n)
+                    } else {
+                        n
+                    }
+                }
+            };
+            // Zero spaces only where the tokens stay apart without one.
+            let n = if n == 0 && requires_separator(prev.token(), t.token(), self.standard) {
+                1
+            } else {
+                n
+            };
+            return concat(vec![
+                Doc::Space(n),
+                Doc::Atom {
+                    text,
+                    width,
+                    space: false,
+                },
+            ]);
         }
+        Doc::Atom { text, width, space }
+    }
+
+    /// Whether alignment adds spaces between `prev` and `t`.
+    fn padded(&self, prev: &SyntaxToken, t: &SyntaxToken) -> bool {
+        self.pads
+            .get(&prev.text_offset())
+            .is_some_and(|p| p.after > 0)
+            || self
+                .pads
+                .get(&t.text_offset())
+                .is_some_and(|p| p.before > 0)
     }
 
     fn pad(n: usize, group: Option<GroupId>) -> Doc {
@@ -1017,8 +1059,12 @@ impl<'a> Builder<'a> {
             );
             out.push(self.elem(&children[i]));
             out.push(Doc::indent_n(body_level, concat(body)));
-            let closing = concat(vec![Doc::Hard, self.tok(&close_tok)]);
-            out.push(Doc::indent_n(close_level, closing));
+            if self.cfg.close_paren_same_line.contains(&n.kind()) {
+                out.push(self.tok(&close_tok));
+            } else {
+                let closing = concat(vec![Doc::Hard, self.tok(&close_tok)]);
+                out.push(Doc::indent_n(close_level, closing));
+            }
             i = close + 1;
         }
         concat(out)
@@ -1061,7 +1107,18 @@ impl<'a> Builder<'a> {
             });
             if let Some(mode) = mode.filter(|_| n.kind() == N::InterfaceObjectDeclaration) {
                 let pad = self.pads.entry(mode.text_offset()).or_default();
-                pad.after = MODE_WIDTH.saturating_sub(mode.text().len());
+                let configured = match mode.kind() {
+                    T::Keyword(Kw::In) => Some(self.cfg.mode_spacing[0]),
+                    T::Keyword(Kw::Out) => Some(self.cfg.mode_spacing[1]),
+                    T::Keyword(Kw::Inout) => Some(self.cfg.mode_spacing[2]),
+                    _ => None,
+                };
+                // One space is printed anyway; the pads add the rest.
+                pad.after = configured.map_or_else(
+                    || MODE_WIDTH.saturating_sub(mode.text().len()),
+                    |(_, after)| after - 1,
+                );
+                pad.before = configured.map_or(0, |(before, _)| before - 1);
                 pad.group = group;
             }
         }

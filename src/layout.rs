@@ -7,10 +7,10 @@
 //! rules through a table learned by comparing with VSG's reports on real code
 //! (`scripts/learn_layout_rules.py`); unknown changes are reported under `format`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
 
-use vhdl_syntax::syntax::{SyntaxNode, SyntaxToken};
+use vhdl_syntax::syntax::{NodeKind, SyntaxNode, SyntaxToken};
 use vhdl_syntax::tokens::TokenKind as T;
 
 use crate::Parsed;
@@ -265,6 +265,122 @@ fn table() -> &'static HashMap<String, String> {
     static TABLE: OnceLock<HashMap<String, String>> = OnceLock::new();
     TABLE
         .get_or_init(|| serde_json::from_str(include_str!("layout_rules.json")).unwrap_or_default())
+}
+
+/// Spaces a VSG `number_of_spaces` option asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Spaces {
+    Exact(usize),
+    /// At least this many; wider source spacing is kept (`>=1`).
+    AtLeast(usize),
+}
+
+/// A configured spacing between two tokens (`None`: any token) inside some constructs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpacingRule {
+    pub kinds: &'static [NodeKind],
+    pub prev: Option<&'static str>,
+    pub next: Option<&'static str>,
+    pub spaces: Spaces,
+}
+
+type PairTable = BTreeMap<String, Vec<[Option<String>; 2]>>;
+
+/// The token pairs each VSG spacing rule checks, from its documentation
+/// (`scripts/gen_spacing_rules.py`).
+pub(crate) fn spacing_pairs() -> &'static PairTable {
+    static TABLE: OnceLock<PairTable> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        serde_json::from_str(include_str!("spacing_rules.json")).unwrap_or_default()
+    })
+}
+
+/// The constructs any spacing rule applies to.
+fn spacing_constructs() -> &'static HashSet<NodeKind> {
+    static KINDS: OnceLock<HashSet<NodeKind>> = OnceLock::new();
+    KINDS.get_or_init(|| {
+        spacing_pairs()
+            .keys()
+            .flat_map(|rule| crate::keywords::constructs(rule).iter().copied())
+            .collect()
+    })
+}
+
+/// Whether `t` is what a spacing matcher names: a keyword, `identifier` or a symbol.
+fn token_is(name: &str, t: &SyntaxToken) -> bool {
+    match t.kind() {
+        T::Keyword(_) => kind_name(t) == name,
+        T::Identifier => name == "identifier",
+        _ => t.text().as_bytes() == name.as_bytes(),
+    }
+}
+
+/// Whether the token before a spacing is what `name` names. A keyword after `end` only
+/// matches `end <keyword>`, as closing and opening rules differ.
+fn prev_is(name: &str, t: &SyntaxToken, parsed: &Parsed) -> bool {
+    let after_end = matches!(t.kind(), T::Keyword(_))
+        && parsed
+            .prev_token(t)
+            .is_some_and(|p| p.kind() == T::Keyword(vhdl_syntax::tokens::Keyword::End));
+    match name.strip_prefix("end ") {
+        Some(keyword) => after_end && token_is(keyword, t),
+        None => !after_end && token_is(name, t),
+    }
+}
+
+/// The spaces the first matching rule asks for between `prev` and `t`.
+pub(crate) fn spacing_for(
+    parsed: &Parsed,
+    rules: &[SpacingRule],
+    prev: &SyntaxToken,
+    t: &SyntaxToken,
+) -> Option<Spaces> {
+    rules
+        .iter()
+        .find(|r| spacing_applies(parsed, r, prev, t))
+        .map(|r| r.spaces)
+}
+
+fn spacing_applies(
+    parsed: &Parsed,
+    rule: &SpacingRule,
+    prev: &SyntaxToken,
+    t: &SyntaxToken,
+) -> bool {
+    if rule.prev.is_some_and(|m| !prev_is(m, prev, parsed))
+        || rule.next.is_some_and(|m| !token_is(m, t))
+    {
+        return false;
+    }
+    if rule.kinds.is_empty() {
+        return true;
+    }
+    let sides = [(rule.prev, prev), (rule.next, t)];
+    // The construct is the one of the most specific named token: keyword, symbol, identifier.
+    let Some(anchor) = sides
+        .iter()
+        .filter(|(m, _)| m.is_some())
+        .min_by_key(|(m, tok)| match tok.kind() {
+            T::Keyword(_) => 0,
+            _ if *m == Some("identifier") => 2,
+            _ => 1,
+        })
+        .map(|(_, tok)| *tok)
+    else {
+        return false;
+    };
+    // ponytail: the owner is looked for three levels up only, so that names deep inside
+    // expressions do not count; a per-rule path would be exact.
+    let mut node = Some(anchor.parent());
+    for _ in 0..3 {
+        let Some(n) = node else { break };
+        let kind = crate::format::construct_kind(&n);
+        if spacing_constructs().contains(&kind) {
+            return rule.kinds.contains(&kind);
+        }
+        node = n.parent();
+    }
+    false
 }
 
 /// The VSG rule that reports a change: known directly, from the learned table, or `format`.

@@ -40,6 +40,17 @@ pub struct FormatConfig {
     pub align: crate::align::AlignSettings,
     /// Indentation of construct parts (VSG `indent.tokens`).
     pub indent_policy: crate::indent::IndentPolicy,
+    /// Spaces between particular tokens (VSG `number_of_spaces`), where configured unlike VSG's
+    /// default.
+    pub spacing: Vec<crate::layout::SpacingRule>,
+    /// Spaces before and after the port modes `in`, `out` and `inout` (VSG `port_007` to
+    /// `port_009`).
+    pub mode_spacing: [(usize, usize); 3],
+    /// Generic clause, port clause, generic map and port map whose `)` stays on the last
+    /// element's line (VSG `action: same_line`).
+    pub close_paren_same_line: Vec<vhdl_syntax::syntax::NodeKind>,
+    /// Continuation lines are indented instead of aligned (VSG `align_left`/`align_paren`).
+    pub indent_continuations: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +72,10 @@ impl Default for FormatConfig {
             blank: crate::blank::BlankSettings::default(),
             align: crate::align::AlignSettings::default(),
             indent_policy: crate::indent::IndentPolicy::default(),
+            spacing: Vec::new(),
+            mode_spacing: [(1, 4), (1, 3), (1, 1)],
+            close_paren_same_line: Vec::new(),
+            indent_continuations: false,
         }
     }
 }
@@ -410,6 +425,7 @@ impl Config {
         }
         self.resolve_blank_lines();
         self.resolve_alignment();
+        self.resolve_spacing();
         let tokens = self
             .raw_indent
             .as_ref()
@@ -488,6 +504,99 @@ impl Config {
         }
         self.format.keyword_case_overrides = everywhere;
         self.format.keyword_case_in = contextual;
+    }
+
+    /// VSG options that set spaces, parenthesis placement and continuation style.
+    fn resolve_spacing(&mut self) {
+        use vhdl_syntax::syntax::NodeKind;
+        let number = |s: &RuleSettings, key: &str| {
+            s.options
+                .get(key)
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|t| t.trim().parse().ok()))
+                })
+                .and_then(|n| usize::try_from(n).ok())
+        };
+        let mut spacing = Vec::new();
+        let defaults = &crate::vsg_defaults::defaults()["rule"];
+        for (rule, pairs) in crate::layout::spacing_pairs() {
+            let Some(settings) = self.rule_by_id(rule).filter(|s| s.enabled) else {
+                continue;
+            };
+            let Some(value) = settings.options.get("number_of_spaces") else {
+                continue;
+            };
+            let Some(text) = value
+                .as_str()
+                .map(str::to_owned)
+                .or_else(|| value.as_u64().map(|n| n.to_string()))
+            else {
+                self.warn(&format!(
+                    "{rule}: number_of_spaces must be a number or \">=N\""
+                ));
+                continue;
+            };
+            let default = &defaults[rule.as_str()]["number_of_spaces"];
+            let default = default
+                .as_str()
+                .map(str::to_owned)
+                .or_else(|| default.as_u64().map(|n| n.to_string()));
+            if default.as_deref() == Some(text.as_str()) {
+                continue;
+            }
+            let text = text.trim();
+            let spaces = match text.strip_prefix(">=").map(str::trim) {
+                Some(n) => n.parse().ok().map(crate::layout::Spaces::AtLeast),
+                None => text.parse().ok().map(crate::layout::Spaces::Exact),
+            };
+            let Some(spaces) = spaces else {
+                self.warn(&format!("{rule}: unsupported number_of_spaces `{text}`"));
+                continue;
+            };
+            if spaces == crate::layout::Spaces::Exact(1) {
+                continue;
+            }
+            for [prev, next] in pairs {
+                spacing.push(crate::layout::SpacingRule {
+                    kinds: crate::keywords::constructs(rule),
+                    prev: prev.as_deref(),
+                    next: next.as_deref(),
+                    spaces,
+                });
+            }
+        }
+        self.format.spacing = spacing;
+        for (i, rule) in ["port_007", "port_008", "port_009"].iter().enumerate() {
+            if let Some(s) = self.rule_by_id(rule).filter(|s| s.enabled) {
+                let (before, after) = self.format.mode_spacing[i];
+                self.format.mode_spacing[i] = (
+                    number(&s, "spaces_before").unwrap_or(before).max(1),
+                    number(&s, "spaces_after").unwrap_or(after).max(1),
+                );
+            }
+        }
+        self.format.close_paren_same_line = [
+            ("generic_010", NodeKind::GenericClause),
+            ("port_014", NodeKind::PortClause),
+            ("generic_map_004", NodeKind::GenericMapAspect),
+            ("port_map_004", NodeKind::PortMapAspect),
+        ]
+        .into_iter()
+        .filter(|(rule, _)| {
+            self.rule_by_id(rule)
+                .is_some_and(|s| s.enabled && s.option_str("action") == Some("same_line"))
+        })
+        .map(|(_, kind)| kind)
+        .collect();
+        self.format.indent_continuations =
+            ["concurrent_003", "sequential_004"].iter().any(|rule| {
+                self.rule_by_id(rule).is_some_and(|s| {
+                    s.enabled
+                        && s.option_str("align_left") == Some("yes")
+                        && s.option_str("align_paren") == Some("no")
+                })
+            });
     }
 
     fn resolve_alignment(&mut self) {

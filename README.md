@@ -175,10 +175,11 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 cargo run --release --example corpus -- --width 80 path/to/vhdl   # stability and overflow report
-FIX=1 cargo run --release --example corpus -- path/to/vhdl         # the same for --fix (FIX=unsafe: --unsafe_fixes)
+FIX=1 cargo run --release --example corpus -- path/to/vhdl         # the same for --fix (FIX=unsafe: --unsafe_fixes; CONFIG=file)
 cargo run --release --example bench                                # timing on generated inputs
 python scripts/compare_vsg.py FILE...                              # findings per rule, vsg-rs vs VSG 3.35
 python scripts/learn_layout_rules.py FILE...                       # relearn src/layout_rules.json
+python scripts/gen_spacing_rules.py VSG_CHECKOUT/docs              # regenerate src/spacing_rules.json
 UPDATE_EXPECT=1 cargo test --test golden                           # re-bless golden files (review the diff)
 ```
 
