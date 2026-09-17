@@ -58,7 +58,7 @@ On GitHub, the vsg-rs action shows findings as annotations and can upload them t
 scanning ([GitHub Action](github-action.md)):
 
 ```yaml
-- uses: ru551n/vsg-rs@v0.9.4
+- uses: ru551n/vsg-rs@v0.9.5
   with:
     args: -c vsg.yaml --recursive src
 ```
