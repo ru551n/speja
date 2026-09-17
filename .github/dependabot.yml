@@ -1,0 +1,34 @@
+# Dependency updates, once a week, grouped so that each ecosystem opens at most one pull
+# request for minor and patch updates. CI (and, for workflow changes, the release and action
+# test workflows) must pass before merging.
+version: 2
+updates:
+  # Rust crates (Cargo.toml / Cargo.lock). vhdl_syntax is pinned to a git revision on purpose
+  # (see docs/vhdl-frontend.md) and is updated by hand.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: vhdl_syntax
+    groups:
+      cargo:
+        update-types: [minor, patch]
+
+  # GitHub Actions used by the workflows and by the composite action (action.yml).
+  - package-ecosystem: github-actions
+    directories: [/, /.github/workflows]
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        update-types: [minor, patch]
+
+  # Python packaging (pyproject.toml: the maturin build requirement).
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        update-types: [minor, patch]
