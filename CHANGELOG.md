@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.6
+
+* The GitHub Action still posts new suggestions when it may not resolve earlier ones, and warns
+  that resolving review threads needs `contents: write`. The documentation's workflow
+  examples grant it.
+
 ## 0.9.5
 
 * The GitHub Action resolves its suggestion threads that no longer apply on each run (and

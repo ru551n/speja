@@ -178,10 +178,18 @@ def sync_threads(repo: str, number: int, current: set) -> set:
         wanted = key in current
         if wanted == thread["isResolved"]:
             mutation = "unresolveReviewThread" if wanted else "resolveReviewThread"
-            graphql(
-                f"mutation($id: ID!) {{ {mutation}(input: {{threadId: $id}}) {{ thread {{ id }} }} }}",
-                {"id": thread["id"]},
-            )
+            try:
+                graphql(
+                    f"mutation($id: ID!) {{ {mutation}(input: {{threadId: $id}}) "
+                    "{ thread { id } } }",
+                    {"id": thread["id"]},
+                )
+            except (urllib.error.HTTPError, RuntimeError) as e:
+                warn(
+                    f"cannot resolve or reopen earlier suggestions ({getattr(e, 'code', e)}); "
+                    "the job needs `contents: write` for that"
+                )
+                break
     return existing
 
 

@@ -20,11 +20,11 @@ jobs:
   vsg:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write          # only to resolve suggestions that no longer apply (else: read)
       pull-requests: write     # suggestions and the summary comment
     steps:
       - uses: actions/checkout@v6
-      - uses: ru551n/vsg-rs@v0.9.5
+      - uses: ru551n/vsg-rs@v0.9.6
         with:
           args: -c vsg.yaml --recursive src
 ```
@@ -52,7 +52,9 @@ that the pull request shows and that still read as vsg-rs saw them; at most 50 p
 suggestion that was already posted is not repeated. On every run, the action resolves its
 earlier suggestion threads that vsg-rs no longer makes (the problem was fixed, or the lines
 changed) and reopens a resolved one when the same suggestion applies again, so only open
-problems stay expanded.
+problems stay expanded. GitHub only lets a workflow resolve review threads with
+`contents: write`; with `contents: read`, the action warns and leaves earlier suggestions as
+they are (GitHub still collapses those whose lines changed). The action itself never pushes.
 
 ## Code scanning (SARIF), optional
 

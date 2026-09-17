@@ -171,11 +171,11 @@ jobs:
   vsg:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write          # only to resolve suggestions that no longer apply (else: read)
       pull-requests: write     # suggestions and the summary comment
     steps:
       - uses: actions/checkout@v5
-      - uses: ru551n/vsg-rs@v0.9.5
+      - uses: ru551n/vsg-rs@v0.9.6
         with:
           args: -c vsg.yaml --recursive src   # any vsg-rs arguments
 ```
