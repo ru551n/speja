@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0
+
+Correctness.
+
+* Fixes that delete text no longer join neighbouring words or start a comment
+  (`if(a)then` with `if_002` `parenthesis: remove` produced `ifa`).
+* Consistency rules skip names that the file declares with different kinds of declaration
+  (for example a signal and a variable), where only name resolution could tell which one a use
+  refers to.
+* A new randomized test fixes files twice under random configurations (case, actions,
+  disabled groups, alignment, `indent.tokens`, unsafe fixes) and requires no internal error
+  and no change in the second run; it passes on the real-world corpus.
+* `reserved_001` reports declarations only, and `type_mark_500` skips subprogram parameters and
+  protected types (with the comparison against VSG: 12 findings that only vsg-rs reports, down
+  from 49).
+
 ## 0.4.0
 
 Measurable VSG compatibility.

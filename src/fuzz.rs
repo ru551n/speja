@@ -150,3 +150,92 @@ fn token_deletions_are_safe() {
     }
     assert!(formatted > 50, "too few mutants parsed: {formatted}");
 }
+
+/// A random VSG configuration: case policies, `action` options, disabled groups, alignment and
+/// indentation settings.
+fn random_config(rng: &mut Rng) -> String {
+    let pick = |rng: &mut Rng, options: &[&'static str]| options[rng.below(options.len())];
+    let mut yaml = String::from("rule:\n  global:\n");
+    yaml += &format!("    case: {}\n", pick(rng, &["lower", "upper"]));
+    yaml += &format!("    indent_size: {}\n", pick(rng, &["2", "3", "4"]));
+    yaml += &format!(
+        "    indent_style: {}\n",
+        pick(rng, &["spaces", "smart_tabs"])
+    );
+    let mut groups = String::new();
+    for group in ["alignment", "blank_line", "case::keyword", "structure"] {
+        if rng.below(3) == 0 {
+            groups += &format!("    {group}:\n      disable: true\n");
+        }
+    }
+    if !groups.is_empty() {
+        yaml += "  group:\n";
+        yaml += &groups;
+    }
+    for rule in [
+        "entity_015",
+        "architecture_024",
+        "instantiation_033",
+        "if_002",
+        "process_012",
+    ] {
+        if rng.below(2) == 0 {
+            let action = if rule == "if_002" {
+                format!("parenthesis: {}", pick(rng, &["insert", "remove"]))
+            } else {
+                format!("action: {}", pick(rng, &["add", "remove"]))
+            };
+            yaml += &format!("  {rule}:\n    {action}\n");
+        }
+    }
+    if rng.below(2) == 0 {
+        yaml += "  signal_015:\n    consecutive: 1\n  port_023:\n    fixable: true\n";
+    }
+    if rng.below(2) == 0 {
+        yaml += "indent:\n  tokens:\n    case_statement:\n      case_keyword: {after: \"+1\", token: current}\n      end_keyword: {after: \"-1\", token: \"-1\"}\n    case_statement_alternative:\n      when_keyword: {after: current, token: current}\n";
+    }
+    yaml
+}
+
+#[test]
+fn fixes_are_complete_under_random_configurations() {
+    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
+    for (name, src) in inputs() {
+        if !Parsed::new(src.clone()).syntax_errors().is_empty() {
+            continue;
+        }
+        for _ in 0..3 {
+            let yaml = random_config(&mut rng);
+            let config = crate::Config::parse(&yaml).expect("valid configuration");
+            let options = crate::FixOptions {
+                unsafe_fixes: rng.below(2) == 0,
+                ..crate::FixOptions::default()
+            };
+            let once = match crate::fix_with(&Parsed::new(src.clone()), &config, &options) {
+                Ok(out) => out.output,
+                Err(FormatError::Internal(e)) => panic!("{name} with\n{yaml}: {e}"),
+                Err(_) => continue,
+            };
+            let twice = crate::fix_with(&Parsed::new(once.clone()), &config, &options)
+                .unwrap_or_else(|e| panic!("{name} (second run) with\n{yaml}: {e}"))
+                .output;
+            assert!(
+                once == twice,
+                "{name}: a second fix run changes the output with\n{yaml}\n{}",
+                crate::fuzz::first_difference(&once, &twice)
+            );
+        }
+    }
+}
+
+fn first_difference(a: &[u8], b: &[u8]) -> String {
+    let (a, b) = (String::from_utf8_lossy(a), String::from_utf8_lossy(b));
+    a.lines()
+        .zip(b.lines())
+        .enumerate()
+        .find(|(_, (x, y))| x != y)
+        .map_or_else(
+            || "(length differs)".into(),
+            |(i, (x, y))| format!("line {}:\n  {x}\n  {y}", i + 1),
+        )
+}

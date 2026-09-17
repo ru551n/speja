@@ -117,6 +117,8 @@ pub(crate) struct Context<'a> {
     use_sites: OnceCell<Vec<(usize, SyntaxToken, Box<str>)>>,
     /// Declarations of the other files checked together with this one.
     pub(crate) project: Option<&'a Project>,
+    /// Lower-case names with the kinds of declaration that declare them in this file.
+    declared_kinds: OnceCell<HashMap<String, Vec<&'static str>>>,
 }
 
 impl<'a> Context<'a> {
@@ -144,6 +146,7 @@ impl<'a> Context<'a> {
             canonical,
             use_sites: OnceCell::new(),
             project,
+            declared_kinds: OnceCell::new(),
         }
     }
 
@@ -168,6 +171,11 @@ impl<'a> Context<'a> {
                 })
                 .collect()
         })
+    }
+
+    pub(crate) fn declared_kinds(&self) -> &HashMap<String, Vec<&'static str>> {
+        self.declared_kinds
+            .get_or_init(|| case::declared_kinds(self))
     }
 
     /// The canonical formatting of this snapshot, parsed once on first use.

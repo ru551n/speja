@@ -444,6 +444,37 @@ fn case_label_rules() -> Vec<Rule> {
     }
 }
 
+/// Every name declared in the snapshot, with the kinds of declaration (by consistency rule, or
+/// `interface` for ports, generics and parameters) that declare it.
+pub(super) fn declared_kinds(cx: &Context<'_>) -> HashMap<String, Vec<&'static str>> {
+    let mut out: HashMap<String, Vec<&'static str>> = HashMap::new();
+    let mut add = |kind: &'static str, tokens: Vec<SyntaxToken>| {
+        for t in tokens {
+            let kinds = out.entry(text(&t).to_ascii_lowercase()).or_default();
+            if !kinds.contains(&kind) {
+                kinds.push(kind);
+            }
+        }
+    };
+    add("signal_014", declared(cx, N::SignalDeclaration));
+    add("constant_013", declared(cx, N::ConstantDeclaration));
+    add("variable_011", declared(cx, N::VariableDeclaration));
+    add("type_014", type_names(cx));
+    add("subtype_002", idents_of(cx, N::SubtypeDeclaration));
+    add("alias_declaration_503", idents_of(cx, N::AliasDeclaration));
+    add("type_501", enum_literals(cx));
+    add("function_010", designators(cx, N::FunctionSpecification));
+    add("procedure_507", designators(cx, N::ProcedureSpecification));
+    let interfaces: Vec<SyntaxToken> = cx
+        .nodes(N::InterfaceList)
+        .iter()
+        .flat_map(|l| interface_idents(l).into_iter().map(|(t, _)| t))
+        .chain(idents_of(cx, N::ParameterSpecification))
+        .collect();
+    add("interface", interfaces);
+    out
+}
+
 /// Declarations and the region in which their uses must repeat the declared spelling.
 struct Scope {
     decls: Vec<SyntaxToken>,
@@ -623,10 +654,26 @@ fn check_consistency(
         let range = scope.region.text_range();
         let first = sites.partition_point(|(o, _, _)| *o < range.start);
         let last = sites.partition_point(|(o, _, _)| *o < range.end);
+        let own_kind = if matches!(rule, "architecture_600" | "architecture_601" | "entity_600")
+            || matches!(rule, "function_508" | "procedure_509")
+        {
+            "interface"
+        } else {
+            rule
+        };
         for (_, t, lower) in &sites[first..last] {
             let Some(Some(want)) = target.get(&**lower) else {
                 continue;
             };
+            // Declared by different kinds of declaration: which one a use refers to needs name
+            // resolution, so it is not checked.
+            if cx
+                .declared_kinds()
+                .get(&**lower)
+                .is_some_and(|kinds| kinds.iter().any(|k| *k != own_kind))
+            {
+                continue;
+            }
             let name = text(t);
             if *want != name && !scope.decls.contains(t) {
                 let mut v = violation(
@@ -910,6 +957,13 @@ mod tests {
         assert!(!found(src, "").iter().any(|(r, _)| *r == "signal_014"));
         let vsg = found(src, "rule:\n  signal_014:\n    spelling: declaration\n");
         assert!(has(&vsg, "signal_014", "sig"), "{vsg:?}");
+    }
+
+    #[test]
+    fn names_declared_by_different_kinds_are_not_checked() {
+        let src = "architecture rtl of e is\n  signal Count : integer;\nbegin\n  process\n    variable count : integer;\n  begin\n    count := 1;\n  end process;\nend architecture rtl;\n";
+        let f = found(src, "rule:\n  signal_014:\n    spelling: declaration\n");
+        assert!(!f.iter().any(|(r, _)| *r == "signal_014"), "{f:?}");
     }
 
     #[test]

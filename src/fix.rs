@@ -88,8 +88,15 @@ pub fn fix_edits(source: &[u8], edits: &[Edit]) -> Vec<TextEdit> {
         text.extend_from_slice(e.text.as_bytes());
         let start = e.start.max(pos);
         pos = pos.max(e.end);
-        if e.text.bytes().last().is_some_and(is_word)
-            && source.get(pos).copied().is_some_and(is_word)
+        let next = source.get(pos).copied();
+        if e.text.bytes().last().is_some_and(is_word) && next.is_some_and(is_word) {
+            text.push(b' ');
+        }
+        // A deletion must not join its neighbours into one token (`if(a)` → `ifa`) or start a
+        // comment (`-(-a)` → `--a`).
+        if let (true, Some(before), Some(after)) = (text.is_empty(), last, next)
+            && ((is_word(before) && is_word(after))
+                || matches!((before, after), (b'-', b'-') | (b'/', b'*')))
         {
             text.push(b' ');
         }
@@ -290,8 +297,11 @@ mod tests {
         assert!(!conflicts(&del(1, 5), &del(5, 8)));
         assert_eq!(
             apply(b"ab,cd,ef", &[del(2, 3), ins(5, "x"), ins(5, "y")]),
-            b"abcd x y,ef"
+            b"ab cd x y,ef"
         );
         assert_eq!(apply(b"(all)begin", &[ins(5, " is")]), b"(all) is begin");
+        // Deleting the parentheses of `if(a)then` keeps the words apart.
+        assert_eq!(apply(b"if(a)then", &[del(2, 3), del(4, 5)]), b"if a then");
+        assert_eq!(apply(b"x -(-a)", &[del(3, 4), del(6, 7)]), b"x - -a");
     }
 }
