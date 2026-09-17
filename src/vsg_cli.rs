@@ -5,13 +5,117 @@
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{CommandFactory, Parser, ValueEnum};
 use rayon::prelude::*;
 use vsg_rs::config::Config;
-use vsg_rs::{FixOptions, Parsed, rules};
+use vsg_rs::rules::{self, Project, Violation};
+use vsg_rs::{FixOptions, FormatError, Parsed};
 
-use crate::{Diagnostic, describe_error, diagnostic, format_findings, write_atomically};
+/// One reported violation.
+struct Diagnostic {
+    line: usize,
+    column: usize,
+    rule: String,
+    /// `error` or `warning`.
+    severity: String,
+    message: String,
+}
+
+fn diagnostic(parsed: &Parsed, v: &Violation) -> Diagnostic {
+    let (line, column) = parsed.line_col(v.start);
+    Diagnostic {
+        line,
+        column,
+        rule: v.rule.to_owned(),
+        severity: v.severity.to_string(),
+        message: v.message.clone(),
+    }
+}
+
+fn describe_error(parsed: &Parsed, e: &FormatError) -> String {
+    let at = |offset| {
+        let (line, col) = parsed.line_col(offset);
+        format!("{line}:{col}")
+    };
+    match e {
+        FormatError::Syntax(diags) => {
+            let first = diags
+                .first()
+                .map(|d| format!(" (first at {}: {})", at(d.offset), d.message))
+                .unwrap_or_default();
+            format!("{e}{first}; left unchanged")
+        }
+        FormatError::Unsupported(d) => format!("{}: {e}; left unchanged", at(d.offset)),
+        FormatError::Internal(_) => format!("{e}; left unchanged (please report this)"),
+    }
+}
+
+/// One violation per changed range of lines between the source and its formatting.
+fn format_findings(old: &[u8], new: &[u8]) -> Vec<Diagnostic> {
+    let old_lines: Vec<&[u8]> = old.split_inclusive(|&b| b == b'\n').collect();
+    let new_lines: Vec<&[u8]> = new.split_inclusive(|&b| b == b'\n').collect();
+    let last_line = old_lines.len().max(1);
+    let finding = |line: usize, message: String| Diagnostic {
+        line: line.min(last_line),
+        column: 1,
+        rule: "format".into(),
+        severity: "error".into(),
+        message,
+    };
+    let mut out = Vec::new();
+    for op in similar::capture_diff_slices(similar::Algorithm::Myers, &old_lines, &new_lines) {
+        let (tag, o, n) = op.as_tag_tuple();
+        let first = o.start + 1;
+        let last = o.end.max(o.start + 1);
+        let message = match tag {
+            similar::DiffTag::Equal => continue,
+            similar::DiffTag::Insert => format!("Formatting inserts {} line(s) here", n.len()),
+            similar::DiffTag::Delete if o.len() == 1 => "Formatting removes this line".to_owned(),
+            similar::DiffTag::Delete => format!("Formatting removes lines {first}-{last}"),
+            similar::DiffTag::Replace if o.len() == 1 => "Line is not formatted".to_owned(),
+            similar::DiffTag::Replace => format!("Lines {first}-{last} are not formatted"),
+        };
+        out.push(finding(first, message));
+    }
+    if out.is_empty() {
+        // Only line endings or the final newline differ.
+        out.push(finding(last_line, "File is not formatted".into()));
+    }
+    out
+}
+
+/// Replace `path` with `contents` without ever leaving a partially written file.
+fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    tmp.write_all(contents)?;
+    tmp.as_file().sync_all()?;
+    tmp.as_file()
+        .set_permissions(std::fs::metadata(path)?.permissions())?;
+    tmp.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
+/// 64-bit FNV-1a, stable across platforms and releases.
+fn fnv1a(bytes: impl IntoIterator<Item = u8>, seed: u64) -> u64 {
+    bytes.into_iter().fold(seed, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// A stable 128-bit hex fingerprint of `key` (GitLab code quality).
+fn fingerprint(key: &str) -> String {
+    format!(
+        "{:016x}{:016x}",
+        fnv1a(key.bytes(), 0xcbf2_9ce4_8422_2325),
+        fnv1a(key.bytes().rev(), 0x8422_2325_cbf2_9ce4)
+    )
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lower")]
@@ -36,9 +140,7 @@ enum Style {
     bin_name = "vsg-rs",
     about = "Analyzes VHDL files for style guide violations. Reference documentation is \
              located at: http://vhdl-style-guide.readthedocs.io/en/latest/index.html",
-    disable_version_flag = true,
-    after_help = "vsg-rs also provides the subcommands `fmt`, `lint`, `check`, `fix`, `rules` \
-                  and `explain` (for example `vsg-rs fmt --help`)."
+    disable_version_flag = true
 )]
 struct Args {
     /// File to analyze
@@ -105,9 +207,50 @@ struct Args {
     /// Displays verbose debug information
     #[arg(long)]
     debug: bool,
-    /// vsg-rs: with --fix, also apply fixes that may change behaviour
+    /// With --fix, also apply fixes that VSG does not apply by default; they may change
+    /// behaviour or remove information (vsg-rs extension)
     #[arg(long = "unsafe_fixes")]
     unsafe_fixes: bool,
+    /// With --fix, print a unified diff instead of changing files (vsg-rs extension)
+    #[arg(long)]
+    diff: bool,
+    /// With --stdin --fix, change only lines START to END, 1-based (vsg-rs extension)
+    #[arg(long, value_name = "START:END", value_parser = parse_line_range)]
+    range: Option<(usize, usize)>,
+    /// Path of the --stdin input, for configuration lookup and reports (vsg-rs extension)
+    #[arg(long = "stdin_filename", value_name = "PATH")]
+    stdin_filename: Option<PathBuf>,
+    /// Extract SARIF 2.1.0 file for code scanning (vsg-rs extension)
+    #[arg(long, value_name = "SARIF")]
+    sarif: Option<PathBuf>,
+    /// List every VSG rule and how vsg-rs handles it (vsg-rs extension)
+    #[arg(long = "list_rules")]
+    list_rules: bool,
+}
+
+/// Parse `START:END` (1-based, inclusive line numbers).
+fn parse_line_range(s: &str) -> Result<(usize, usize), String> {
+    let (a, b) = s.split_once(':').ok_or("expected START:END")?;
+    let a: usize = a.trim().parse().map_err(|e| format!("START: {e}"))?;
+    let b: usize = b.trim().parse().map_err(|e| format!("END: {e}"))?;
+    if a == 0 || b < a {
+        return Err("expected 1 <= START <= END".into());
+    }
+    Ok((a, b))
+}
+
+/// Byte range of 1-based lines `first..=last`.
+fn line_range(src: &[u8], (first, last): (usize, usize)) -> std::ops::Range<usize> {
+    let start = |n: usize| match n.checked_sub(2) {
+        None => 0,
+        Some(k) => src
+            .iter()
+            .enumerate()
+            .filter(|&(_, &b)| b == b'\n')
+            .nth(k)
+            .map_or(src.len(), |(i, _)| i + 1),
+    };
+    start(first)..start(last + 1)
 }
 
 /// VSG's multi-letter single-dash options, as long options.
@@ -168,23 +311,28 @@ fn check(
         error: None,
         output: None,
     };
-    if !parsed.syntax_errors().is_empty() {
+    // A file with only comments has nothing to check but still formats.
+    if !parsed.syntax_errors().is_empty() && !parsed.is_blank() {
         let e = vsg_rs::FormatError::Syntax(parsed.syntax_errors().to_vec());
         result.error = Some(describe_error(&parsed, &e));
         return result;
     }
     let indent_only = args.style == Some(Style::IndentOnly);
+    if let (true, Some(lines)) = (args.fix, args.range) {
+        let range = line_range(parsed.source(), lines);
+        match vsg_rs::fix_range(&parsed, cfg, options, range) {
+            Ok(edits) => result.output = Some(vsg_rs::apply_edits(parsed.source(), &edits)),
+            Err(e) => result.error = Some(describe_error(&parsed, &e)),
+        }
+        return result;
+    }
     if args.fix {
         let fixed = if indent_only {
             vsg_rs::reindent(&parsed, &cfg.format).map(|out| (out, Vec::new()))
         } else {
             vsg_rs::fix_with(&parsed, cfg, options).map(|o| {
                 let fixed = Parsed::new(o.output.clone());
-                let remaining = o
-                    .remaining
-                    .iter()
-                    .map(|v| diagnostic(name, &fixed, v))
-                    .collect();
+                let remaining = o.remaining.iter().map(|v| diagnostic(&fixed, v)).collect();
                 (o.output, remaining)
             })
         };
@@ -200,18 +348,16 @@ fn check(
     let formatted = if indent_only {
         vsg_rs::reindent(&parsed, &cfg.format)
     } else {
-        let (violations, formatted) = rules::check_and_format(&parsed, cfg);
-        result.violations = violations
-            .iter()
-            .map(|v| diagnostic(name, &parsed, v))
-            .collect();
+        let (violations, formatted) =
+            rules::check_and_format_with(&parsed, cfg, options.project.as_deref());
+        result.violations = violations.iter().map(|v| diagnostic(&parsed, v)).collect();
         formatted
     };
     match formatted {
         Ok(formatted) if formatted != parsed.source() => {
             result
                 .violations
-                .extend(format_findings(name, parsed.source(), &formatted));
+                .extend(format_findings(parsed.source(), &formatted));
         }
         Ok(_) => {}
         Err(e) => result.error = Some(describe_error(&parsed, &e)),
@@ -431,7 +577,7 @@ fn quality_report(results: &[FileResult]) -> String {
             let key = format!("{}:{}:{}:{}", r.name, d.rule, d.line, d.message);
             serde_json::json!({
                 "description": format!("{} :: {}", d.rule, d.message),
-                "fingerprint": crate::report::fingerprint(&key),
+                "fingerprint": fingerprint(&key),
                 "severity": if d.severity == "warning" { "minor" } else { "critical" },
                 "location": { "path": r.name, "lines": { "begin": d.line } },
             })
@@ -440,23 +586,74 @@ fn quality_report(results: &[FileResult]) -> String {
     serde_json::to_string_pretty(&issues).unwrap_or_default()
 }
 
+fn sarif_report(results: &[FileResult]) -> String {
+    let mut rules: Vec<&str> = results
+        .iter()
+        .flat_map(|r| r.violations.iter().map(|d| d.rule.as_str()))
+        .collect();
+    rules.sort_unstable();
+    rules.dedup();
+    let findings: Vec<serde_json::Value> = results
+        .iter()
+        .flat_map(|r| by_line(r).into_iter().map(move |d| (r, d)))
+        .map(|(r, d)| {
+            serde_json::json!({
+                "ruleId": d.rule,
+                "level": if d.severity == "warning" { "warning" } else { "error" },
+                "message": { "text": d.message },
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": { "uri": r.name.replace('\\', "/") },
+                        "region": { "startLine": d.line.max(1), "startColumn": d.column.max(1) }
+                    }
+                }]
+            })
+        })
+        .collect();
+    let doc = serde_json::json!({
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "vsg-rs",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "rules": rules.iter().map(|r| serde_json::json!({ "id": r })).collect::<Vec<_>>(),
+                }
+            },
+            "results": findings,
+        }]
+    });
+    serde_json::to_string_pretty(&doc).unwrap_or_default()
+}
+
+fn list_rules() -> ExitCode {
+    let mut out = io::stdout().lock();
+    for (id, owner) in rules::vsg_catalog() {
+        let status = match (rules::info(id), owner) {
+            (Some(info), _) => format!("rule: {}", info.description),
+            (None, rules::Owner::Formatter) => "formatter (applied by --fix)".to_owned(),
+            (None, rules::Owner::Cli) => "command line (missing files are reported)".to_owned(),
+            (None, other) => format!("not implemented ({other})"),
+        };
+        let _ = writeln!(out, "{id:42} {status}");
+    }
+    ExitCode::SUCCESS
+}
+
 fn write_file(path: &Path, text: &str) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn directory_result(name: String) -> FileResult {
     FileResult {
-        name: name.clone(),
+        name,
         violations: vec![Diagnostic {
-            file: name,
             line: 0,
             column: 0,
-            end_line: 0,
-            end_column: 0,
             rule: "source_file_001".into(),
             severity: "error".into(),
             message: "Is a directory".into(),
-            fix: "none",
         }],
         error: None,
         output: None,
@@ -491,10 +688,24 @@ fn fix_options(args: &Args) -> Result<FixOptions, String> {
     Ok(FixOptions {
         unsafe_fixes: args.unsafe_fixes,
         only,
+        project: None,
     })
 }
 
-pub fn main(command_line: Vec<String>) -> ExitCode {
+fn project(files: &[PathBuf]) -> Project {
+    files
+        .par_iter()
+        .filter(|p| p.is_file())
+        .filter_map(|p| std::fs::read(p).ok())
+        .map(|source| {
+            let mut project = Project::new();
+            project.add(&Parsed::new(source));
+            project
+        })
+        .reduce(Project::new, Project::merge)
+}
+
+pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
     let args = match Args::try_parse_from(normalize(command_line.into_iter())) {
         Ok(args) => args,
         Err(e) => e.exit(),
@@ -505,6 +716,9 @@ pub fn main(command_line: Vec<String>) -> ExitCode {
             env!("CARGO_PKG_VERSION")
         );
         return ExitCode::SUCCESS;
+    }
+    if args.list_rules {
+        return list_rules();
     }
     if args.local_rules.is_some() {
         eprintln!(
@@ -518,7 +732,25 @@ pub fn main(command_line: Vec<String>) -> ExitCode {
             .num_threads(jobs.max(1))
             .build_global();
     }
-    let mut cfg = match Config::load(&args.configuration) {
+    let mut files: Vec<PathBuf> = args.filename.clone();
+    files.extend(args.positional.iter().cloned());
+    // Without -c, a vsg-rs.yaml (or .json) next to the input or in a parent directory is used.
+    let configuration = if args.configuration.is_empty() {
+        let near = if args.stdin {
+            args.stdin_filename.clone()
+        } else {
+            files.first().cloned()
+        };
+        let dir = near
+            .and_then(|p| std::path::absolute(p).ok())
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_default();
+        vsg_rs::config::discover(&dir).into_iter().collect()
+    } else {
+        args.configuration.clone()
+    };
+    let mut cfg = match Config::load(&configuration) {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("ERROR: {e}");
@@ -547,15 +779,13 @@ pub fn main(command_line: Vec<String>) -> ExitCode {
             return ExitCode::from(1);
         }
     }
-    let options = match fix_options(&args) {
+    let mut options = match fix_options(&args) {
         Ok(options) => options,
         Err(e) => {
             eprintln!("ERROR: {e}");
             return ExitCode::from(1);
         }
     };
-    let mut files: Vec<PathBuf> = args.filename.clone();
-    files.extend(args.positional.iter().cloned());
     if !args.stdin && files.is_empty() {
         if args.output_configuration.is_none() {
             let _ = Args::command().print_help();
@@ -570,15 +800,25 @@ pub fn main(command_line: Vec<String>) -> ExitCode {
             missing.display()
         ));
     }
+    // Several files are checked together: uses of their package declarations and entity
+    // interfaces are checked across files.
+    if !args.stdin && files.len() > 1 {
+        options.project = Some(Arc::new(project(&files)));
+    }
     let rules_checked = cfg.enabled_rule_count();
     let start = std::time::Instant::now();
+    let mut stdin_source = Vec::new();
     let results: Vec<FileResult> = if args.stdin {
-        let mut source = Vec::new();
-        if let Err(e) = io::stdin().read_to_end(&mut source) {
+        if let Err(e) = io::stdin().read_to_end(&mut stdin_source) {
             eprintln!("ERROR: stdin: {e}");
             return ExitCode::from(1);
         }
-        vec![check("stdin", source, &cfg, &args, &options)]
+        let source = stdin_source.clone();
+        let (name, cfg) = match &args.stdin_filename {
+            Some(path) => (path.display().to_string(), cfg.for_path(path)),
+            None => ("stdin".to_owned(), std::borrow::Cow::Borrowed(&cfg)),
+        };
+        vec![check(&name, source, &cfg, &args, &options)]
     } else {
         files
             .par_iter()
@@ -615,7 +855,22 @@ pub fn main(command_line: Vec<String>) -> ExitCode {
             continue;
         }
         if let Some(output) = &r.output {
-            if args.stdin {
+            if args.diff {
+                let original = if args.stdin {
+                    stdin_source.clone()
+                } else {
+                    std::fs::read(&files[i]).unwrap_or_default()
+                };
+                let (old, new) = (
+                    String::from_utf8_lossy(&original),
+                    String::from_utf8_lossy(output),
+                );
+                let diff = similar::TextDiff::from_lines(old.as_ref(), new.as_ref())
+                    .unified_diff()
+                    .header(&r.name, &r.name)
+                    .to_string();
+                let _ = io::stdout().write_all(diff.as_bytes());
+            } else if args.stdin {
                 let _ = io::stdout().write_all(output);
             } else if let Err(e) = write_fixed(&files[i], output, args.backup) {
                 eprintln!("ERROR: {e}");
@@ -630,14 +885,16 @@ pub fn main(command_line: Vec<String>) -> ExitCode {
             OutputFormat::Summary => summary_report(&mut report, r, rules_checked),
         }
     }
-    // With `--stdin --fix`, stdout carries the fixed source and the report goes to stderr.
-    if args.stdin && args.fix {
+    // With `--stdin --fix` or `--diff`, stdout carries the source or diff; the report goes to
+    // stderr.
+    if (args.stdin && args.fix) || args.diff {
         eprint!("{report}");
     } else {
         print!("{report}");
     }
-    let outputs: [(&Option<PathBuf>, Render); 3] = [
+    let outputs: [(&Option<PathBuf>, Render); 4] = [
         (&args.json, json_report),
+        (&args.sarif, sarif_report),
         (&args.junit, junit_report),
         (&args.quality_report, quality_report),
     ];
@@ -663,15 +920,11 @@ mod tests {
             violations: violations
                 .into_iter()
                 .map(|(rule, line, severity)| Diagnostic {
-                    file: "a.vhd".into(),
                     line,
                     column: 1,
-                    end_line: line,
-                    end_column: 1,
                     rule: rule.into(),
                     severity: severity.into(),
                     message: "Add *entity* keyword".into(),
-                    fix: "safe",
                 })
                 .collect(),
             error: None,

@@ -94,7 +94,11 @@ struct RuleLayer {
 pub struct RuleSettings {
     pub enabled: bool,
     pub severity: Severity,
+    /// Whether `vsg-rs fix` applies the rule's fixes: VSG's default for the rule unless the
+    /// configuration sets `fixable`.
     pub fixable: bool,
+    /// The configuration sets `fixable` (as opposed to VSG's default).
+    pub fixable_configured: bool,
     options: BTreeMap<String, Value>,
 }
 
@@ -466,7 +470,7 @@ impl Config {
                 for kind in kinds {
                     match entries.iter().find(|(k, _)| k == kind) {
                         Some((_, c)) if *c != case => {
-                            conflicts.push(format!("`{word}` ({})", info.id))
+                            conflicts.push(format!("`{word}` ({})", info.id));
                         }
                         Some(_) => {}
                         None => entries.push((*kind, case)),
@@ -599,17 +603,7 @@ impl Config {
             Severity::Error
         };
         let enabled = !defaults["disable"].as_bool().unwrap_or(false);
-        let mut settings = self.layered(id, &groups, enabled, severity, options);
-        if let Some(fixable) = defaults["fixable"].as_bool() {
-            let explicit = self.rules.get(id).and_then(|l| l.fixable).is_some()
-                || self.global.fixable.is_some()
-                || groups
-                    .iter()
-                    .any(|g| self.groups.get(*g).and_then(|l| l.fixable).is_some());
-            if !explicit {
-                settings.fixable = fixable;
-            }
-        }
+        let settings = self.layered(id, &groups, enabled, severity, options);
         Some(settings)
     }
 
@@ -703,7 +697,10 @@ impl Config {
         let mut settings = RuleSettings {
             enabled,
             severity,
-            fixable: true,
+            fixable: crate::vsg_defaults::defaults()["rule"][id]["fixable"]
+                .as_bool()
+                .unwrap_or(true),
+            fixable_configured: false,
             options,
         };
         for layer in layers {
@@ -715,6 +712,7 @@ impl Config {
             }
             if let Some(fixable) = layer.fixable {
                 settings.fixable = fixable;
+                settings.fixable_configured = true;
             }
             for (k, v) in &layer.options {
                 settings.options.insert(k.clone(), v.clone());

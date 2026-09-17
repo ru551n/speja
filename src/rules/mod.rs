@@ -7,6 +7,7 @@ mod case;
 mod catalog;
 mod length;
 mod naming;
+mod project;
 mod select;
 mod structure;
 mod transform;
@@ -16,6 +17,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 use vhdl_syntax::syntax::{NodeKind, SyntaxNode, SyntaxToken};
+
+pub use project::Project;
 
 use crate::Parsed;
 use crate::config::{Config, RuleSettings, Severity};
@@ -112,10 +115,17 @@ pub(crate) struct Context<'a> {
     canonical: bool,
     /// Identifier use sites (not declarations or selected suffixes): offset, token, lower case.
     use_sites: OnceCell<Vec<(usize, SyntaxToken, Box<str>)>>,
+    /// Declarations of the other files checked together with this one.
+    pub(crate) project: Option<&'a Project>,
 }
 
 impl<'a> Context<'a> {
-    fn new(parsed: &'a Parsed, config: &'a Config, canonical: bool) -> Self {
+    fn new(
+        parsed: &'a Parsed,
+        config: &'a Config,
+        canonical: bool,
+        project: Option<&'a Project>,
+    ) -> Self {
         let mut by_kind: HashMap<NodeKind, Vec<SyntaxNode>> = HashMap::new();
         let mut stack = vec![parsed.root().clone()];
         while let Some(n) = stack.pop() {
@@ -133,6 +143,7 @@ impl<'a> Context<'a> {
             formatted: OnceCell::new(),
             canonical,
             use_sites: OnceCell::new(),
+            project,
         }
     }
 
@@ -227,7 +238,12 @@ pub(crate) fn is_known_rule(id: &str) -> bool {
 
 /// Run every enabled rule on a snapshot. Violations are sorted by position, then rule id.
 pub fn check(parsed: &Parsed, config: &Config) -> Vec<Violation> {
-    run(&Context::new(parsed, config, false))
+    check_with(parsed, config, None)
+}
+
+/// [`check`], with the declarations of other files checked in the same run.
+pub fn check_with(parsed: &Parsed, config: &Config, project: Option<&Project>) -> Vec<Violation> {
+    run(&Context::new(parsed, config, false, project))
 }
 
 /// [`check`] plus the formatted source, formatting the snapshot at most once.
@@ -235,7 +251,16 @@ pub fn check_and_format(
     parsed: &Parsed,
     config: &Config,
 ) -> (Vec<Violation>, Result<Vec<u8>, crate::FormatError>) {
-    let cx = Context::new(parsed, config, false);
+    check_and_format_with(parsed, config, None)
+}
+
+/// [`check_and_format`], with the declarations of other files checked in the same run.
+pub fn check_and_format_with(
+    parsed: &Parsed,
+    config: &Config,
+    project: Option<&Project>,
+) -> (Vec<Violation>, Result<Vec<u8>, crate::FormatError>) {
+    let cx = Context::new(parsed, config, false, project);
     let violations = run(&cx);
     let _ = cx.format_result();
     let formatted = cx
@@ -248,13 +273,21 @@ pub fn check_and_format(
 
 /// [`check`] for collecting fixes: formatter-owned violations (which have no fix) do not need
 /// the formatted snapshot, so it is not computed.
-pub(crate) fn check_for_fixes(parsed: &Parsed, config: &Config) -> Vec<Violation> {
-    run(&Context::new(parsed, config, true))
+pub(crate) fn check_for_fixes(
+    parsed: &Parsed,
+    config: &Config,
+    project: Option<&Project>,
+) -> Vec<Violation> {
+    run(&Context::new(parsed, config, true, project))
 }
 
 /// [`check`] for a snapshot that is the formatter's own output.
-pub(crate) fn check_canonical(parsed: &Parsed, config: &Config) -> Vec<Violation> {
-    run(&Context::new(parsed, config, true))
+pub(crate) fn check_canonical(
+    parsed: &Parsed,
+    config: &Config,
+    project: Option<&Project>,
+) -> Vec<Violation> {
+    run(&Context::new(parsed, config, true, project))
 }
 
 fn run(cx: &Context<'_>) -> Vec<Violation> {
@@ -268,7 +301,12 @@ fn run(cx: &Context<'_>) -> Vec<Violation> {
         (rule.check)(cx, &settings, &mut out);
         if !settings.fixable {
             for v in &mut out[before..] {
-                v.fix = None;
+                if settings.fixable_configured {
+                    v.fix = None;
+                } else if let Some(fix) = &mut v.fix {
+                    // VSG does not fix this rule by default: a suggestion for `--unsafe-fixes`.
+                    fix.safety = FixSafety::Unsafe;
+                }
             }
         }
     }

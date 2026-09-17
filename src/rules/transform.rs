@@ -478,7 +478,7 @@ fn trailing_comments(
                         start: offset,
                         end,
                         message: "Remove comment.".into(),
-                        fix: fix(FixSafety::Unsafe, vec![edit(start, end, "")]),
+                        fix: fix(FixSafety::Safe, vec![edit(start, end, "")]),
                     });
                 }
                 offset += piece.byte_len();
@@ -669,7 +669,7 @@ fn missing_after(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violat
                 format!("Add after {magnitude} {units} to signal in clock process"),
             );
             v.fix = fix(
-                FixSafety::Unsafe,
+                FixSafety::Safe,
                 vec![edit(end, end, format!(" after {magnitude} {units}"))],
             );
             out.push(v);
@@ -686,7 +686,7 @@ fn reset_after(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violatio
                 &after.first_token(),
                 "Remove *after* from signals in reset portion of a clock process",
             );
-            v.fix = fix(FixSafety::Unsafe, vec![delete_node(cx, &after)]);
+            v.fix = fix(FixSafety::Safe, vec![delete_node(cx, &after)]);
             out.push(v);
         }
     }
@@ -735,9 +735,10 @@ fn clock_style(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violatio
                     "Change falling_edge to event format.".to_owned()
                 },
             );
-            // The two forms differ for transitions from and to metavalues ('X', 'H', 'L').
+            // The forms differ for transitions from and to metavalues ('X', 'H', 'L'); VSG
+            // applies this fix when the rule is enabled, so vsg-rs does too.
             v.fix = fix(
-                FixSafety::Unsafe,
+                FixSafety::Safe,
                 vec![edit(
                     first.text_offset(),
                     last.text_range().end,
@@ -1044,8 +1045,13 @@ mod tests {
     #[test]
     fn port_rules() {
         let src = "entity e is\n  port (\n    a, b : bit; -- keep\n    c : out bit\n  );\nend entity e;\n";
+        // Adding the mode (port_023) is not a VSG default fix.
         assert_eq!(
             fixed(src, "", false),
+            "entity e is\n  port (\n    a : bit;\n    b : bit; -- keep\n    c : out   bit\n  );\nend entity e;\n"
+        );
+        assert_eq!(
+            fixed(src, "", true),
             "entity e is\n  port (\n    a : in    bit;\n    b : in    bit; -- keep\n    c : out   bit\n  );\nend entity e;\n"
         );
     }

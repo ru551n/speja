@@ -246,7 +246,7 @@ impl Parsed {
     }
 
     /// True when the file contains nothing but whitespace and comments.
-    fn is_blank(&self) -> bool {
+    pub fn is_blank(&self) -> bool {
         self.tokens.iter().all(|t| t.kind() == TokenKind::Eof)
     }
 }
@@ -460,9 +460,35 @@ pub fn format_range(
     range: Range<usize>,
 ) -> Result<Vec<TextEdit>, FormatError> {
     let formatted = format_parsed(parsed, cfg)?;
+    Ok(range_edits(parsed, &formatted, range, |edited| {
+        verify::equivalent(parsed, edited).is_ok()
+    }))
+}
+
+/// [`format_range`] for `vsg-rs fix`: fixes and formatting, limited to the lines in `range`.
+pub fn fix_range(
+    parsed: &Parsed,
+    config: &Config,
+    options: &FixOptions,
+    range: Range<usize>,
+) -> Result<Vec<TextEdit>, FormatError> {
+    let fixed = fix_with(parsed, config, options)?.output;
+    Ok(range_edits(parsed, &fixed, range, |edited| {
+        Parsed::new(edited.to_vec()).syntax_errors().is_empty()
+    }))
+}
+
+/// The line hunks between the source and `new` that touch `range`. `accept` checks a partial
+/// result; if no partial result is accepted, all hunks are returned.
+fn range_edits(
+    parsed: &Parsed,
+    new: &[u8],
+    range: Range<usize>,
+    accept: impl Fn(&[u8]) -> bool,
+) -> Vec<TextEdit> {
     let src = parsed.source();
     let old: Vec<&[u8]> = src.split_inclusive(|&b| b == b'\n').collect();
-    let new: Vec<&[u8]> = formatted.split_inclusive(|&b| b == b'\n').collect();
+    let new: Vec<&[u8]> = new.split_inclusive(|&b| b == b'\n').collect();
     // Start offset of every line; a final newline starts an empty line (index `old.len()`).
     let mut starts: Vec<usize> = old
         .iter()
@@ -523,12 +549,12 @@ pub fn format_range(
         let edits: Vec<TextEdit> = candidate.iter().filter(touched).map(to_edit).collect();
         // Hunks are aligned on identical lines, which need not carry the same tokens (one
         // `end;` line can pair with another), so a partial result can lose tokens.
-        if edits.is_empty() || verify::equivalent(parsed, &apply_edits(src, &edits)).is_ok() {
-            return Ok(edits);
+        if edits.is_empty() || accept(&apply_edits(src, &edits)) {
+            return edits;
         }
     }
     // ponytail: last resort formats everything; grow the hunk set if this shows up in practice.
-    Ok(hunks.iter().map(to_edit).collect())
+    hunks.iter().map(to_edit).collect()
 }
 
 fn to_crlf(text: &[u8]) -> Vec<u8> {

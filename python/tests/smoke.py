@@ -16,7 +16,7 @@ import tempfile
 import vsg_rs
 
 UNFORMATTED = "entity e is port (a : in bit); end;\n"
-FORMATTED = "entity e is\n  port (\n    a : in    bit\n  );\nend;\n"
+FIXED = "entity e is\n  port (\n    a : in    bit\n  );\nend entity e;\n"
 
 
 def run(args: list[str], stdin: str = "") -> subprocess.CompletedProcess[bytes]:
@@ -33,29 +33,32 @@ def main() -> None:
         assert version.returncode == 0, version
         assert version.stdout.decode().startswith("vsg-rs "), version.stdout
 
-        formatted = run([*cmd, "fmt", "--stdin-filename", "e.vhd", "-"], UNFORMATTED)
-        assert formatted.returncode == 0, formatted.stderr
-        assert formatted.stdout.decode() == FORMATTED, formatted.stdout
+        fixed = run([*cmd, "--stdin", "--fix"], UNFORMATTED)
+        assert fixed.returncode == 0, fixed.stderr
+        assert fixed.stdout.decode() == FIXED, fixed.stdout
 
-        broken = run([*cmd, "fmt", "-"], "entity e is port (a : in bit; end;\n")
-        assert broken.returncode == 2, broken
+        broken = run([*cmd, "--stdin", "--fix"], "entity e is port (a : in bit; end;\n")
+        assert broken.returncode == 1, broken
         assert broken.stdout == b"", broken.stdout
 
-        lint = run([*cmd, "lint", "--output-format", "json", "-"], "entity e is\nend;\n")
-        assert lint.returncode == 1, lint
-        rules = [d["rule"] for d in json.loads(lint.stdout)]
-        assert rules == ["entity_015", "entity_019"], rules
+        with tempfile.TemporaryDirectory() as tmp:
+            report = os.path.join(tmp, "report.json")
+            lint = run([*cmd, "--stdin", "-js", report], "entity e is\nend;\n")
+            assert lint.returncode == 1, lint
+            with open(report) as f:
+                violations = json.load(f)["files"][0]["violations"]
+            rules = [v["rule"] for v in violations]
+            assert rules == ["entity_015", "entity_019"], rules
 
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "e.vhd")
         with open(path, "w", newline="") as f:
             f.write(UNFORMATTED.replace("\n", "\r\n"))
-        result = run([exe, "fix", path])
+        result = run([exe, "-f", path, "--fix"])
         assert result.returncode == 0, result.stderr
         with open(path, newline="") as f:
             fixed = f.read()
-        expected = "entity e is\n  port (\n    a : in    bit\n  );\nend entity e;\n"
-        assert fixed == expected.replace("\n", "\r\n"), repr(fixed)
+        assert fixed == FIXED.replace("\n", "\r\n"), repr(fixed)
 
     print(f"ok: {exe} on Python {sys.version.split()[0]} ({sys.platform})")
 

@@ -117,6 +117,8 @@ pub struct FixOptions {
     /// VSG `--fix_only`: fix only these rules, on all lines (`None`) or on the given 1-based
     /// lines, and do not format.
     pub only: Option<BTreeMap<String, Option<Vec<usize>>>>,
+    /// Declarations of the other files fixed in the same run.
+    pub project: Option<std::sync::Arc<rules::Project>>,
 }
 
 impl FixOptions {
@@ -168,7 +170,7 @@ pub fn fix_with(
     let mut fixed: Option<Parsed> = None;
     for _ in 0..MAX_ROUNDS {
         let current = fixed.as_ref().unwrap_or(parsed);
-        let mut violations = rules::check_for_fixes(current, config);
+        let mut violations = rules::check_for_fixes(current, config, options.project.as_deref());
         if let Some(only) = &options.only {
             violations.retain(|v| match only.get(v.rule) {
                 Some(None) => true,
@@ -201,9 +203,9 @@ pub fn fix_with(
     };
     let result = Parsed::new(output);
     let remaining = if options.only.is_some() {
-        rules::check(&result, config)
+        rules::check_with(&result, config, options.project.as_deref())
     } else {
-        rules::check_canonical(&result, config)
+        rules::check_canonical(&result, config, options.project.as_deref())
     };
     Ok(FixOutcome {
         output: result.source().to_vec(),

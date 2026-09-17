@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 const UNFORMATTED: &str = "entity e is port (a : in bit); end;\n";
-const FORMATTED: &str = "entity e is\n  port (\n    a : in    bit\n  );\nend;\n";
+const FORMATTED: &str = "entity e is\n  port (\n    a : in    bit\n  );\nend entity e;\n";
 const MALFORMED: &str = "entity e is port (a : in bit; end;\n";
 
 fn vsg(args: &[&str], stdin: &str) -> Output {
@@ -32,60 +32,45 @@ fn write(dir: &Path, name: &str, text: &str) -> PathBuf {
 }
 
 #[test]
-fn stdin_to_stdout_contains_only_source() {
-    let out = vsg(&["fmt", "--stdin-filename", "x.vhd", "-"], UNFORMATTED);
-    assert!(out.status.success());
+fn stdin_fix_prints_only_source() {
+    let out = vsg(&["--stdin", "--fix"], UNFORMATTED);
+    assert!(out.status.success(), "{out:?}");
     assert_eq!(String::from_utf8_lossy(&out.stdout), FORMATTED);
-    assert!(out.stderr.is_empty());
 }
 
 #[test]
-fn stdin_syntax_error_prints_nothing_to_stdout() {
-    let out = vsg(&["fmt", "--stdin-filename", "bad.vhd", "-"], MALFORMED);
-    assert_eq!(out.status.code(), Some(2));
+fn syntax_errors_are_reported_and_nothing_is_changed() {
+    let out = vsg(&["--stdin", "--fix"], MALFORMED);
+    assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty());
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("bad.vhd") && err.contains("syntax"), "{err}");
+    assert!(err.contains("syntax"), "{err}");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bad = write(dir.path(), "bad.vhd", MALFORMED);
+    let good = write(dir.path(), "good.vhd", UNFORMATTED);
+    let out = vsg(
+        &["-f", bad.to_str().unwrap(), good.to_str().unwrap(), "--fix"],
+        "",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(std::fs::read_to_string(bad).unwrap(), MALFORMED);
+    // Other files are still processed.
+    assert_eq!(std::fs::read_to_string(good).unwrap(), FORMATTED);
 }
 
 #[test]
-fn stdin_check_and_diff() {
-    assert_eq!(
-        vsg(&["fmt", "--check", "-"], UNFORMATTED).status.code(),
-        Some(1)
-    );
-    assert_eq!(
-        vsg(&["fmt", "--check", "-"], FORMATTED).status.code(),
-        Some(0)
-    );
-    let diff = vsg(&["fmt", "--diff", "-"], UNFORMATTED);
-    assert!(diff.status.success());
-    assert!(String::from_utf8_lossy(&diff.stdout).contains("+  port ("));
-    assert!(vsg(&["fmt", "--diff", "-"], FORMATTED).stdout.is_empty());
-}
-
-#[test]
-fn files_in_place_check_and_idempotence() {
+fn fix_in_place_is_idempotent() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = write(dir.path(), "a.vhd", UNFORMATTED);
-    write(dir.path(), "ignored.txt", UNFORMATTED);
-    let path = dir.path().to_str().expect("utf-8 path");
-
-    assert_eq!(vsg(&["fmt", "--check", path], "").status.code(), Some(1));
+    let path = file.to_str().unwrap();
+    let report = vsg(&[path], "");
+    assert_eq!(report.status.code(), Some(1));
     assert_eq!(std::fs::read_to_string(&file).unwrap(), UNFORMATTED);
-
-    let out = vsg(&["fmt", path], "");
-    assert!(out.status.success());
-    assert!(out.stdout.is_empty());
+    assert!(vsg(&[path, "--fix"], "").status.success());
     assert_eq!(std::fs::read_to_string(&file).unwrap(), FORMATTED);
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("ignored.txt")).unwrap(),
-        UNFORMATTED
-    );
-
     let modified = std::fs::metadata(&file).unwrap().modified().unwrap();
-    assert_eq!(vsg(&["fmt", "--check", path], "").status.code(), Some(0));
-    assert!(vsg(&["fmt", path], "").status.success());
+    assert!(vsg(&[path], "").status.success());
+    assert!(vsg(&[path, "--fix"], "").status.success());
     // Unchanged output is not rewritten.
     assert_eq!(
         std::fs::metadata(&file).unwrap().modified().unwrap(),
@@ -94,20 +79,8 @@ fn files_in_place_check_and_idempotence() {
 }
 
 #[test]
-fn malformed_file_is_left_untouched() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let bad = write(dir.path(), "bad.vhd", MALFORMED);
-    let good = write(dir.path(), "good.vhd", UNFORMATTED);
-    let out = vsg(&["fmt", dir.path().to_str().unwrap()], "");
-    assert_eq!(out.status.code(), Some(2));
-    assert_eq!(std::fs::read_to_string(bad).unwrap(), MALFORMED);
-    // Other files are still processed.
-    assert_eq!(std::fs::read_to_string(good).unwrap(), FORMATTED);
-}
-
-#[test]
 fn crlf_is_preserved() {
-    let out = vsg(&["fmt", "-"], &UNFORMATTED.replace('\n', "\r\n"));
+    let out = vsg(&["--stdin", "--fix"], &UNFORMATTED.replace('\n', "\r\n"));
     assert_eq!(
         String::from_utf8_lossy(&out.stdout),
         FORMATTED.replace('\n', "\r\n")
@@ -115,65 +88,35 @@ fn crlf_is_preserved() {
 }
 
 #[test]
-fn empty_and_comment_only_input() {
-    assert!(vsg(&["fmt", "-"], "").stdout.is_empty());
-    let out = vsg(&["fmt", "-"], "\n\n-- only a comment   \n\n");
+fn comment_only_input() {
+    let out = vsg(&["--stdin", "--fix"], "\n\n-- only a comment   \n\n");
     assert_eq!(String::from_utf8_lossy(&out.stdout), "-- only a comment\n");
 }
 
 #[test]
-fn line_length_option() {
-    let src = "architecture a of e is begin x <= f(alpha, beta, gamma); end;\n";
-    let out = vsg(&["fmt", "--line-length", "20", "-"], src);
+fn line_length_from_configuration() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cfg = write(
+        dir.path(),
+        "c.yaml",
+        "rule:\n  length_001:\n    length: 20\n",
+    );
+    let src = "architecture a of e is begin x <= f(alpha, beta, gamma); end architecture a;\n";
+    let out = vsg(&["--stdin", "--fix", "-c", cfg.to_str().unwrap()], src);
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("  x <= f(\n    alpha,\n"), "{text}");
 }
 
 #[test]
-fn machine_readable_reports() {
-    let src = "entity e is\nend;\n";
-    let sarif = vsg(
-        &[
-            "lint",
-            "--output-format",
-            "sarif",
-            "--stdin-filename",
-            "e.vhd",
-            "-",
-        ],
-        src,
-    );
-    assert_eq!(sarif.status.code(), Some(1));
-    let doc: serde_json::Value = serde_json::from_slice(&sarif.stdout).expect("valid JSON");
-    assert_eq!(doc["version"], "2.1.0");
-    assert_eq!(doc["runs"][0]["results"][0]["ruleId"], "entity_015");
-    let junit = vsg(&["lint", "--output-format", "junit", "-"], src);
-    let text = String::from_utf8_lossy(&junit.stdout);
+fn unsafe_fixes_are_opt_in() {
+    let src = "entity e is\n  port (a : bit);\nend entity e;\n";
+    let safe = vsg(&["--stdin", "--fix"], src);
+    assert!(String::from_utf8_lossy(&safe.stdout).contains("a : bit"));
+    let all = vsg(&["--stdin", "--fix", "--unsafe_fixes"], src);
     assert!(
-        text.contains("<testsuite name=\"vsg-rs\" tests=\"1\" failures=\"1\">"),
-        "{text}"
+        String::from_utf8_lossy(&all.stdout).contains("a : in    bit"),
+        "{all:?}"
     );
-}
-
-#[test]
-fn stdin_range_formats_only_those_lines() {
-    let src = "entity e is\nend;\narchitecture rtl of e is\nbegin\n  a<=b;\n  c<=d;\nend;\n";
-    let out = vsg(&["fmt", "--range", "6:6", "-"], src);
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&out.stdout),
-        src.replace("c<=d", "c <= d")
-    );
-    let bad = vsg(&["fmt", "--range", "3:2", "-"], src);
-    assert_eq!(bad.status.code(), Some(2));
-    let dir = tempfile::tempdir().expect("tempdir");
-    let file = write(dir.path(), "a.vhd", src);
-    let not_stdin = vsg(&["fmt", "--range", "1:2", file.to_str().unwrap()], "");
-    assert_eq!(not_stdin.status.code(), Some(2));
 }
 
 // ------------------------------------------------------------------ VSG command line
@@ -261,4 +204,41 @@ fn vsg_style_stdin_and_rule_configuration() {
     let missing = vsg(&["-f", "does/not/exist.vhd"], "");
     assert_eq!(missing.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&missing.stderr).contains("does not exist"));
+}
+
+#[test]
+fn extensions_diff_range_sarif_and_rule_list() {
+    let diff = vsg(&["--stdin", "--fix", "--diff"], UNFORMATTED);
+    assert!(String::from_utf8_lossy(&diff.stdout).contains("+  port ("));
+    let src = "entity e is\nend entity e;\narchitecture rtl of e is\nbegin\n  a<=b;\n  c<=d;\nend architecture rtl;\n";
+    let range = vsg(&["--stdin", "--fix", "--range", "6:6"], src);
+    assert_eq!(
+        String::from_utf8_lossy(&range.stdout),
+        src.replace("c<=d", "c <= d")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sarif = dir.path().join("out.sarif");
+    let out = vsg(
+        &["--stdin", "--sarif", sarif.to_str().unwrap()],
+        "entity e is\nend;\n",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&sarif).unwrap()).unwrap();
+    assert_eq!(doc["runs"][0]["results"][0]["ruleId"], "entity_015");
+    let list = vsg(&["--list_rules"], "");
+    assert_eq!(String::from_utf8_lossy(&list.stdout).lines().count(), 972);
+}
+
+#[test]
+fn configuration_is_discovered_next_to_the_input() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write(
+        dir.path(),
+        "vsg-rs.yaml",
+        "rule:\n  entity_015:\n    disable: true\n",
+    );
+    let file = write(dir.path(), "a.vhd", "entity e is\nend e;\n");
+    let out = vsg(&[file.to_str().unwrap()], "");
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
 }

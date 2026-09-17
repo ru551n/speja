@@ -438,14 +438,40 @@ fn case_label_rules() -> Vec<Rule> {
 /// Declarations and the region in which their uses must repeat the declared spelling.
 struct Scope {
     decls: Vec<SyntaxToken>,
+    /// Declarations from other files (spelled as declared).
+    external: Vec<String>,
     region: SyntaxNode,
 }
 
 type Scopes = fn(&Context<'_>) -> Vec<Scope>;
 
-fn file_scope(cx: &Context<'_>, decls: Vec<SyntaxToken>) -> Vec<Scope> {
+/// Packages named by the use clauses of the snapshot (lower case).
+fn used_packages(cx: &Context<'_>) -> Vec<String> {
+    let mut out: Vec<String> = selected_names(cx, N::UseClause)
+        .into_iter()
+        .filter_map(|parts| parts.get(1).map(|t| text(t).to_ascii_lowercase()))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The whole file, with the declarations `rule` checks from the packages it uses.
+fn file_scope(cx: &Context<'_>, rule: &str, decls: Vec<SyntaxToken>) -> Vec<Scope> {
+    let external = cx.project.map_or_else(Vec::new, |project| {
+        used_packages(cx)
+            .iter()
+            .flat_map(|p| {
+                project
+                    .package_names(p, rule)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    });
     vec![Scope {
         decls,
+        external,
         region: cx.parsed.root().clone(),
     }]
 }
@@ -458,6 +484,30 @@ fn lower_text(t: &SyntaxToken) -> String {
 /// architectures of that entity in the same file.
 fn entity_scopes(cx: &Context<'_>, clause: N, in_entity: bool) -> Vec<Scope> {
     let mut out = Vec::new();
+    if !in_entity && let Some(project) = cx.project {
+        let local: Vec<String> = cx
+            .nodes(N::EntityDeclaration)
+            .iter()
+            .filter_map(|e| child(e, N::EntityDeclarationPreamble).and_then(|p| ident(&p)))
+            .map(|t| lower_text(&t))
+            .collect();
+        for arch in cx.nodes(N::ArchitectureBody) {
+            let Some(of) = child(arch, N::ArchitecturePreamble)
+                .and_then(|p| name_parts(&p).pop())
+                .map(|t| lower_text(&t))
+                .filter(|of| !local.contains(of))
+            else {
+                continue;
+            };
+            if let Some(names) = project.entity_interface(&of, clause == N::PortClause) {
+                out.push(Scope {
+                    decls: Vec::new(),
+                    external: names.to_vec(),
+                    region: arch.clone(),
+                });
+            }
+        }
+    }
     for entity in cx.nodes(N::EntityDeclaration) {
         let decls: Vec<SyntaxToken> = child(entity, N::EntityHeader)
             .and_then(|h| child(&h, clause))
@@ -470,6 +520,7 @@ fn entity_scopes(cx: &Context<'_>, clause: N, in_entity: bool) -> Vec<Scope> {
         if in_entity {
             out.push(Scope {
                 decls,
+                external: Vec::new(),
                 region: entity.clone(),
             });
             continue;
@@ -484,6 +535,7 @@ fn entity_scopes(cx: &Context<'_>, clause: N, in_entity: bool) -> Vec<Scope> {
             if of.is_some() && of == name {
                 out.push(Scope {
                     decls: decls.clone(),
+                    external: Vec::new(),
                     region: arch.clone(),
                 });
             }
@@ -499,6 +551,7 @@ fn body_scopes(cx: &Context<'_>, kind: N) -> Vec<Scope> {
             let spec = subprogram_spec(&b)?;
             Some(Scope {
                 decls: parameters(&spec),
+                external: Vec::new(),
                 region: b,
             })
         })
@@ -528,6 +581,22 @@ fn check_consistency(
                     }
                 })
                 .or_insert(Some(spelled));
+        }
+        // Declarations in the file itself take precedence over those of other files.
+        let mut external: HashMap<String, Option<String>> = HashMap::new();
+        for name in &scope.external {
+            let spelled = spelling(cx, declaration_rule, name.clone());
+            external
+                .entry(spelled.to_ascii_lowercase())
+                .and_modify(|t| {
+                    if t.as_deref() != Some(spelled.as_str()) {
+                        *t = None;
+                    }
+                })
+                .or_insert(Some(spelled));
+        }
+        for (k, v) in external {
+            target.entry(k).or_insert(v);
         }
         if target.is_empty() {
             continue;
@@ -582,7 +651,7 @@ fn consistency() -> Vec<Rule> {
     consistency_rules! {
         "alias_declaration_503", "alias_declaration_502",
             "Uses of an alias repeat the declared spelling.",
-            |cx| file_scope(cx, idents_of(cx, N::AliasDeclaration));
+            |cx| file_scope(cx, "alias_declaration_503", idents_of(cx, N::AliasDeclaration));
         "architecture_600", "generic_007",
             "Uses of generics in an architecture repeat the declared spelling.",
             |cx| entity_scopes(cx, N::GenericClause, false);
@@ -590,30 +659,30 @@ fn consistency() -> Vec<Rule> {
             "Uses of ports in an architecture repeat the declared spelling.",
             |cx| entity_scopes(cx, N::PortClause, false);
         "constant_013", "constant_004", "Uses of a constant repeat the declared spelling.",
-            |cx| file_scope(cx, declared(cx, N::ConstantDeclaration));
+            |cx| file_scope(cx, "constant_013", declared(cx, N::ConstantDeclaration));
         "entity_600", "generic_007",
             "Uses of generics in an entity repeat the declared spelling.",
             |cx| entity_scopes(cx, N::GenericClause, true);
         "function_010", "function_017", "Calls of a function repeat the declared spelling.",
-            |cx| file_scope(cx, designators(cx, N::FunctionSpecification));
+            |cx| file_scope(cx, "function_010", designators(cx, N::FunctionSpecification));
         "function_508", "function_507",
             "Uses of parameters in a function body repeat the declared spelling.",
             |cx| body_scopes(cx, N::FunctionSpecification);
         "procedure_507", "procedure_501", "Calls of a procedure repeat the declared spelling.",
-            |cx| file_scope(cx, designators(cx, N::ProcedureSpecification));
+            |cx| file_scope(cx, "procedure_507", designators(cx, N::ProcedureSpecification));
         "procedure_509", "procedure_508",
             "Uses of parameters in a procedure body repeat the declared spelling.",
             |cx| body_scopes(cx, N::ProcedureSpecification);
         "signal_014", "signal_004", "Uses of a signal repeat the declared spelling.",
-            |cx| file_scope(cx, declared(cx, N::SignalDeclaration));
+            |cx| file_scope(cx, "signal_014", declared(cx, N::SignalDeclaration));
         "subtype_002", "subtype_501", "Uses of a subtype repeat the declared spelling.",
-            |cx| file_scope(cx, idents_of(cx, N::SubtypeDeclaration));
+            |cx| file_scope(cx, "subtype_002", idents_of(cx, N::SubtypeDeclaration));
         "type_014", "type_004", "Uses of a type repeat the declared spelling.",
-            |cx| file_scope(cx, type_names(cx));
+            |cx| file_scope(cx, "type_014", type_names(cx));
         "type_501", "type_500", "Uses of enumeration literals repeat the declared spelling.",
-            |cx| file_scope(cx, enum_literals(cx));
+            |cx| file_scope(cx, "type_501", enum_literals(cx));
         "variable_011", "variable_004", "Uses of a variable repeat the declared spelling.",
-            |cx| file_scope(cx, declared(cx, N::VariableDeclaration));
+            |cx| file_scope(cx, "variable_011", declared(cx, N::VariableDeclaration));
     }
 }
 
@@ -792,6 +861,28 @@ mod tests {
         }
         // `g_w` already matches the lower-case target of `G_W`.
         assert!(!f.iter().any(|(r, _)| *r == "architecture_600"), "{f:?}");
+    }
+
+    #[test]
+    fn declarations_in_other_files() {
+        let pkg = "package defs is\n  constant C_Width : natural := 8;\nend package;\nentity Top is\n  port (Clk_In : in bit);\nend entity;\n";
+        let user = "use work.defs.all;\narchitecture rtl of top is\n  signal s : bit;\nbegin\n  s <= clk_in when C_WIDTH > 0;\nend architecture;\n";
+        let mut project = crate::rules::Project::new();
+        project.add(&Parsed::new(pkg.as_bytes().to_vec()));
+        let config = Config::default();
+        let parsed = Parsed::new(user.as_bytes().to_vec());
+        let found: Vec<(&str, String)> = crate::rules::check_with(&parsed, &config, Some(&project))
+            .into_iter()
+            .map(|v| (v.rule, user[v.start..v.end].to_owned()))
+            .collect();
+        assert!(has(&found, "constant_013", "C_WIDTH"), "{found:?}");
+        // `Clk_In` is lower case after port_010, so `clk_in` already matches.
+        assert!(
+            !found.iter().any(|(r, _)| *r == "architecture_601"),
+            "{found:?}"
+        );
+        let alone = crate::rules::check(&parsed, &config);
+        assert!(!alone.iter().any(|v| v.rule == "constant_013"));
     }
 
     #[test]
