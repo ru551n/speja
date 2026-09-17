@@ -272,6 +272,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Artifact attestations for the binary archives.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@v7
         with:
@@ -283,6 +286,10 @@ jobs:
           path: src
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS
+      - uses: actions/attest@v4
+        if: github.event.repository.visibility == 'public'
+        with:
+          subject-path: dist/vsg-rs-*
       - name: Release notes from CHANGELOG.md
         env:
           TAG: ${{ github.ref_name }}

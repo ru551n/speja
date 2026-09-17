@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1
+
+* The standalone binary archives on GitHub releases get build provenance attestations too
+  (0.9.0 attested only the Python packages).
+
 ## 0.9.0
 
 * VSG local rules (`-lr DIR`, `local_rules: DIR`) are supported: vsg-rs runs them with an

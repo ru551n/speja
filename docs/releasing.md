@@ -51,7 +51,7 @@ licenses), and a `SHA256SUMS` file:
    CRLF line endings);
 4. on tags only: publishes to PyPI with trusted publishing, and creates a GitHub release with
    the wheels, the sdist, the binary archives and `SHA256SUMS` attached, with build provenance
-   attestations (GitHub and PEP 740). Attestations are skipped if the repository is private,
+   attestations (GitHub for all files, PEP 740 on PyPI). Attestations are skipped if the repository is private,
    because GitHub does not offer them for private repositories on its Free plan.
 
 Manual runs (`gh workflow run release.yml`) and pull requests that touch the packaging do steps
