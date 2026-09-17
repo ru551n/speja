@@ -54,15 +54,14 @@ changes first. Files with syntax errors are never changed.
 ## 4. Update CI
 
 The exit code, `-j` (JUnit), `-js` (JSON) and `--quality_report` (GitLab) work as in VSG.
-For GitHub code scanning, `--sarif FILE` writes a SARIF report:
+On GitHub, the vsg-rs action shows findings as annotations and can upload them to code
+scanning ([GitHub Action](github-action.md)):
 
 ```yaml
-- run: pip install vsg-rs
-- run: vsg-rs -f $(git ls-files '*.vhd' '*.vhdl') -c vsg.yaml --sarif vsg.sarif
-- uses: github/codeql-action/upload-sarif@v4
-  if: always()
+- uses: ru551n/vsg-rs@v0.9.2
   with:
-    sarif_file: vsg.sarif
+    args: -c vsg.yaml --recursive src
+    sarif-upload: true
 ```
 
 Instead of listing files, use `file_list` in the configuration (as in VSG) or

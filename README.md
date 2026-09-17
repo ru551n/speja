@@ -156,6 +156,17 @@ lines). With exit code 0 the buffer is replaced with stdout; otherwise stdout is
 explains why, and the buffer should be left unchanged. See [editor integration](docs/editors.md)
 for VS Code, Neovim, Helix and Emacs.
 
+### GitHub Action
+
+```yaml
+- uses: ru551n/vsg-rs@v0.9.2
+  with:
+    args: -c vsg.yaml --recursive src
+    sarif-upload: true   # code scanning alerts; needs security-events: write
+```
+
+Findings appear as annotations and in the job summary. See [GitHub Action](docs/github-action.md).
+
 ### Python
 
 The wheels install the `vsg-rs` executable. `python -m vsg_rs ...` runs it too, and
@@ -167,6 +178,7 @@ The wheels install the `vsg-rs` executable. `python -m vsg_rs ...` runs it too, 
 * [Formatting](docs/formatting.md) (layout, alignment, blank lines, keyword case, indentation),
   [line folding](docs/line-folding.md) and its [coverage matrix](docs/line-folding-coverage.md)
 * [Migrating from VSG](docs/migrating-from-vsg.md) (including pre-commit and CI)
+* [GitHub Action](docs/github-action.md) and code scanning
 * [Editor integration](docs/editors.md)
 * [Architecture](docs/architecture.md) and the [VHDL frontend](docs/vhdl-frontend.md)
   (why `vhdl_syntax`)

@@ -622,6 +622,26 @@ fn quality_report(results: &[FileResult]) -> String {
     serde_json::to_string_pretty(&issues).unwrap_or_default()
 }
 
+/// A file name as a SARIF URI: relative to the working directory with `/` separators (as code
+/// scanning expects), or a `file://` URI for files outside it.
+fn sarif_uri(name: &str) -> String {
+    let path = Path::new(name);
+    let relative = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| path.strip_prefix(cwd).ok().map(Path::to_path_buf))
+        .unwrap_or_else(|| path.to_path_buf());
+    let text = relative.to_string_lossy().replace('\\', "/");
+    let text = text.trim_start_matches("./");
+    if relative.is_absolute() {
+        format!(
+            "file://{}{text}",
+            if text.starts_with('/') { "" } else { "/" }
+        )
+    } else {
+        text.to_owned()
+    }
+}
+
 fn sarif_report(results: &[FileResult]) -> String {
     let mut rules: Vec<&str> = results
         .iter()
@@ -639,7 +659,7 @@ fn sarif_report(results: &[FileResult]) -> String {
                 "message": { "text": d.message },
                 "locations": [{
                     "physicalLocation": {
-                        "artifactLocation": { "uri": r.name.replace('\\', "/") },
+                        "artifactLocation": { "uri": sarif_uri(&r.name) },
                         "region": { "startLine": d.line.max(1), "startColumn": d.column.max(1) }
                     }
                 }]

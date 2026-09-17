@@ -1,0 +1,120 @@
+name: vsg-rs
+description: Check VHDL style with vsg-rs (VSG-compatible), with annotations, a job summary and optional code scanning upload.
+author: ru551n
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  args:
+    description: Arguments for vsg-rs (VSG's command line), for example `-c vsg.yaml --recursive src`.
+    default: --recursive .
+  version:
+    description: vsg-rs release to use (`v0.9.2`, or `latest`). By default, the release of the action's own tag, else the latest release.
+    default: ""
+  working-directory:
+    description: Directory to run vsg-rs in, relative to the repository root.
+    default: .
+  annotations:
+    description: Show findings as annotations on the changed files (GitHub shows at most 10 errors and 10 warnings per step).
+    default: "true"
+  sarif-upload:
+    description: Upload the findings to GitHub code scanning. The job needs `permissions: security-events: write`.
+    default: "false"
+  fail-on-violations:
+    description: Fail the step when vsg-rs exits with an error (error-severity violations, files that could not be checked).
+    default: "true"
+  token:
+    description: Token used to download the release.
+    default: ${{ github.token }}
+
+outputs:
+  exit-code:
+    description: The exit code of vsg-rs.
+    value: ${{ steps.run.outputs.exit-code }}
+  sarif-file:
+    description: Path of the SARIF report (paths relative to the repository root).
+    value: ${{ steps.run.outputs.sarif-file }}
+  version:
+    description: The vsg-rs release that was used.
+    value: ${{ steps.install.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install vsg-rs
+      id: install
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+        version="$VERSION"
+        if [ -z "$version" ]; then
+          if [[ "$ACTION_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then version="$ACTION_REF"; else version=latest; fi
+        fi
+        if [ "$version" = latest ]; then
+          version=$(gh release view --repo ru551n/vsg-rs --json tagName --jq .tagName)
+        fi
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) target=x86_64-unknown-linux-musl ext=tar.gz ;;
+          Linux-ARM64) target=aarch64-unknown-linux-musl ext=tar.gz ;;
+          macOS-ARM64) target=aarch64-apple-darwin ext=tar.gz ;;
+          macOS-X64) target=x86_64-apple-darwin ext=tar.gz ;;
+          Windows-X64) target=x86_64-pc-windows-msvc ext=zip ;;
+          Windows-ARM64) target=aarch64-pc-windows-msvc ext=zip ;;
+          *) echo "::error::vsg-rs has no binary for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+        esac
+        name="vsg-rs-$version-$target"
+        dir="$RUNNER_TEMP/vsg-rs-$version"
+        mkdir -p "$dir"
+        cd "$dir"
+        gh release download "$version" --repo ru551n/vsg-rs --pattern "$name.$ext" --pattern SHA256SUMS --clobber
+        grep " $name.$ext\$" SHA256SUMS > check.txt
+        if command -v sha256sum > /dev/null; then sha256sum -c check.txt; else shasum -a 256 -c check.txt; fi
+        if [ "$ext" = zip ]; then 7z x -y "$name.zip" > /dev/null; else tar xzf "$name.tar.gz"; fi
+        if [ "$RUNNER_OS" = Windows ]; then cygpath -w "$dir/$name"; else echo "$dir/$name"; fi >> "$GITHUB_PATH"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Run vsg-rs
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ARGS: ${{ inputs.args }}
+        ANNOTATIONS: ${{ inputs.annotations }}
+        WORKDIR: ${{ inputs.working-directory }}
+      run: |
+        sarif="$RUNNER_TEMP/vsg-rs.sarif"
+        set +e
+        # Word splitting of the arguments is intended.
+        # shellcheck disable=SC2086
+        vsg-rs $ARGS --sarif "$sarif"
+        code=$?
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "sarif-file=$sarif" >> "$GITHUB_OUTPUT"
+        python=$(command -v python3 || command -v python || true)
+        if [ -f "$sarif" ] && [ -n "$python" ]; then
+          "$python" "$GITHUB_ACTION_PATH/scripts/github_action_report.py" "$sarif" "$WORKDIR" "$ANNOTATIONS"
+        fi
+
+    - name: Upload to code scanning
+      if: always() && inputs.sarif-upload == 'true' && steps.run.outputs.sarif-file != ''
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ steps.run.outputs.sarif-file }}
+        category: vsg-rs
+
+    - name: Result
+      if: inputs.fail-on-violations == 'true'
+      shell: bash
+      env:
+        CODE: ${{ steps.run.outputs.exit-code }}
+      run: |
+        if [ "$CODE" != 0 ]; then
+          echo "::error::vsg-rs found violations (exit code $CODE)"
+          exit 1
+        fi

@@ -1,0 +1,53 @@
+# Tests the GitHub Action in action.yml on Linux, Windows and macOS.
+name: Action
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "action.yml"
+      - "scripts/github_action_report.py"
+      - ".github/workflows/action.yml"
+  pull_request:
+    paths:
+      - "action.yml"
+      - "scripts/github_action_report.py"
+      - ".github/workflows/action.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create an input with violations
+        shell: bash
+        run: |
+          mkdir -p action-test/src
+          printf 'entity E is\nend;\n' > action-test/src/bad.vhd
+      - name: Run the action
+        id: vsg
+        uses: ./
+        with:
+          version: latest
+          args: --recursive src
+          working-directory: action-test
+          fail-on-violations: "false"
+      - name: Check the outputs
+        shell: bash
+        env:
+          CODE: ${{ steps.vsg.outputs.exit-code }}
+          SARIF: ${{ steps.vsg.outputs.sarif-file }}
+          VERSION: ${{ steps.vsg.outputs.version }}
+        run: |
+          echo "vsg-rs $VERSION exited with $CODE"
+          test "$CODE" = 1
+          grep -q '"ruleId": "entity_008"' "$SARIF"
+          grep -q '"uri": "action-test/src/bad.vhd"' "$SARIF"

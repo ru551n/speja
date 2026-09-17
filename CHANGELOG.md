@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.2
+
+* A GitHub Action (`uses: ru551n/vsg-rs@v0.9.2`): downloads the release binary, runs vsg-rs,
+  shows findings as annotations and in the job summary, and optionally uploads them to code
+  scanning. See `docs/github-action.md`.
+* SARIF reports use paths relative to the working directory with `/` separators (as code
+  scanning expects), and `file://` URIs for files outside it.
+
 ## 0.9.1
 
 * The standalone binary archives on GitHub releases get build provenance attestations too
