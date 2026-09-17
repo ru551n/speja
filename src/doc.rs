@@ -72,6 +72,10 @@ impl Doc {
     pub fn indent(d: Doc) -> Doc {
         Doc::Indent(Box::new(d))
     }
+    /// `levels` nested [`Doc::indent`]s.
+    pub fn indent_n(levels: usize, d: Doc) -> Doc {
+        (0..levels).fold(d, |d, _| Doc::indent(d))
+    }
     pub fn align(d: Doc) -> Doc {
         Doc::Align(Box::new(d))
     }

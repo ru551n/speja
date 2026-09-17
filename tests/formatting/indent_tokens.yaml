@@ -1,0 +1,16 @@
+indent:
+  tokens:
+    case_statement:
+      case_keyword: {after: "+1", token: current}
+      end_keyword: {after: "-1", token: "-1"}
+    case_statement_alternative:
+      when_keyword: {after: current, token: current}
+    use_clause:
+      keyword: {token_after_library_clause: current}
+    architecture_body:
+      architecture_keyword: {after: 1, token: 0}
+      begin_keyword: {after: 0, token: 0}
+    process_statement:
+      begin_keyword: {after: current, token: current}
+    port_clause:
+      close_parenthesis: {after: "-1", token: current}

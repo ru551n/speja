@@ -35,6 +35,8 @@ pub struct FormatConfig {
     pub blank: crate::blank::BlankSettings,
     /// Alignment policy (VSG `alignment` rules).
     pub align: crate::align::AlignSettings,
+    /// Indentation of construct parts (VSG `indent.tokens`).
+    pub indent_policy: crate::indent::IndentPolicy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +56,7 @@ impl Default for FormatConfig {
             line_ending: None,
             blank: crate::blank::BlankSettings::default(),
             align: crate::align::AlignSettings::default(),
+            indent_policy: crate::indent::IndentPolicy::default(),
         }
     }
 }
@@ -399,6 +402,17 @@ impl Config {
         }
         self.resolve_blank_lines();
         self.resolve_alignment();
+        let tokens = self
+            .raw_indent
+            .as_ref()
+            .and_then(|i| serde_json::to_value(i).ok())
+            .map(|i| i["tokens"].clone())
+            .filter(|t| !t.is_null());
+        let (policy, warnings) = crate::indent::resolve(tokens.as_ref());
+        self.format.indent_policy = policy;
+        for w in warnings {
+            self.warn(&w);
+        }
         let keyword_case_disabled = ["case::keyword", "case"]
             .iter()
             .any(|g| self.groups.get(*g).and_then(|l| l.disable) == Some(true));

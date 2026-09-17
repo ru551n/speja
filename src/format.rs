@@ -16,6 +16,7 @@ use vhdl_syntax::tokens::{Keyword as Kw, TokenKind as T, TriviaPiece};
 use crate::Parsed;
 use crate::config::{FormatConfig, KeywordCase};
 use crate::doc::{Doc, GroupId, display_width};
+use crate::indent::Part;
 
 pub(crate) struct Builder<'a> {
     cfg: &'a FormatConfig,
@@ -631,7 +632,13 @@ impl<'a> Builder<'a> {
             ContextClause => self.context_clause(n),
             BinaryExpression => self.binary(n),
             GenericClause | PortClause | GenericMapAspect | PortMapAspect => self.broken_parens(n),
-            RecordElementDeclarations => self.items(n),
+            RecordElementDeclarations => {
+                let level = self
+                    .cfg
+                    .indent_policy
+                    .level(N::RecordTypeDefinition, Part::Body);
+                self.items(n, level)
+            }
             ConditionalWaveforms | ConditionalExpressions => {
                 let doc = self.children(n);
                 self.group(Doc::align(doc))
@@ -754,7 +761,7 @@ impl<'a> Builder<'a> {
             seen_library |= kind == Some(N::LibraryClause);
             let doc = concat(vec![Doc::Hard, self.elem(&c)]);
             out.push(if seen_library && kind == Some(N::UseClauseContextItem) {
-                Doc::indent(doc)
+                Doc::indent_n(self.cfg.indent_policy.use_after_library.unwrap_or(1), doc)
             } else {
                 doc
             });
@@ -769,6 +776,10 @@ impl<'a> Builder<'a> {
         let mut out = Vec::new();
         let mut soft = false;
         let mut prev = (Place::Inline, false); // (placement, was a label)
+        let construct = indent_construct(n);
+        // Parts of a generate body are statements; elsewhere, those after `begin`.
+        let mut after_begin = n.kind() == N::GenerateStatementBody;
+        let mut body_level = 1;
         let mut i = 0;
         while i < children.len() {
             let c = match &children[i] {
@@ -822,18 +833,40 @@ impl<'a> Builder<'a> {
                     if matches!(prev.0, Place::Indented | Place::IndentedList) {
                         // Comments before a closing `end` belong to the body above it.
                         if let Some(t) = Some(c.first_token()).filter(|t| kw(t, Kw::End)) {
-                            out.push(Doc::indent(self.leading(&t)));
+                            out.push(Doc::indent_n(body_level, self.leading(&t)));
                         }
                     }
-                    out.push(Doc::Hard);
-                    out.push(self.node(&c));
-                }
-                Place::Indented => {
-                    self.mark_item(&children[i]);
+                    let part = match c.kind() {
+                        k if is_epilogue(k) => Some(Part::End),
+                        N::DeclarationStatementSeparator => {
+                            after_begin = true;
+                            Some(Part::Begin)
+                        }
+                        N::IfStatementElsif
+                        | N::IfStatementElse
+                        | N::IfGenerateElsif
+                        | N::IfGenerateElse => Some(Part::Branch),
+                        _ => None,
+                    };
+                    let level = part.map_or(0, |p| self.cfg.indent_policy.level(construct, p));
                     let doc = self.node(&c);
-                    out.push(Doc::indent(concat(vec![Doc::Hard, doc])));
+                    out.push(Doc::indent_n(level, concat(vec![Doc::Hard, doc])));
                 }
-                Place::IndentedList => out.push(self.items(&c)),
+                Place::Indented | Place::IndentedList => {
+                    let part = if after_begin {
+                        Part::Statements
+                    } else {
+                        Part::Body
+                    };
+                    body_level = self.cfg.indent_policy.level(construct, part);
+                    if place == Place::IndentedList {
+                        out.push(self.items(&c, body_level));
+                    } else {
+                        self.mark_item(&children[i]);
+                        let doc = self.node(&c);
+                        out.push(Doc::indent_n(body_level, concat(vec![Doc::Hard, doc])));
+                    }
+                }
                 Place::IndentedSoft => {
                     soft = true;
                     let doc = self.node(&c);
@@ -850,8 +883,8 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// Child nodes of `n`, each on a new line, indented one level.
-    fn items(&mut self, n: &SyntaxNode) -> Doc {
+    /// Child nodes of `n`, each on a new line, indented `levels` levels.
+    fn items(&mut self, n: &SyntaxNode, levels: usize) -> Doc {
         if n.kind() == N::RecordElementDeclarations {
             let items: Vec<SyntaxElement> = n.children_with_tokens().collect();
             self.align_items(&items, None);
@@ -868,7 +901,7 @@ impl<'a> Builder<'a> {
             }
             out.push(self.elem(&c));
         }
-        Doc::indent(concat(out))
+        Doc::indent_n(levels, concat(out))
     }
 
     /// `( ... )`: a group that is either flat or has one element per line. A single
@@ -957,10 +990,15 @@ impl<'a> Builder<'a> {
             }
             let close_tok = children[close].as_token().expect("matched parenthesis");
             body.push(self.leading(&close_tok));
+            let policy = &self.cfg.indent_policy;
+            let (body_level, close_level) = (
+                policy.level(n.kind(), Part::Body),
+                policy.level(n.kind(), Part::End),
+            );
             out.push(self.elem(&children[i]));
-            out.push(Doc::indent(concat(body)));
-            out.push(Doc::Hard);
-            out.push(self.tok(&close_tok));
+            out.push(Doc::indent_n(body_level, concat(body)));
+            let closing = concat(vec![Doc::Hard, self.tok(&close_tok)]);
+            out.push(Doc::indent_n(close_level, closing));
             i = close + 1;
         }
         concat(out)
@@ -1243,6 +1281,21 @@ impl<'a> Builder<'a> {
 
 /// Width that port modes are padded to (the width of `inout`), matching VSG's default layout.
 const MODE_WIDTH: usize = 5;
+
+/// The construct whose `indent.tokens` settings apply to the children of `n`.
+fn indent_construct(n: &SyntaxNode) -> N {
+    if matches!(
+        n.kind(),
+        N::GenerateStatementBody | N::GenerateBodyDeclarations
+    ) {
+        n.ancestors()
+            .map(|a| a.kind())
+            .find(|k| !matches!(k, N::GenerateStatementBody | N::GenerateBodyDeclarations))
+            .unwrap_or(n.kind())
+    } else {
+        n.kind()
+    }
+}
 
 fn is_declarative_part(k: N) -> bool {
     use N::*;

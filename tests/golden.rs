@@ -2,7 +2,8 @@
 //!
 //! Every `tests/formatting/<name>.vhd` is formatted and compared with `<name>.out.vhd`. The
 //! expected output must itself be a fixed point of the formatter. The target width is taken
-//! from an optional first line `-- vsg-rs-test: width=N` (default 120).
+//! from an optional first line `-- vsg-rs-test: width=N` (default 120); a `<name>.yaml` next to
+//! a fixture is used as its configuration.
 //!
 //! Run with `UPDATE_EXPECT=1` to (re)write the expected files; review the diff before
 //! committing.
@@ -11,8 +12,16 @@ use std::path::Path;
 
 use vsg_rs::FormatConfig;
 
-fn config_for(input: &str) -> FormatConfig {
-    let mut cfg = FormatConfig::default();
+/// The configuration for a fixture: `<name>.yaml` next to it, if present.
+fn config_for(path: &Path, input: &str) -> FormatConfig {
+    let yaml = path.with_extension("yaml");
+    let mut cfg = if yaml.exists() {
+        let config = vsg_rs::Config::load(std::slice::from_ref(&yaml)).expect("fixture config");
+        assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+        config.format
+    } else {
+        FormatConfig::default()
+    };
     if let Some(width) = input
         .lines()
         .next()
@@ -44,7 +53,7 @@ fn golden() {
     let mut failures = Vec::new();
     for input in inputs {
         let src = std::fs::read_to_string(&input).expect("read input");
-        let cfg = config_for(&src);
+        let cfg = config_for(&input, &src);
         let expected_path = input.with_extension("out.vhd");
         let actual = format(&src, &cfg);
         if update {

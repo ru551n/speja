@@ -10,6 +10,7 @@ pub mod config;
 mod doc;
 mod fix;
 mod format;
+pub mod indent;
 mod keywords;
 pub mod rules;
 mod verify;
