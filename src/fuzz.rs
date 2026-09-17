@@ -5,6 +5,7 @@
 //! * Deleting tokens never causes a panic; whenever the result still parses, it formats
 //!   without an internal error and idempotently.
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::config::FormatConfig;
@@ -156,16 +157,17 @@ fn token_deletions_are_safe() {
 fn random_config(rng: &mut Rng) -> String {
     let pick = |rng: &mut Rng, options: &[&'static str]| options[rng.below(options.len())];
     let mut yaml = String::from("rule:\n  global:\n");
-    yaml += &format!("    case: {}\n", pick(rng, &["lower", "upper"]));
-    yaml += &format!("    indent_size: {}\n", pick(rng, &["2", "3", "4"]));
-    yaml += &format!(
+    let _ = writeln!(yaml, "    case: {}", pick(rng, &["lower", "upper"]));
+    let _ = writeln!(yaml, "    indent_size: {}", pick(rng, &["2", "3", "4"]));
+    let _ = write!(
+        yaml,
         "    indent_style: {}\n",
         pick(rng, &["spaces", "smart_tabs"])
     );
     let mut groups = String::new();
     for group in ["alignment", "blank_line", "case::keyword", "structure"] {
         if rng.below(3) == 0 {
-            groups += &format!("    {group}:\n      disable: true\n");
+            let _ = writeln!(groups, "    {group}:\n      disable: true");
         }
     }
     if !groups.is_empty() {
@@ -185,7 +187,7 @@ fn random_config(rng: &mut Rng) -> String {
             } else {
                 format!("action: {}", pick(rng, &["add", "remove"]))
             };
-            yaml += &format!("  {rule}:\n    {action}\n");
+            let _ = writeln!(yaml, "  {rule}:\n    {action}");
         }
     }
     if rng.below(2) == 0 {
