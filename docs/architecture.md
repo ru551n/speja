@@ -1,7 +1,7 @@
 # Architecture
 
 ```text
-            CLI (src/main.rs)              editors, CI
+      VSG command line (src/vsg_cli.rs)    editors, CI
                      │                               │
                      └─────────────┬─────────────────┘
                                    ▼
@@ -67,15 +67,15 @@
   alignment and keyword case. VSG rules in those categories map onto formatter settings, not
   onto independent fixers.
 * The **linter** reports rules that are not layout: naming, structure, semantics.
-* The **fixer** applies fixes classified as safe (and, on request, unsafe ones) as text edits
-  over a snapshot. A central resolver accepts non-overlapping fixes in source order; the rest are
+* The **fixer** applies the fixes VSG applies by default (and, with `--unsafe_fixes`, the rest)
+  as text edits over a snapshot. A central resolver accepts non-overlapping fixes in source order; the rest are
   resolved again on the new snapshot, for a bounded number of rounds, and the result goes
   through the formatter once. There are no phases and no rule-order dependencies, and users never
-  need to repeat `fix`.
+  need to repeat `--fix`.
 
 ## Crate layout
 
-A single package (`vsg-rs`) with a library (`vsg_rs`) and a binary (`vsg-rs`). The CLI has no
-formatting logic; range formatting
-(`format_range`) is a line diff of the whole-file result, so it has the same guarantees. More
-crates will be split out only when a boundary proves useful.
+A single package (`vsg-rs`) with a library (`vsg_rs`) and a binary (`vsg-rs`, VSG's command
+line). The binary has no formatting logic. Range formatting (`format_range`, `fix_range`) is a
+line diff of the whole-file result, so it has the same guarantees. Declarations shared between
+files (`rules::Project`) are collected in a first pass when several files are checked together.

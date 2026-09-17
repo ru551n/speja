@@ -28,7 +28,8 @@ vsg-rs accepts VSG configuration documents in YAML or JSON.
 | `file_list` | ignored with a warning; pass files and directories on the command line |
 | `file_rules` | supported, as a mapping or a list; keys are paths or glob patterns (`*`, `?`, `**`); a relative pattern matches any path ending with it |
 | `pragma.patterns` | supported (`open`, `close` regular expressions) |
-| `local_rules`, `indent` | not supported; ignored with a warning |
+| `indent.tokens` | supported for construct-level indentation (see `formatting.md`); other settings are reported |
+| `local_rules` | not supported; ignored with a warning |
 | `rule.length_001.error_length` | vsg-rs extension: lines longer than this are reported with severity `error` (formatting still uses `length`) |
 | unknown rule ids | warning; the settings are ignored |
 
@@ -46,51 +47,48 @@ with `-c` or by copying it to one of these names.
 
 ## Command line
 
-| VSG | vsg-rs |
+`vsg-rs` accepts VSG 3.35's arguments with the same meaning: `-f`, positional file names, `-c`,
+`--fix`, `-fp`, `-j`, `-js`, `-of {vsg,syntastic,summary}`, `-b`, `-oc`, `-rc`, `--style
+{indent_only,jcl}`, `-v`, `-ap`, `--fix_only`, `--stdin`, `--force_fix`, `--quality_report`,
+`-p` and `--debug`. The console report, JSON, JUnit and GitLab code-quality files have VSG's
+layout.
+
+| Argument | Difference |
 |---|---|
-| `vsg -f FILES` | `vsg-rs lint FILES` (directories are searched recursively) |
-| `vsg -f FILES --fix` | `vsg-rs fix FILES` (safe fixes; `--unsafe-fixes` for the rest) |
-| `--fix_only FILE` | `vsg-rs fix --fix-only FILE` (same JSON/YAML format; the result is not formatted) |
-| `vsg -f FILES --fix -fp N`, `--all_phases` | no equivalent: there are no phases, and all violations are always reported |
-| `vsg --stdin` | `vsg-rs lint -`, `vsg-rs fix -`, `vsg-rs fmt -` with `--stdin-filename` |
-| `-c FILE` | `-c FILE` / `--config FILE` |
-| `-of vsg`, `-js FILE` | `--output-format text` (default) / `--output-format json` (stdout) |
-| `-of syntastic`, `-of summary` | `--output-format syntastic`, `--output-format summary` |
-| `-j FILE` (JUnit) | `--output-format junit` (stdout) |
-| `--quality_report FILE` | `--output-format gitlab` (stdout) |
-| — | `--output-format sarif` (SARIF 2.1.0, for code scanning) |
-| `--style`, `-lr` | not supported |
-| `-b` (backup) | not needed: files are replaced atomically and only after verification |
-| `--force_fix` | not provided: files with syntax errors are never modified |
-| `-p N` (jobs) | automatic (all cores) |
-| `-rc RULE`, `-oc FILE` | `vsg-rs explain RULE`, `vsg-rs rules --all` |
-| — | `vsg-rs fmt` (canonical formatting), `vsg-rs check` (lint plus format check for CI) |
+| `-fp`, `-ap` | accepted, no effect: there is one phase |
+| `-lr` | refused: local rules are Python plugins for VSG's rule engine |
+| `--force_fix` | accepted, no effect: files with syntax errors are never changed |
+| `--stdin --fix` | prints the fixed source on stdout and the report on stderr (VSG 3.35 fails); exit code 0 when code is printed |
+| `-v` | prints vsg-rs's version |
+| directories | reported as `source_file_001` (as in VSG); pass files |
+
+vsg-rs additions: `--unsafe_fixes`, `--diff`, `--range START:END`, `--stdin_filename PATH`,
+`--sarif FILE`, `--list_rules`, and configuration discovery (`vsg-rs.yaml` / `.vsg-rs.yaml` /
+`.json` next to the input) when `-c` is not given.
 
 ### Exit codes
 
-VSG returns 0 or 1. vsg-rs distinguishes:
-
-* `0`: no violations / nothing to change;
-* `1`: violations found, or (`fmt --check`, `check`) files need formatting;
-* `2`: a file could not be processed (I/O error, syntax error, unsupported construct,
-  internal error) or invalid usage.
+As in VSG: `0` when no error-severity violations were found, `1` otherwise (also for files that
+could not be processed, missing files and invalid arguments).
 
 ## Intentional differences
 
-* **No phases.** VSG stops reporting at the first phase with violations and fixes phase by phase,
-  sometimes needing several `--fix` runs. vsg-rs reports all violations at once. `vsg-rs fix`
-  applies every safe fix of a snapshot in one transaction; fixes that overlap an applied one
-  are resolved again on the new text (a bounded number of rounds), and the result is formatted
-  once. Running it again changes nothing.
+* **One phase.** VSG stops reporting at the first phase with violations and fixes phase by phase,
+  sometimes needing several `--fix` runs. vsg-rs reports all violations at once. `--fix`
+  applies the fixes of a snapshot in one transaction; fixes that overlap an applied one are
+  resolved again on the new text (a bounded number of rounds), and the result is formatted once.
+  Running it again changes nothing.
 * **Formatting is not a set of fixes.** Whitespace, indentation, alignment, blank lines, keyword
   case and line length are handled by one formatter with one canonical layout. Individual rules in
-  those groups are not reported as separate violations. `vsg-rs check` reports "file is not
-  formatted" instead.
+  those groups are not reported as separate violations; unformatted lines are reported as
+  `format` violations instead.
 * **`length_001` is fixable.** VSG never shortens lines. vsg-rs folds them. `length_001` reports only
-  what remains, and says whether `vsg-rs fmt` would fold it.
-* **Safety classes.** A fix that may change behaviour or drop information (for example
-  `port_012`, removing a port default, or `port_map_010`, removing comments) is reported as a
-  suggestion and applied only with `vsg-rs fix --unsafe-fixes`.
+  what remains, and says whether `--fix` would fold it.
+* **Which fixes `--fix` applies.** The same as VSG: the fixes of rules VSG fixes by default
+  (its per-rule `fixable` default, or `fixable` from the configuration). Fixes of rules VSG does
+  not fix by default (for example `port_023`, adding a port mode, or `signal_007`, removing a
+  default value), and removing a statement label that is referenced elsewhere (which would
+  break the code), are applied only with `--unsafe_fixes`.
 * **Identifier case consistency.** The consistency rules (`signal_014`, …) target the spelling
   the declaration's case rule requires, so declaration and uses are fixed in the same run.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. vsg-rs leaves such files
@@ -107,5 +105,6 @@ VSG returns 0 or 1. vsg-rs distinguishes:
 
 ## Known gaps
 
-See `rule-status.md` for rule coverage. Not supported: `indent.tokens` per-token indentation,
-`local_rules`, `--style` presets, and consistency checks across files.
+See `rule-status.md` for rule coverage. Not supported: `local_rules` (Python plugins), and
+`indent.tokens` settings that are not about construct-level indentation (see `formatting.md`).
+The consistency rules check other files only when they are passed in the same run.

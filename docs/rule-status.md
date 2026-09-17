@@ -1,25 +1,29 @@
 # Rule status
 
-`vsg-rs rules --all` prints the status of every VSG rule; `vsg-rs rules` lists the implemented
-ones and `vsg-rs explain RULE` describes one. This page summarizes them.
+`vsg-rs --list_rules` prints the status of every VSG rule and `vsg-rs -rc RULE` its
+configuration. This page summarizes them.
 
 VSG 3.35.0 has 972 rules:
 
 | Status | Rules | Meaning |
 |---|---|---|
-| implemented | 192 | reported by `vsg-rs lint` / `check`, with the fix class listed below |
-| formatter | 779 | layout policy applied by `vsg-rs fmt` (whitespace, indentation, blank lines, alignment, keyword case, line structure); configured through the VSG rule options described in `formatting.md` |
+| implemented | 192 | reported by `vsg-rs`, with the fix class listed below |
+| formatter | 779 | layout policy applied by `vsg-rs --fix` (whitespace, indentation, blank lines, alignment, keyword case, line structure); configured through the VSG rule options described in `formatting.md` |
 | command line | 1 | `source_file_001`: a missing input file is an error (exit code 2) |
 
-Formatter-owned rules are not reported one by one. `vsg-rs check` reports "file is not
-formatted" instead, and `vsg-rs fmt --diff` shows the change.
+Formatter-owned rules are not reported one by one: unformatted lines are reported as `format`
+violations, and `vsg-rs --fix --diff` shows the change.
 
 ## Fix classes
 
-* **safe**: syntax-local and meaning-preserving; applied by `vsg-rs fix`.
-* **unsafe**: may change behaviour or drop information; shown as a suggestion and applied only by
-  `vsg-rs fix --unsafe-fixes`.
+* **safe**: applied by `--fix`.
+* **unsafe**: applied only with `--fix --unsafe_fixes`.
 * **none**: reported only.
+
+`--fix` applies the fixes VSG applies: a rule whose VSG default is `fixable: false` (for
+example `port_023`) is fixed only with `--unsafe_fixes`, unless the configuration sets
+`fixable: true` for it. The table shows the fix itself; `fixable: false` rules are marked in
+VSG's configuration (`vsg-rs -rc RULE`).
 
 Identifier case fixes are always safe, because VHDL identifiers (other than extended
 identifiers, which are never changed) are case-insensitive. The consistency rules
@@ -126,7 +130,7 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 | `interface_incomplete_type_declaration_501` | Generic type names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `interface_incomplete_type_declaration_600` | Generic type names have a valid prefix | off | none |
 | `interface_incomplete_type_declaration_601` | Generic type names have a valid suffix | off | none |
-| `length_001` | Lines must not be longer than the configured length | on | by `vsg-rs fmt` |
+| `length_001` | Lines must not be longer than the configured length | on | by `--fix` (folding) |
 | `library_012` | Restricted libraries are not used | off | none |
 | `library_500` | Library names in library clauses are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `loop_statement_006` | Loop statements have a label | off | none |

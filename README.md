@@ -29,34 +29,42 @@ comments, `length_001`), and the other 779 layout rules are covered by the forma
   mode, stdout carries nothing but the formatted source.
 * **No fix phases.** No `--fix` runs that must be repeated until they converge, and no
   rule-order dependencies. Fixes that could change behaviour are only applied on request
-  (`--unsafe-fixes`).
+  (`--unsafe_fixes`).
 * **Fast.** Formatting a typical file from stdin takes a few milliseconds; parsing, formatting
   and verifying real-world VHDL runs at about 3.4 MB/s on one core, and files are processed in
   parallel ([performance](docs/performance.md)).
 
 ## Usage
 
+`vsg-rs` takes the same arguments as VSG's `vsg` command:
+
 ```sh
 pip install vsg-rs                     # Linux and Windows wheels, Python 3.10+ (or: uv tool install vsg-rs)
 cargo install --path .                 # from source
 
-vsg-rs fmt src/                        # format files in place
-vsg-rs fmt --check src/                # CI: exit 1 if anything would change
-vsg-rs fmt --diff src/foo.vhd          # show what would change
-vsg-rs fmt --line-length 100 src/
-cat foo.vhd | vsg-rs fmt --stdin-filename foo.vhd -   # editor integration
-cat foo.vhd | vsg-rs fmt --range 10:24 -              # only lines 10 to 24
-
-vsg-rs lint src/                       # report rule violations
-vsg-rs check src/                      # CI: violations and unformatted files
-vsg-rs check --output-format sarif src/ > vsg.sarif   # also json, junit, gitlab, syntastic, summary
-vsg-rs fix src/                        # apply all safe fixes, then format
-vsg-rs fix --unsafe-fixes --diff src/  # also fixes that may change behaviour (review them)
-vsg-rs rules --all                     # every VSG rule and how vsg-rs handles it
+vsg-rs -f src/*.vhd                    # report violations (exit 1 if there are errors)
+vsg-rs -f src/*.vhd --fix              # fix them and format the files
+vsg-rs -f src/*.vhd -c vsg.yaml -of summary -js report.json -j junit.xml
+vsg-rs -rc entity_015                  # configuration of a rule
+vsg-rs -oc all.json                    # the effective configuration
 ```
 
-Configuration uses the VSG format (YAML or JSON). It is read from `--config FILE`, or from the
-nearest `vsg-rs.yaml` / `.vsg-rs.yaml` (or `.json`):
+There is one difference: VSG's phases are gone. All violations are reported at once and `--fix`
+fixes everything in one run (`-fp` and `-ap` are accepted and have no effect).
+
+`--fix` applies the fixes VSG applies by default and formats the file. vsg-rs adds these options:
+
+| Option | Meaning |
+|---|---|
+| `--unsafe_fixes` | with `--fix`, also apply fixes VSG does not apply by default (they may change behaviour or remove information) |
+| `--diff` | with `--fix`, print a unified diff instead of changing files |
+| `--stdin_filename PATH` | name of the `--stdin` input, for configuration lookup and reports |
+| `--range START:END` | with `--stdin --fix`, change only these lines (editors) |
+| `--sarif FILE` | SARIF 2.1.0 report for code scanning |
+| `--list_rules` | every VSG rule and how vsg-rs handles it |
+
+Configuration uses the VSG format (YAML or JSON), passed with `-c`. Without `-c`, the nearest
+`vsg-rs.yaml` / `.vsg-rs.yaml` (or `.json`) next to the input or in a parent directory is used:
 
 ```yaml
 rule:
@@ -67,6 +75,10 @@ rule:
   group:
     case::name:
       case: lower
+indent:
+  tokens:
+    case_statement_alternative:
+      when_keyword: {after: current, token: current}
 file_rules:
   legacy/**/*.vhd:
     rule:
@@ -79,15 +91,16 @@ VSG's `-- vsg_off [rule ...]` / `-- vsg_on` comments suppress rules.
 
 ### Editor integration
 
-Configure your editor to pipe the buffer through `vsg-rs fmt --stdin-filename <path> -` (add
-`--range START:END` to format selected lines). On success (exit code 0) the buffer is replaced with stdout. On failure (exit code 2)
-stdout is empty and stderr explains why; leave the buffer unchanged. See
-[docs/editors.md](docs/editors.md) for VS Code, Neovim, Helix and Emacs setups.
+Configure your editor to pipe the buffer through
+`vsg-rs --stdin --fix --stdin_filename <path>` (add `--range START:END` to format selected
+lines). With exit code 0 the buffer is replaced with stdout; otherwise stdout is empty, stderr
+explains why, and the buffer should be left unchanged. See [docs/editors.md](docs/editors.md)
+for VS Code, Neovim, Helix and Emacs setups.
 
 ## Documentation
 
 * [Architecture](docs/architecture.md)
-* [Editor integration](docs/editors.md) (pipe mode)
+* [Editor integration](docs/editors.md)
 * [Formatting](docs/formatting.md), [line folding](docs/line-folding.md) and its
   [coverage matrix](docs/line-folding-coverage.md)
 * [VHDL frontend](docs/vhdl-frontend.md) (why `vhdl_syntax`)
@@ -104,7 +117,7 @@ stdout is empty and stderr explains why; leave the buffer unchanged. See
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
-cargo run --release --example corpus -- --width 80 path/to/vhdl   # stability and overflow report
+cargo run --release --example corpus -- --width 80 path/to/vhdl   # stability and overflow report (FIX=1 / FIX=unsafe)
 UPDATE_EXPECT=1 cargo test --test golden                           # re-bless golden files (review the diff)
 ```
 

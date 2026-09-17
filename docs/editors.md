@@ -1,21 +1,22 @@
 # Editor integration
 
-vsg-rs integrates with editors as an external formatter: the editor pipes the buffer through
-`vsg-rs fmt` and replaces it with the output.
+Editors run vsg-rs as an external formatter: the buffer is piped through
 
 ```sh
-vsg-rs fmt --stdin-filename path/to/file.vhd -                 # whole buffer
-vsg-rs fmt --stdin-filename path/to/file.vhd --range 10:24 -   # only lines 10 to 24
+vsg-rs --stdin --fix --stdin_filename path/to/file.vhd                  # whole buffer
+vsg-rs --stdin --fix --stdin_filename path/to/file.vhd --range 10:24    # only lines 10 to 24
 ```
 
-The buffer is read from stdin. On success (exit code 0) stdout is the complete new buffer; with
-`--range START:END` (1-based, inclusive) only changed lines within that range differ from the
-input. On failure (exit code 2) stdout is empty and stderr explains why; leave the buffer
-unchanged. `--stdin-filename` is used for configuration lookup and messages only.
+The buffer is read from stdin. With exit code 0, stdout is the complete new buffer (with
+`--range START:END`, 1-based and inclusive, only lines in that range differ from the input);
+remaining violations are listed on stderr. With exit code 1, stdout is empty and stderr explains
+why (for example a syntax error); leave the buffer unchanged. `--stdin_filename` is used to find
+the configuration and in messages only. Add `--unsafe_fixes` only if you review the result.
 
 For diagnostics in an editor, use a language server such as
 [vhdl_ls](https://github.com/VHDL-LS/rust_hdl) together with vsg-rs as the formatter, or run
-`vsg-rs lint --output-format json -` from a generic linter integration.
+`vsg-rs --stdin --stdin_filename <path> -of syntastic` from a generic linter integration (one
+`ERROR: file(line)rule -- message` line per violation).
 
 ## VS Code
 
@@ -24,7 +25,7 @@ With an extension that runs external formatters (for example *Custom Local Forma
 ```json
 "customLocalFormatters.formatters": [
   {
-    "command": "vsg-rs fmt --stdin-filename ${file} -",
+    "command": "vsg-rs --stdin --fix --stdin_filename ${file}",
     "languages": ["vhdl"]
   }
 ]
@@ -39,7 +40,7 @@ With [conform.nvim](https://github.com/stevearc/conform.nvim):
 ```lua
 require("conform").setup({
   formatters = {
-    vsg_rs = { command = "vsg-rs", args = { "fmt", "--stdin-filename", "$FILENAME", "-" } },
+    vsg_rs = { command = "vsg-rs", args = { "--stdin", "--fix", "--stdin_filename", "$FILENAME" } },
   },
   formatters_by_ft = { vhdl = { "vsg_rs" } },
   format_on_save = { timeout_ms = 1000 },
@@ -53,7 +54,7 @@ require("conform").setup({
 ```toml
 [[language]]
 name = "vhdl"
-formatter = { command = "vsg-rs", args = ["fmt", "-"] }
+formatter = { command = "vsg-rs", args = ["--stdin", "--fix"] }
 auto-format = true
 ```
 
@@ -63,6 +64,7 @@ With [apheleia](https://github.com/radian-software/apheleia):
 
 ```elisp
 (with-eval-after-load 'apheleia
-  (add-to-list 'apheleia-formatters '(vsg-rs "vsg-rs" "fmt" "--stdin-filename" filepath "-"))
+  (add-to-list 'apheleia-formatters
+               '(vsg-rs "vsg-rs" "--stdin" "--fix" "--stdin_filename" filepath))
   (add-to-list 'apheleia-mode-alist '(vhdl-mode . vsg-rs)))
 ```

@@ -1,27 +1,25 @@
 # Formatting
 
-`vsg-rs fmt` produces one canonical layout for a given source and configuration. The layout
-is chosen to be close to VSG's default style, so existing VSG users see little churn.
+`vsg-rs --fix` formats every file it fixes into one canonical layout for a given source and
+configuration. The layout is chosen to be close to VSG's default style, so existing VSG users see
+little churn.
 
 ## Usage
 
 ```sh
-vsg-rs fmt src/                                       # rewrite files in place
-vsg-rs fmt --check src/                               # exit 1 if any file would change
-vsg-rs fmt --diff foo.vhd                             # print a unified diff
-cat foo.vhd | vsg-rs fmt --stdin-filename foo.vhd -   # stdin -> stdout
-vsg-rs fmt --line-length 100 foo.vhd
+vsg-rs -f foo.vhd                      # report violations, including unformatted lines
+vsg-rs -f foo.vhd --fix                # fix and format in place
+vsg-rs -f foo.vhd --fix --diff         # print a unified diff instead
+vsg-rs --stdin --fix < foo.vhd         # stdin -> stdout
 ```
 
-Exit codes: `0` success / nothing to change, `1` `--check` found files to reformat, `2` a file
-could not be processed (I/O error, syntax error, unsupported construct, internal error).
+Layout problems are reported as `format` violations, one per changed range of lines. VSG
+reports them under its individual whitespace, indentation and alignment rules; vsg-rs's
+formatter decides the whole layout at once and does not attribute changes to those rules.
 
-In pipe mode (`-`), stdout contains only the formatted source (or the diff with `--diff`).
-All messages go to stderr. On any error nothing is written to stdout, so an editor keeps its
-buffer.
-
-Directories are searched recursively for `*.vhd` / `*.vhdl` (case-insensitive), skipping hidden
-entries.
+Exit codes follow VSG: `0` no errors, `1` errors were found (or a file could not be processed).
+With `--stdin --fix`, `0` means the fixed source is on stdout; on any error nothing is written
+to stdout, so an editor keeps its buffer.
 
 ## What the formatter owns
 
@@ -130,14 +128,33 @@ constant table : lut_t := (x"00", x"01",
   To keep a single statement inside an architecture as written, put the comments around that
   statement, not around the architecture.
 * The output check still applies, and `length_001` still reports long lines inside regions.
-  Fixes from `vsg-rs fix` still apply inside `fmt off` regions (not inside `vsg_off` regions,
-  where rules are suppressed).
+  Rule fixes still apply inside `fmt off` regions (not inside `vsg_off` regions, where rules are
+  suppressed).
 
 ## Not supported
 
-* VSG's `indent.tokens` block (per-token indentation offsets). vsg-rs has one structural
-  indentation; the block is reported as ignored.
-* VSG's built-in `--style` presets.
+* Settings in VSG's `indent.tokens` block that do not change the indentation of a construct's
+  body, `begin`, branches, `end` or closing parenthesis (for example continuation-line
+  offsets). They are reported as ignored. The supported ones are described below.
 
-Identifier and label case are lint rules with safe fixes (`vsg-rs fix`), not formatter
-policy, because they rename tokens.
+Identifier and label case are lint rules whose fixes rename tokens, not formatter policy.
+
+## Indentation (`indent.tokens`)
+
+VSG configures indentation per token (`token`: the token's own indent, `after`: the indent of
+what follows, absolute or relative). vsg-rs replays these settings for each construct and
+indents the parts accordingly:
+
+* design units (`architecture_body`, `entity_declaration`, `package_declaration`,
+  `package_body`, `context_declaration`): declarations, `begin`, statements and `end`;
+* `process_statement`, `block_statement`, `subprogram_body` (with
+  `function_specification.function_keyword`), `component_declaration`, `loop_statement`,
+  `record_type_definition`, protected types and `for`/`if` generate statements;
+* `if_statement` (`elsif`/`else`), `case_statement` with `case_statement_alternative.when_keyword`,
+  and the generate equivalents;
+* `generic_clause`, `port_clause`, `generic_map_aspect`, `port_map_aspect` (elements and closing
+  parenthesis), `component_instantiation_statement` (map aspects) and `assertion` (`report`);
+* `use_clause.keyword.token_after_library_clause`.
+
+Absolute values are supported for design units only. `--style indent_only` changes nothing but
+the indentation of lines.

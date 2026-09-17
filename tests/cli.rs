@@ -39,6 +39,15 @@ fn stdin_fix_prints_only_source() {
 }
 
 #[test]
+fn stdin_fix_succeeds_with_remaining_violations() {
+    // process_016 (missing process label) has no fix.
+    let src = "architecture a of e is\nbegin\n  process is\n  begin\n    wait;\n  end process;\nend architecture a;\n";
+    let out = vsg(&["--stdin", "--fix"], src);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("process_016"));
+}
+
+#[test]
 fn syntax_errors_are_reported_and_nothing_is_changed() {
     let out = vsg(&["--stdin", "--fix"], MALFORMED);
     assert_eq!(out.status.code(), Some(1));

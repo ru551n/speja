@@ -1,7 +1,7 @@
 # Line folding
 
 Long lines are folded by the formatter, based on the syntax tree. `length_001` is a formatter
-setting first and a lint rule second: after `vsg-rs fmt`, the only lines longer than the limit
+setting first and a lint rule second: after `vsg-rs --fix`, the only lines longer than the limit
 are ones that cannot be folded safely.
 
 ## Width

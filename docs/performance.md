@@ -2,7 +2,7 @@
 
 Measured on a 24-core Linux machine with a release build (`lto = "thin"`), September 2026.
 
-## Editor path (`fmt -`)
+## Editor path (`--stdin`)
 
 Best of 30 runs, process start to exit, including parsing, layout, output verification
 (a second parse) and writing stdout:
@@ -12,7 +12,7 @@ Best of 30 runs, process start to exit, including parsing, layout, output verifi
 | `vsg-rs --version` (cold start) | 0.5 ms |
 | 10-line entity/architecture | 1.1 ms |
 | VUnit `axi_stream_pkg.vhd` (1,100 lines, 42 kB) | 16 ms |
-| `vsg-rs fix -` on the same file | 28 ms |
+| `vsg-rs --stdin --fix` on the same file | 28 ms |
 
 ## Library (`cargo run --release --example bench`)
 
@@ -38,7 +38,7 @@ out which overflows the formatter can fold.
 
 * 11,749 real-world files (134.6 MB): parse, format and verify in 39 s on one core
   (`examples/corpus.rs`), about 3.4 MB/s.
-* `vsg-rs check` on VUnit's `vunit/vhdl` (238 files, including OSVVM): 1.5 s using all cores.
+* `vsg-rs -f` on the files of VUnit's `vunit/vhdl` (238 files, including OSVVM): 1.5 s using all cores.
 
 ## Complexity
 

@@ -878,7 +878,9 @@ pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
                 continue;
             }
         }
-        failed |= counts(r).0 > 0;
+        // Editors pipe through `--stdin --fix`: printed code means success even if violations
+        // remain (VSG itself cannot fix stdin).
+        failed |= counts(r).0 > 0 && !(args.stdin && args.fix);
         match args.output_format {
             OutputFormat::Vsg => vsg_report(&mut report, r, rules_checked),
             OutputFormat::Syntastic => syntastic_report(&mut report, r),

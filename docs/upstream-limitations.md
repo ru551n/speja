@@ -18,7 +18,7 @@ real edge, and note plausibility of a CST-based single-parse fix for each.
 |---|---|
 | L1 PSL | Blocked by the frontend: `vhdl_syntax` does not parse PSL; files are reported and left untouched. PSL in comments is safe, because comments are never changed. |
 | L2 VHDL-2019 | Partial: `vhdl_syntax` parses many VHDL-2019 constructs; tool directives are refused for now. |
-| L3 No automatic rewrapping | Fixed: `vsg-rs fmt` folds long lines (`line-folding.md`). |
+| L3 No automatic rewrapping | Fixed: `vsg-rs --fix` folds long lines (`line-folding.md`). |
 | L4 No cross-file resolution | Planned for semantic rules (via `vhdl_lang`). |
 | L5 No parse-error recovery | By design, files with syntax errors are never modified; the parser still recovers enough to report errors. |
 | L6 No fixer idempotence | Fixed: one fix transaction; idempotence is tested on every regression reproducer and a 1,500-file corpus. |
