@@ -10,10 +10,10 @@ use super::select::{child, ident, ident_list, interface_idents, interface_list, 
 use crate::Parsed;
 
 /// Declarations collected from a set of files.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Project {
     /// Package (lower case) → (consistency rule, declared spelling).
-    packages: HashMap<String, Vec<(&'static str, String)>>,
+    packages: HashMap<String, Vec<(String, String)>>,
     /// Entity (lower case) → (generics, ports) as declared.
     entities: HashMap<String, (Vec<String>, Vec<String>)>,
 }
@@ -23,7 +23,7 @@ fn text(t: &SyntaxToken) -> String {
 }
 
 /// The names a package item declares, with the consistency rule that checks their uses.
-fn declarations(item: &SyntaxNode, out: &mut Vec<(&'static str, String)>) {
+fn declarations(item: &SyntaxNode, out: &mut Vec<(String, String)>) {
     let (rule, names) = match item.kind() {
         N::SignalDeclaration => ("signal_014", ident_list(item)),
         N::ConstantDeclaration => ("constant_013", ident_list(item)),
@@ -46,7 +46,7 @@ fn declarations(item: &SyntaxNode, out: &mut Vec<(&'static str, String)>) {
         }
         _ => return,
     };
-    out.extend(names.iter().map(|t| (rule, text(t))));
+    out.extend(names.iter().map(|t| (rule.to_owned(), text(t))));
     let literals =
         child(item, N::EnumerationTypeDefinition).and_then(|d| child(&d, N::EnumerationList));
     if let Some(list) = literals {
@@ -54,7 +54,7 @@ fn declarations(item: &SyntaxNode, out: &mut Vec<(&'static str, String)>) {
             list.children_with_tokens()
                 .filter_map(|c| c.as_token())
                 .filter(|t| t.kind() == T::Identifier)
-                .map(|t| ("type_501", text(&t))),
+                .map(|t| ("type_501".to_owned(), text(&t))),
         );
     }
 }

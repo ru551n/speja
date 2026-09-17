@@ -14,6 +14,7 @@ use vsg_rs::rules::{self, Project, Violation};
 use vsg_rs::{FixOptions, FormatError, Parsed};
 
 /// One reported violation.
+#[derive(serde::Serialize, serde::Deserialize)]
 struct Diagnostic {
     line: usize,
     column: usize,
@@ -314,6 +315,7 @@ fn usage_error(message: &str) -> ExitCode {
 type Render = fn(&[FileResult]) -> String;
 
 /// The result for one input.
+#[derive(serde::Serialize, serde::Deserialize)]
 struct FileResult {
     name: String,
     violations: Vec<Diagnostic>,
@@ -737,8 +739,154 @@ fn project(files: &[PathBuf]) -> Project {
         .reduce(Project::new, Project::merge)
 }
 
-pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
-    let args = match Args::try_parse_from(normalize(command_line.into_iter())) {
+/// Set in worker processes (see [`in_workers`]).
+const WORKER_ENV: &str = "VSG_RS_WORKER";
+
+/// Check the files at `indices`, in parallel.
+fn process(
+    files: &[PathBuf],
+    indices: &[usize],
+    cfg: &Config,
+    args: &Args,
+    options: &FixOptions,
+) -> Vec<FileResult> {
+    indices
+        .par_iter()
+        .map(|&i| {
+            let path = &files[i];
+            let name = path.display().to_string();
+            if path.is_dir() {
+                return directory_result(name);
+            }
+            match std::fs::read(path) {
+                Ok(source) => check(&name, source, &cfg.for_path(path), args, options),
+                Err(e) => FileResult {
+                    name,
+                    violations: Vec::new(),
+                    error: Some(e.to_string()),
+                    output: None,
+                },
+            }
+        })
+        .collect()
+}
+
+/// The files for each worker process, balanced by size, or nothing when one process is enough.
+///
+/// The parser interns token texts in one global lock, so threads in one process contend on
+/// every token; separate processes do not.
+fn worker_chunks(files: &[PathBuf], jobs: Option<usize>) -> Vec<Vec<usize>> {
+    let sizes: Vec<u64> = files
+        .iter()
+        .map(|f| std::fs::metadata(f).map_or(0, |m| m.len()))
+        .collect();
+    let total: u64 = sizes.iter().sum();
+    let cpus = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    // ponytail: a fixed 64 KiB per process keeps startup cost below the work; tune if small
+    // runs get slower.
+    let by_size = usize::try_from(total / (64 << 10)).unwrap_or(usize::MAX);
+    let n = jobs.unwrap_or(cpus).min(files.len()).min(by_size);
+    if n < 2 {
+        return Vec::new();
+    }
+    let mut order: Vec<usize> = (0..files.len()).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(sizes[i]));
+    let mut load = vec![0u64; n];
+    let mut chunks = vec![Vec::new(); n];
+    for i in order {
+        let k = (0..n).min_by_key(|&k| load[k]).unwrap_or(0);
+        load[k] += sizes[i].max(1);
+        chunks[k].push(i);
+    }
+    chunks
+}
+
+/// Run one worker process per chunk with the same command line, sending `request(chunk)` and
+/// reading one JSON reply from each. `None` (the caller works in-process) if there are no
+/// chunks or a worker fails.
+fn in_workers<T: serde::de::DeserializeOwned>(
+    command_line: &[String],
+    chunks: &[Vec<usize>],
+    request: impl Fn(&[usize]) -> serde_json::Value,
+) -> Option<Vec<T>> {
+    if chunks.is_empty() {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let mut children = Vec::new();
+    for chunk in chunks {
+        let child = std::process::Command::new(&exe)
+            .args(command_line.iter().skip(1))
+            .env(WORKER_ENV, "1")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn();
+        match child {
+            Ok(mut child) => {
+                let body = request(chunk).to_string();
+                let sent = child
+                    .stdin
+                    .take()
+                    .is_some_and(|mut stdin| stdin.write_all(body.as_bytes()).is_ok());
+                children.push((child, sent));
+            }
+            Err(_) => break,
+        }
+    }
+    let complete = children.len() == chunks.len();
+    let mut replies = Vec::new();
+    for (mut child, sent) in children {
+        if !(complete && sent) {
+            let _ = child.kill();
+            let _ = child.wait();
+            continue;
+        }
+        let reply = child
+            .wait_with_output()
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| serde_json::from_slice(&o.stdout).ok());
+        replies.push(reply);
+    }
+    replies
+        .into_iter()
+        .collect::<Option<Vec<T>>>()
+        .filter(|r| r.len() == chunks.len())
+}
+
+/// Worker process: read a request from stdin, answer on stdout.
+fn run_worker(files: &[PathBuf], cfg: &Config, args: &Args, mut options: FixOptions) -> ExitCode {
+    #[derive(serde::Deserialize)]
+    struct Request {
+        index: Option<Vec<usize>>,
+        check: Option<Vec<usize>>,
+        project: Option<Project>,
+    }
+    let mut input = Vec::new();
+    let Ok(request) = io::stdin()
+        .read_to_end(&mut input)
+        .map_err(|e| e.to_string())
+        .and_then(|_| serde_json::from_slice::<Request>(&input).map_err(|e| e.to_string()))
+    else {
+        return ExitCode::from(2);
+    };
+    let reply = if let Some(indices) = request.index {
+        let chosen: Vec<PathBuf> = indices.iter().map(|&i| files[i].clone()).collect();
+        serde_json::to_vec(&project(&chosen))
+    } else {
+        options.project = request.project.map(Arc::new);
+        let indices = request.check.unwrap_or_default();
+        serde_json::to_vec(&process(files, &indices, cfg, args, &options))
+    };
+    match reply.map(|r| io::stdout().write_all(&r)) {
+        Ok(Ok(())) => ExitCode::SUCCESS,
+        _ => ExitCode::from(2),
+    }
+}
+
+pub(crate) fn main(command_line: &[String]) -> ExitCode {
+    let worker = std::env::var_os(WORKER_ENV).is_some();
+    let args = match Args::try_parse_from(normalize(command_line.iter().cloned())) {
         Ok(args) => args,
         Err(e) => e.exit(),
     };
@@ -759,9 +907,9 @@ pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
         );
         return ExitCode::from(1);
     }
-    if let Some(jobs) = args.jobs {
+    if let Some(jobs) = args.jobs.or(worker.then_some(1)) {
         let _ = rayon::ThreadPoolBuilder::new()
-            .num_threads(jobs.max(1))
+            .num_threads(if worker { 1 } else { jobs.max(1) })
             .build_global();
     }
     let mut files: Vec<PathBuf> = args.filename.clone();
@@ -789,7 +937,7 @@ pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    for w in &cfg.warnings {
+    for w in cfg.warnings.iter().filter(|_| !worker) {
         eprintln!("WARNING: {w}");
     }
     if args.style == Some(Style::IndentOnly) {
@@ -804,7 +952,7 @@ pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
         println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_default());
         return ExitCode::SUCCESS;
     }
-    if let Some(path) = &args.output_configuration {
+    if let Some(path) = args.output_configuration.as_ref().filter(|_| !worker) {
         let text = serde_json::to_string_pretty(&cfg.effective_configuration()).unwrap_or_default();
         if let Err(e) = write_file(path, &(text + "\n")) {
             eprintln!("ERROR: {e}");
@@ -859,14 +1007,32 @@ pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
             missing.display()
         ));
     }
+    if worker {
+        return run_worker(&files, &cfg, &args, options);
+    }
+    let workers = if args.stdin {
+        Vec::new()
+    } else {
+        worker_chunks(&files, args.jobs)
+    };
     // Several files are checked together: uses of their package declarations and entity
     // interfaces are checked across files.
     if !args.stdin && files.len() > 1 {
-        options.project = Some(Arc::new(project(&files)));
+        let start = std::time::Instant::now();
+        let request = |chunk: &[usize]| serde_json::json!({ "index": chunk });
+        let project = in_workers(command_line, &workers, request).map_or_else(
+            || project(&files),
+            |parts: Vec<Project>| parts.into_iter().fold(Project::new(), Project::merge),
+        );
+        options.project = Some(Arc::new(project));
+        if args.debug {
+            eprintln!("DEBUG: project index built in {:.2?}", start.elapsed());
+        }
     }
     let rules_checked = cfg.enabled_rule_count();
     let start = std::time::Instant::now();
     let mut stdin_source = Vec::new();
+    let mut used_workers = false;
     let results: Vec<FileResult> = if args.stdin {
         if let Err(e) = io::stdin().read_to_end(&mut stdin_source) {
             eprintln!("ERROR: stdin: {e}");
@@ -879,30 +1045,32 @@ pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
         };
         vec![check(&name, source, &cfg, &args, &options)]
     } else {
-        files
-            .par_iter()
-            .map(|path| {
-                let name = path.display().to_string();
-                if path.is_dir() {
-                    return directory_result(name);
+        let project = serde_json::to_value(options.project.as_deref()).unwrap_or_default();
+        let request = |chunk: &[usize]| serde_json::json!({ "check": chunk, "project": project });
+        in_workers(command_line, &workers, request).map_or_else(
+            || {
+                let all: Vec<usize> = (0..files.len()).collect();
+                process(&files, &all, &cfg, &args, &options)
+            },
+            |parts: Vec<Vec<FileResult>>| {
+                used_workers = true;
+                // Back into the order of the inputs.
+                let mut slots: Vec<Option<FileResult>> = files.iter().map(|_| None).collect();
+                for (chunk, part) in workers.iter().zip(parts) {
+                    for (&i, r) in chunk.iter().zip(part) {
+                        slots[i] = Some(r);
+                    }
                 }
-                match std::fs::read(path) {
-                    Ok(source) => check(&name, source, &cfg.for_path(path), &args, &options),
-                    Err(e) => FileResult {
-                        name,
-                        violations: Vec::new(),
-                        error: Some(e.to_string()),
-                        output: None,
-                    },
-                }
-            })
-            .collect()
+                slots.into_iter().flatten().collect()
+            },
+        )
     };
     if args.debug {
         eprintln!(
-            "DEBUG: {} input(s) processed in {:.2?}",
+            "DEBUG: {} input(s) processed in {:.2?} by {} process(es)",
             results.len(),
-            start.elapsed()
+            start.elapsed(),
+            if used_workers { workers.len() } else { 1 }
         );
     }
     let mut failed = false;

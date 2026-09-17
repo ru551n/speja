@@ -48,7 +48,7 @@ Regression tests live in `tests/regressions.rs`. "reproducer" means the reproduc
 | VSG-BUG-028 | handled: comments before `end` stay at body indentation | reproducer, golden `comments` |
 | VSG-BUG-029 | not applicable: tabs are not supported | reproducer |
 | VSG-BUG-030 | handled: identifier lists count as one prefix; very wide ones are not aligned | reproducer |
-| VSG-BUG-031 | not applicable: native threads, no process spawning | — |
+| VSG-BUG-031 | not applicable: worker processes are started only by the parent, never by a worker | — |
 | VSG-BUG-032 | handled: linear-time layout; about 12 MB/5 s including verification | `large_file_is_fast` |
 | VSG-BUG-033 | not applicable | — |
 | VSG-BUG-034 | handled | reproducer |
@@ -739,7 +739,7 @@ Category: other (platform/process model)
 Observed behavior: On some Windows/Python packaging combinations, VSG's use of Python's `multiprocessing` module to parallelize file analysis re-spawns the entire Python interpreter recursively (a known multiprocessing/`freeze_support` pitfall on Windows), producing an uninterruptible, resource-consuming loop of new processes.
 Independent reproducer: N/A — this is a process-model/packaging bug specific to Python's `multiprocessing` on Windows, not a VHDL input; no VHDL reproducer applies.
 Expected behavior: Parallelizing across files must not be able to recursively re-invoke the whole program on any supported platform.
-Relevance to vsg-rs: A single native binary with an in-process thread pool (e.g. Rust's `rayon` or plain OS threads) has no interpreter-respawn step at all, eliminating this entire bug class by construction — a good example of an issue that is "free" architecturally rather than something that needs a design decision.
+Relevance to vsg-rs: vsg-rs also parallelizes with processes (see `performance.md`), but explicitly: the parent starts one worker per chunk of files with the `VSG_RS_WORKER` environment variable set, and a process with that variable set answers its request and exits without starting any processes. If a worker cannot be started, the parent does the work itself.
 Confirmed on 3.35.0: not tried (platform/Python-version specific; not reproducible from this Linux sandbox).
 
 ## VSG-BUG-032: `vsg` becomes impractically slow (minutes, possibly non-terminating in practice) on very large files

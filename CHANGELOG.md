@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0
+
+Performance.
+
+* Several files are checked and fixed in parallel worker processes instead of threads. The
+  parser's global token interner made threads contend on every token: VUnit's 222 files now
+  take 0.6 s instead of 1.7 s, with 3.7 s of CPU time instead of 30 s. The cross-file
+  declaration index is built by the workers too.
+* `--debug` prints how long the declaration index took and how many processes were used.
+
 ## 0.7.0
 
 Command line and distribution.

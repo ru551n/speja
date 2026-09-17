@@ -33,7 +33,7 @@ structure. Expect layout changes before 1.0.
   and comments; fixed output must parse. Files with syntax errors are never changed. Fixes that
   VSG does not apply by default, or that could break code, need `--unsafe_fixes`.
 * **Fast.** A typical file takes a few milliseconds; real-world VHDL is checked at about
-  3.4 MB/s on one core, and files are processed in parallel
+  3.4 MB/s on one core, and files are processed in parallel worker processes
   ([performance](docs/performance.md)).
 
 ## Installation

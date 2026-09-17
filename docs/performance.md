@@ -36,9 +36,27 @@ out which overflows the formatter can fold.
 
 ## Repository
 
-* 11,749 real-world files (134.6 MB): parse, format and verify in 39 s on one core
+* 11,753 real-world files (134.6 MB): parse, format and verify in 39 s on one core
   (`examples/corpus.rs`), about 3.4 MB/s.
-* `vsg-rs -f` on the files of VUnit's `vunit/vhdl` (238 files, including OSVVM): 1.5 s using all cores.
+* `vsg-rs -f` on the files of VUnit's `vunit/vhdl` (222 files, 3.4 MB, including OSVVM):
+  0.59 s wall and 3.7 s CPU with worker processes, against 2.8 s on one core. With threads
+  in one process it took 1.7 s wall and 30 s CPU (see below). The rest is dominated by the
+  largest file (OSVVM `CoveragePkg.vhd`, 436 kB, 0.4 s).
+
+## Parallelism
+
+`vhdl_syntax` interns every token text in one global `RwLock`, and reads it for every token
+text or length, including during tree navigation. Threads in one process therefore contend on
+every token: with 24 threads, 222 files took 1.7 s instead of 2.8 s, while using 30 s of CPU.
+`vsg-rs` instead starts worker processes (the same executable, with the same arguments),
+each with its own interner and one thread. Files are distributed by size (at most one process
+per 64 KiB of input and per `-p` job). Workers first collect the cross-file declarations, then
+check or fix their files and send the results back as JSON; the parent writes files and
+reports in input order. If a worker cannot be started, everything runs in the parent process.
+`--debug` prints the number of processes used.
+
+Formatting and checking scale linearly with file size (CoveragePkg concatenated 1×, 2×, 4×:
+format 0.21 s, 0.50 s, 1.04 s; check 0.30 s, 0.63 s, 1.39 s).
 
 ## Complexity
 

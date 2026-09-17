@@ -308,3 +308,44 @@ fn file_list_and_recursive_directories() {
         2
     );
 }
+
+#[test]
+fn worker_processes_match_one_process() {
+    // Enough input for several worker processes.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut files = vec![write(
+        dir.path(),
+        "pkg.vhd",
+        "package pkg is\n  constant C_Width : natural := 8;\nend package pkg;\n",
+    )];
+    let body = "  x <= C_WIDTH;\n".repeat(4000);
+    for i in 0..4 {
+        files.push(write(
+            dir.path(),
+            &format!("a{i}.vhd"),
+            &format!(
+                "use work.pkg.all;\narchitecture a of e{i} is\nbegin\n{body}end architecture a;\n"
+            ),
+        ));
+    }
+    let names: Vec<&str> = files.iter().map(|f| f.to_str().unwrap()).collect();
+    let run = |jobs: &str| {
+        let mut args = vec!["--debug", "-p", jobs, "-of", "syntastic", "-f"];
+        args.extend(&names);
+        vsg(&args, "")
+    };
+    let (one, many) = (run("1"), run("4"));
+    assert_eq!(one.stdout, many.stdout);
+    let debug = String::from_utf8_lossy(&many.stderr);
+    assert!(
+        debug.contains("process(es)") && !debug.contains("by 1 process"),
+        "{debug}"
+    );
+    // The cross-file consistency check works in workers too.
+    assert!(String::from_utf8_lossy(&many.stdout).contains("a3.vhd(5)constant_013"));
+    let mut args = vec!["-p", "4", "--fix", "-f"];
+    args.extend(&names);
+    vsg(&args, "");
+    let fixed = std::fs::read_to_string(&files[4]).unwrap();
+    assert!(!fixed.contains("C_WIDTH"), "{}", &fixed[..200]);
+}

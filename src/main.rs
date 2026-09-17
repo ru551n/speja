@@ -5,5 +5,5 @@ use std::process::ExitCode;
 mod vsg_cli;
 
 fn main() -> ExitCode {
-    vsg_cli::main(std::env::args().collect())
+    vsg_cli::main(&std::env::args().collect::<Vec<_>>())
 }

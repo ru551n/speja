@@ -55,8 +55,8 @@
   VHDL-2019 tool directives on their own line are parsed as same-length comments (so byte
   offsets stay valid for rules and fixes) and put back into the output.
 * **Deterministic.** Layout depends only on the tree and the resolved configuration. There is no
-  hash-map iteration order in the output path. Files are processed in parallel, but results are
-  reported in sorted path order.
+  hash-map iteration order in the output path. Files are processed in parallel worker processes,
+  but results are reported in input order.
 * **Atomic writes.** A file is written only after its complete result has been computed and
   verified, via a temporary file in the same directory that is then renamed over the original. Files
   whose output is identical to their input are not rewritten.
