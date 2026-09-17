@@ -5,6 +5,9 @@
 * The GitHub Action resolves its suggestion threads that no longer apply on each run (and
   reopens one when the same suggestion applies again), so only open problems stay expanded.
 * The documentation's workflow examples report without code scanning, which stays optional.
+* The alignment of `:` in generic, port and parameter lists (`entity_017`, `component_017`,
+  `procedure_410`) and of `=>` in maps (`instantiation_010`) can be disabled, and
+  `group: alignment: disable` now turns it off too.
 
 ## 0.9.4
 
