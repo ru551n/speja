@@ -14,7 +14,7 @@ assert json.load(open(configs[-1]))["rule"]["entity_001"] == {"disable": True}, 
 fix = "--fix" in args
 found = False
 for path in args[args.index("-f") + 1 :]:
-    with open(path) as f:
+    with open(path, newline="") as f:
         lines = f.read().splitlines(keepends=True)
     for number, line in enumerate(lines, 1):
         if "TODO" in line:
@@ -24,6 +24,6 @@ for path in args[args.index("-f") + 1 :]:
                 found = True
                 print(f"ERROR: {path}({number})fake_001 -- Replace TODO")
     if fix:
-        with open(path, "w") as f:
+        with open(path, "w", newline="") as f:
             f.write("".join(lines))
 sys.exit(1 if found else 0)
