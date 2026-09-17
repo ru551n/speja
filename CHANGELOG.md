@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.5
+
+* The GitHub Action resolves its suggestion threads that no longer apply on each run (and
+  reopens one when the same suggestion applies again), so only open problems stay expanded.
+* The documentation's workflow examples report without code scanning, which stays optional.
+
 ## 0.9.4
 
 Less noise on pull requests.

@@ -49,7 +49,10 @@ Suggestions and the summary comment need `pull-requests: write`. Pull requests f
 a read-only token; the action then only warns and reports through annotations and the job
 summary. Suggestions refer to the pull request's head commit and are posted only for lines
 that the pull request shows and that still read as vsg-rs saw them; at most 50 per run, and a
-suggestion that was already posted is not repeated.
+suggestion that was already posted is not repeated. On every run, the action resolves its
+earlier suggestion threads that vsg-rs no longer makes (the problem was fixed, or the lines
+changed) and reopens a resolved one when the same suggestion applies again, so only open
+problems stay expanded.
 
 ## Code scanning (SARIF), optional
 

@@ -184,7 +184,8 @@ The action downloads the vsg-rs release of its own tag (checked against `SHA256S
 runs `vsg-rs` with `args`. On a pull request:
 
 * **Suggested changes**: what `--fix` would change on the pull request's lines is posted as
-  suggestions in one review, applied with one click.
+  suggestions in one review, applied with one click. Suggestions that no longer apply are
+  resolved on the next run.
 * **One summary comment**: findings per rule and the command that fixes them, updated in place
   on every push.
 * **Annotations** on the lines the pull request adds or changes.
