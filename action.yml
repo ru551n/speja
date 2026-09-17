@@ -7,36 +7,36 @@ branding:
 
 inputs:
   args:
-    description: Arguments for vsg-rs (VSG's command line), for example `-c vsg.yaml --recursive src`.
+    description: 'Arguments for vsg-rs (VSG''s command line), for example `-c vsg.yaml --recursive src`.'
     default: --recursive .
   version:
-    description: vsg-rs release to use (`v0.9.2`, or `latest`). By default, the release of the action's own tag, else the latest release.
+    description: 'vsg-rs release to use (`v0.9.2`, or `latest`). By default, the release of the action''s own tag, else the latest release.'
     default: ""
   working-directory:
-    description: Directory to run vsg-rs in, relative to the repository root.
+    description: 'Directory to run vsg-rs in, relative to the repository root.'
     default: .
   annotations:
-    description: Show findings as annotations on the changed files (GitHub shows at most 10 errors and 10 warnings per step).
+    description: 'Show findings as annotations on the changed files (GitHub shows at most 10 errors and 10 warnings per step).'
     default: "true"
   sarif-upload:
-    description: Upload the findings to GitHub code scanning. The job needs `permissions: security-events: write`.
+    description: 'Upload the findings to GitHub code scanning. The job needs `permissions: security-events: write`.'
     default: "false"
   fail-on-violations:
-    description: Fail the step when vsg-rs exits with an error (error-severity violations, files that could not be checked).
+    description: 'Fail the step when vsg-rs exits with an error (error-severity violations, files that could not be checked).'
     default: "true"
   token:
-    description: Token used to download the release.
+    description: 'Token used to download the release.'
     default: ${{ github.token }}
 
 outputs:
   exit-code:
-    description: The exit code of vsg-rs.
+    description: 'The exit code of vsg-rs.'
     value: ${{ steps.run.outputs.exit-code }}
   sarif-file:
-    description: Path of the SARIF report (paths relative to the repository root).
+    description: 'Path of the SARIF report (paths relative to the repository root).'
     value: ${{ steps.run.outputs.sarif-file }}
   version:
-    description: The vsg-rs release that was used.
+    description: 'The vsg-rs release that was used.'
     value: ${{ steps.install.outputs.version }}
 
 runs:
