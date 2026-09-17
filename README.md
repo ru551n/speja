@@ -198,7 +198,7 @@ Other inputs: `version` (a release tag or `latest`), `working-directory`,
 `annotations: false`, and `token`. Outputs: `exit-code`, `sarif-file` and `version`. Linux,
 Windows and macOS runners are supported. To fix the reported violations locally, run the same
 arguments with `--fix`. See [GitHub Action](docs/github-action.md) for details, and
-[ru551n/vhdl-ai-test#7](https://github.com/ru551n/vhdl-ai-test/pull/7) for an example pull
+[ru551n/vhdl-ai-test#8](https://github.com/ru551n/vhdl-ai-test/pull/8) for an example pull
 request.
 
 ### Python
