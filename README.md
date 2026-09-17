@@ -1,6 +1,7 @@
 # vsg-rs
 
-A fast Rust-native VHDL formatter and style checker with VSG-compatible rules and configuration.
+A fast Rust-native VHDL formatter and style checker with the command line, rules and
+configuration of VSG.
 
 > **vsg-rs is an independent Rust implementation of a VHDL formatter and style checker that
 > aims for compatibility with the rules and configuration of the VHDL Style Guide (VSG). It is not
@@ -11,70 +12,117 @@ A fast Rust-native VHDL formatter and style checker with VSG-compatible rules an
 > project by Jeremiah Leary and contributors. vsg-rs contains no VSG code; VSG is used only as a
 > behavioural reference.
 
-**Status: beta.** Formatting is tested against a corpus of more than 11,000 real-world files.
-192 VSG rules are implemented as lint rules with fixes (structure, identifier case, naming,
-comments, `length_001`), and the other 779 layout rules are covered by the formatter's policy
-(blank lines, alignment, keyword case, indentation). Expect layout changes before 1.0.
+**Status: beta.** vsg-rs is tested against more than 11,000 real-world files. 192 VSG rules are
+implemented as rules with fixes (structure, identifier case and consistency, naming, comments,
+`length_001`). The other 779 rules are layout rules covered by the formatter: whitespace,
+indentation (including `indent.tokens`), blank lines, alignment, keyword case and line
+structure. Expect layout changes before 1.0.
 
 ## Why
 
-* **A real formatter.** Formatting is not "run the lint rules and apply their fixes". Source is
-  parsed once into a lossless syntax tree and printed in one canonical layout, like rustfmt or
-  Black. Running it twice changes nothing.
-* **Long lines are folded, not just reported.** `length_001` becomes a formatter capability:
-  calls, maps, aggregates, expressions, conditions, declarations and assignments fold at
-  structural boundaries (see [docs/line-folding.md](docs/line-folding.md)).
-* **Safe for format-on-save.** Every result is re-parsed and checked to contain exactly the same
-  tokens and comments before it is used. Files with syntax errors are left untouched. In pipe
-  mode, stdout carries nothing but the formatted source.
-* **No fix phases.** No `--fix` runs that must be repeated until they converge, and no
-  rule-order dependencies. Fixes that could change behaviour are only applied on request
-  (`--unsafe_fixes`).
-* **Fast.** Formatting a typical file from stdin takes a few milliseconds; parsing, formatting
-  and verifying real-world VHDL runs at about 3.4 MB/s on one core, and files are processed in
-  parallel ([performance](docs/performance.md)).
+* **Drop-in for VSG.** Same arguments, same configuration files, same report formats and exit
+  codes. Existing scripts and CI jobs keep working.
+* **One phase.** All violations are reported at once, and `--fix` fixes everything in one run:
+  no repeated `--fix` runs, no rule-order dependencies.
+* **A real formatter.** Source is parsed once into a lossless syntax tree and printed in one
+  canonical layout, like rustfmt or Black. Running `--fix` twice changes nothing.
+* **Long lines are folded, not just reported.** Calls, maps, aggregates, expressions, conditions,
+  declarations and signatures fold at structural boundaries
+  ([line folding](docs/line-folding.md)).
+* **Safe to run on save.** Formatted output is re-parsed and must contain exactly the same tokens
+  and comments; fixed output must parse. Files with syntax errors are never changed. Fixes that
+  VSG does not apply by default, or that could break code, need `--unsafe_fixes`.
+* **Fast.** A typical file takes a few milliseconds; real-world VHDL is checked at about
+  3.4 MB/s on one core, and files are processed in parallel
+  ([performance](docs/performance.md)).
+
+## Installation
+
+```sh
+pip install vsg-rs            # Linux and Windows wheels, Python 3.10+ (or: uv tool install vsg-rs)
+cargo install --path .        # from source (Rust 1.95 or newer)
+```
+
+Standalone binaries for Linux (static, x86_64 and aarch64), Windows (x64 and arm64) and macOS
+(arm64 and x86_64) are attached to each [GitHub release](https://github.com/ru551n/vsg-rs/releases),
+with a `SHA256SUMS` file.
 
 ## Usage
 
-`vsg-rs` takes the same arguments as VSG's `vsg` command:
+`vsg-rs` takes VSG's arguments:
 
 ```sh
-pip install vsg-rs                     # Linux and Windows wheels, Python 3.10+ (or: uv tool install vsg-rs)
-cargo install --path .                 # from source
-
-vsg-rs -f src/*.vhd                    # report violations (exit 1 if there are errors)
-vsg-rs -f src/*.vhd --fix              # fix them and format the files
-vsg-rs -f src/*.vhd -c vsg.yaml -of summary -js report.json -j junit.xml
-vsg-rs -rc entity_015                  # configuration of a rule
-vsg-rs -oc all.json                    # the effective configuration
+vsg-rs -f src/fifo.vhd src/fifo_pkg.vhd      # report violations
+vsg-rs src/*.vhd                             # file names can also be given without -f
+vsg-rs -f src/*.vhd --fix                    # fix and format the files in place
+vsg-rs -f src/*.vhd --fix -b                 # ... keeping a .bak copy of each changed file
+vsg-rs -f src/*.vhd -c vsg.yaml              # with a VSG configuration file
+vsg-rs -f src/*.vhd -of summary -js report.json -j junit.xml --quality_report gl.json
+vsg-rs --stdin < src/fifo.vhd                # read from stdin
+vsg-rs -rc entity_015                        # the configuration of one rule
+vsg-rs -oc effective.json                    # the whole effective configuration
+vsg-rs --style indent_only -f src/*.vhd --fix  # only re-indent
 ```
 
-There is one difference: VSG's phases are gone. All violations are reported at once and `--fix`
-fixes everything in one run (`-fp` and `-ap` are accepted and have no effect).
+As in VSG, directories are not searched; pass files (for example
+`vsg-rs -f $(find src -name '*.vhd')`). The exit code is `0` when no error-severity violations
+were found and `1` otherwise.
 
-`--fix` applies the fixes VSG applies by default and formats the file. vsg-rs adds these options:
+### What is reported
+
+* **Rule violations**, with VSG's rule ids and solution texts, in VSG's console layout
+  (`-of vsg`, the default), as `-of syntastic` lines or as an `-of summary`.
+* **`format` violations**: lines whose layout differs from what `--fix` produces. VSG reports
+  these under its individual whitespace, indentation, blank-line and alignment rules; vsg-rs
+  decides the whole layout at once and reports the line ranges instead.
+
+When several files are checked together, uses of names declared in another file's package, or
+of another file's entity ports and generics, are checked for consistent capitalization too.
+
+### Fixes
+
+`--fix` applies the fixes VSG applies by default and then formats the file. Rules that VSG
+does not fix by default (for example adding a missing port mode, `port_023`, or removing a
+signal's default value, `signal_007`) are left alone unless their configuration sets
+`fixable: true` or `--unsafe_fixes` is given. `--fix_only FILE` limits fixing to the listed
+rules and lines, as in VSG.
+
+### Additions to VSG's command line
 
 | Option | Meaning |
 |---|---|
-| `--unsafe_fixes` | with `--fix`, also apply fixes VSG does not apply by default (they may change behaviour or remove information) |
+| `--unsafe_fixes` | with `--fix`, also apply fixes VSG does not apply by default; they may change behaviour or remove information, so review the result |
 | `--diff` | with `--fix`, print a unified diff instead of changing files |
-| `--stdin_filename PATH` | name of the `--stdin` input, for configuration lookup and reports |
-| `--range START:END` | with `--stdin --fix`, change only these lines (editors) |
-| `--sarif FILE` | SARIF 2.1.0 report for code scanning |
-| `--list_rules` | every VSG rule and how vsg-rs handles it |
+| `--stdin_filename PATH` | name of the `--stdin` input, used to find the configuration and in reports |
+| `--range START:END` | with `--stdin --fix`, change only these lines (1-based) |
+| `--sarif FILE` | write a SARIF 2.1.0 report (GitHub code scanning) |
+| `--list_rules` | list every VSG rule and how vsg-rs handles it |
 
-Configuration uses the VSG format (YAML or JSON), passed with `-c`. Without `-c`, the nearest
-`vsg-rs.yaml` / `.vsg-rs.yaml` (or `.json`) next to the input or in a parent directory is used:
+With `--stdin --fix`, the fixed source is written to stdout and the report to stderr (VSG 3.35
+cannot fix stdin). `-fp` and `-ap` are accepted and have no effect, `--force_fix` has no effect
+(files with syntax errors are never changed), and `-lr` (VSG's Python rule plugins) is not
+supported. See [compatibility](docs/compatibility.md) for the details.
+
+### Configuration
+
+Configuration files use VSG's format (YAML or JSON) and are passed with `-c`; later files
+override earlier ones. Without `-c`, vsg-rs uses the nearest `vsg-rs.yaml` / `.vsg-rs.yaml`
+(or `.json`) next to the first input or in a parent directory, which VSG itself ignores.
 
 ```yaml
 rule:
+  global:
+    indent_style: spaces
+    indent_size: 2
+  group:
+    case::name:
+      case: lower
   length_001:
     length: 100
   process_016:
     disable: true
-  group:
-    case::name:
-      case: lower
+  port_023:
+    fixable: true          # also add missing port modes with --fix
 indent:
   tokens:
     case_statement_alternative:
@@ -86,27 +134,34 @@ file_rules:
         disable: true
 ```
 
-Formatting can be switched off for a region with `-- vsg-rs: fmt off` / `-- vsg-rs: fmt on`;
-VSG's `-- vsg_off [rule ...]` / `-- vsg_on` comments suppress rules.
+Blank-line, alignment, keyword-case and indentation rules configure the formatter
+([formatting](docs/formatting.md)). Formatting can be switched off for a region with
+`-- vsg-rs: fmt off` / `-- vsg-rs: fmt on`; VSG's `-- vsg_off [rule ...]` / `-- vsg_on` comments
+suppress rules (and, without rule names, formatting).
 
 ### Editor integration
 
 Configure your editor to pipe the buffer through
 `vsg-rs --stdin --fix --stdin_filename <path>` (add `--range START:END` to format selected
 lines). With exit code 0 the buffer is replaced with stdout; otherwise stdout is empty, stderr
-explains why, and the buffer should be left unchanged. See [docs/editors.md](docs/editors.md)
-for VS Code, Neovim, Helix and Emacs setups.
+explains why, and the buffer should be left unchanged. See [editor integration](docs/editors.md)
+for VS Code, Neovim, Helix and Emacs.
+
+### Python
+
+The wheels install the `vsg-rs` executable. `python -m vsg_rs ...` runs it too, and
+`vsg_rs.find_vsg_rs_bin()` returns its path.
 
 ## Documentation
 
-* [Architecture](docs/architecture.md)
-* [Editor integration](docs/editors.md)
-* [Formatting](docs/formatting.md), [line folding](docs/line-folding.md) and its
-  [coverage matrix](docs/line-folding-coverage.md)
-* [VHDL frontend](docs/vhdl-frontend.md) (why `vhdl_syntax`)
 * [Compatibility with VSG](docs/compatibility.md) and [rule status](docs/rule-status.md)
+* [Formatting](docs/formatting.md) (layout, alignment, blank lines, keyword case, indentation),
+  [line folding](docs/line-folding.md) and its [coverage matrix](docs/line-folding-coverage.md)
+* [Editor integration](docs/editors.md)
+* [Architecture](docs/architecture.md) and the [VHDL frontend](docs/vhdl-frontend.md)
+  (why `vhdl_syntax`)
 * [Performance](docs/performance.md)
-* [Releasing](docs/releasing.md) (Python package, platforms, release workflow)
+* [Releasing](docs/releasing.md) (Python package, binaries, platforms, release workflow)
 * [VSG configuration model](docs/vsg-config.md), [VSG rule catalog](docs/vsg-rules.md)
 * [Known VSG bugs](docs/upstream-bugs.md) and [limitations](docs/upstream-limitations.md) that
   vsg-rs is designed to avoid
@@ -117,9 +172,14 @@ for VS Code, Neovim, Helix and Emacs setups.
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
-cargo run --release --example corpus -- --width 80 path/to/vhdl   # stability and overflow report (FIX=1 / FIX=unsafe)
+cargo run --release --example corpus -- --width 80 path/to/vhdl   # stability and overflow report
+FIX=1 cargo run --release --example corpus -- path/to/vhdl         # the same for --fix (FIX=unsafe: --unsafe_fixes)
+cargo run --release --example bench                                # timing on generated inputs
 UPDATE_EXPECT=1 cargo test --test golden                           # re-bless golden files (review the diff)
 ```
+
+The library (`vsg_rs`) can also be used directly: `Parsed::new`, `format_parsed`, `fix_with`,
+`rules::check_with` and the range variants `format_range` / `fix_range`.
 
 ## License
 
