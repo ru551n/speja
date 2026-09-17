@@ -22,18 +22,33 @@ vsg-rs --version
 | Windows arm64 | `win_arm64` | build only (cross-compiled) |
 | other | sdist (needs a Rust toolchain ≥ 1.95 and network access for the git dependency) | built from sdist on Linux and Windows |
 
+## Standalone binaries
+
+Each GitHub release also has archives with just the `vsg-rs` executable (plus README and
+licenses), and a `SHA256SUMS` file:
+
+| Archive | Platform |
+|---|---|
+| `vsg-rs-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz` | Linux x86_64, static |
+| `vsg-rs-vX.Y.Z-aarch64-unknown-linux-musl.tar.gz` | Linux aarch64, static |
+| `vsg-rs-vX.Y.Z-x86_64-pc-windows-msvc.zip` | Windows x64 |
+| `vsg-rs-vX.Y.Z-aarch64-pc-windows-msvc.zip` | Windows arm64 |
+| `vsg-rs-vX.Y.Z-aarch64-apple-darwin.tar.gz` | macOS arm64 |
+| `vsg-rs-vX.Y.Z-x86_64-apple-darwin.tar.gz` | macOS x86_64 |
+
 ## Workflow
 
 `.github/workflows/release.yml`:
 
 1. checks that the tag `vX.Y.Z` equals the version in `Cargo.toml`;
-2. builds the wheels and the sdist with maturin;
+2. builds the wheels and the sdist with maturin, and the standalone binaries with cargo
+   (Linux targets with `cargo zigbuild`); native binaries are run once;
 3. installs each Linux x86_64 and Windows x64 wheel into Python 3.10, 3.11, 3.12, 3.13 and 3.14,
    and builds the sdist on Linux and Windows. Each installation runs `python/tests/smoke.py`
    (console script, `python -m vsg_rs`, stdin formatting, error handling, linting, fixing with
    CRLF line endings);
 4. on tags only: publishes to PyPI with trusted publishing, and creates a GitHub release with
-   the wheels and the sdist attached. Build provenance attestations (GitHub and PEP 740) are
+   the wheels, the sdist, the binary archives and `SHA256SUMS` attached. Build provenance attestations (GitHub and PEP 740) are
    created only while the repository is public; GitHub does not offer them for private
    repositories on its Free plan.
 
@@ -55,8 +70,8 @@ No API tokens are stored in the repository.
 ```sh
 # 1. bump `version` in Cargo.toml, run `cargo check` to update Cargo.lock
 # 2. commit and push to main; wait for CI
-git tag -a v0.2.0 -m "vsg-rs 0.2.0"
-git push origin v0.2.0
+git tag -a vX.Y.Z -m "vsg-rs X.Y.Z"
+git push origin vX.Y.Z
 gh run watch   # follow the Release workflow
 ```
 
