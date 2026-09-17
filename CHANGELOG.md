@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.4
+
+Less noise on pull requests.
+
+* SARIF reports combine layout findings on adjacent lines into one `format` result per block,
+  naming the VSG rules involved; rule violations stay one result each.
+* The GitHub Action posts layout changes as suggested changes in one review (`layout:
+  suggestions`, the default) instead of code scanning alerts, keeps one summary comment per
+  pull request up to date (`pr-comment`), and annotates only the lines a pull request adds or
+  changes (`annotations: changed`).
+
 ## 0.9.3
 
 * SARIF reports describe each rule (name, description and a link to VSG's documentation), so

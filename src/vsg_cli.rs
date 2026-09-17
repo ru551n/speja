@@ -667,30 +667,105 @@ fn sarif_rule(id: &str) -> serde_json::Value {
     rule
 }
 
+/// Whether a finding is about layout (reported by the formatter), not a rule violation.
+fn is_layout(rule: &str) -> bool {
+    rule == "format"
+        || (rules::info(rule).is_none()
+            && rules::vsg_catalog()
+                .any(|(id, owner)| id == rule && owner == rules::Owner::Formatter))
+}
+
+/// One SARIF result.
+fn sarif_result(
+    r: &FileResult,
+    rule: &str,
+    level: &str,
+    message: &str,
+    lines: (usize, usize),
+    column: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "ruleId": rule,
+        "level": level,
+        "message": { "text": message },
+        "locations": [{
+            "physicalLocation": {
+                "artifactLocation": { "uri": sarif_uri(&r.name) },
+                "region": {
+                    "startLine": lines.0.max(1),
+                    "endLine": lines.1.max(1),
+                    "startColumn": column.max(1)
+                }
+            }
+        }]
+    })
+}
+
+/// SARIF 2.1.0: one result per rule violation, and one `format` result per block of adjacent
+/// lines with layout findings, so that code scanning shows one alert per block to reformat.
 fn sarif_report(results: &[FileResult]) -> String {
-    let mut rules: Vec<&str> = results
-        .iter()
-        .flat_map(|r| r.violations.iter().map(|d| d.rule.as_str()))
-        .collect();
+    let mut rules: Vec<&str> = Vec::new();
+    let mut findings: Vec<serde_json::Value> = Vec::new();
+    for r in results {
+        let mut block: Option<(usize, usize, Vec<&str>, bool)> = None;
+        let flush = |block: &mut Option<(usize, usize, Vec<&str>, bool)>,
+                     findings: &mut Vec<serde_json::Value>| {
+            if let Some((first, last, mut kinds, error)) = block.take() {
+                kinds.retain(|k| *k != "format");
+                kinds.sort_unstable();
+                kinds.dedup();
+                let lines = if first == last {
+                    format!("line {first}")
+                } else {
+                    format!("lines {first}-{last}")
+                };
+                let message = if kinds.is_empty() {
+                    format!("Reformat {lines} (vsg-rs --fix)")
+                } else {
+                    format!(
+                        "Reformat {lines} (vsg-rs --fix); VSG rules: {}",
+                        kinds.join(", ")
+                    )
+                };
+                let level = if error { "error" } else { "warning" };
+                findings.push(sarif_result(r, "format", level, &message, (first, last), 1));
+            }
+        };
+        for d in by_line(r) {
+            let level = if d.severity == "warning" {
+                "warning"
+            } else {
+                "error"
+            };
+            if !is_layout(&d.rule) {
+                rules.push(&d.rule);
+                findings.push(sarif_result(
+                    r,
+                    &d.rule,
+                    level,
+                    &d.message,
+                    (d.line, d.line),
+                    d.column,
+                ));
+                continue;
+            }
+            rules.push("format");
+            match &mut block {
+                Some((_, last, kinds, error)) if d.line <= *last + 1 => {
+                    *last = (*last).max(d.line);
+                    kinds.push(&d.rule);
+                    *error |= level == "error";
+                }
+                _ => {
+                    flush(&mut block, &mut findings);
+                    block = Some((d.line, d.line, vec![d.rule.as_str()], level == "error"));
+                }
+            }
+        }
+        flush(&mut block, &mut findings);
+    }
     rules.sort_unstable();
     rules.dedup();
-    let findings: Vec<serde_json::Value> = results
-        .iter()
-        .flat_map(|r| by_line(r).into_iter().map(move |d| (r, d)))
-        .map(|(r, d)| {
-            serde_json::json!({
-                "ruleId": d.rule,
-                "level": if d.severity == "warning" { "warning" } else { "error" },
-                "message": { "text": d.message },
-                "locations": [{
-                    "physicalLocation": {
-                        "artifactLocation": { "uri": sarif_uri(&r.name) },
-                        "region": { "startLine": d.line.max(1), "startColumn": d.column.max(1) }
-                    }
-                }]
-            })
-        })
-        .collect();
     let doc = serde_json::json!({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",

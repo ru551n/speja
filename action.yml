@@ -1,5 +1,5 @@
 name: vsg-rs
-description: Check VHDL style with vsg-rs (VSG-compatible), with annotations, a job summary and optional code scanning upload.
+description: Check VHDL style with vsg-rs (VSG-compatible), with annotations, suggested changes, a pull request summary and optional code scanning upload.
 author: ru551n
 branding:
   icon: check-square
@@ -10,13 +10,19 @@ inputs:
     description: 'Arguments for vsg-rs (VSG''s command line), for example `-c vsg.yaml --recursive src`.'
     default: --recursive .
   version:
-    description: 'vsg-rs release to use (`v0.9.3`, or `latest`). By default, the release of the action''s own tag, else the latest release.'
+    description: 'vsg-rs release to use (`v0.9.4`, or `latest`). By default, the release of the action''s own tag, else the latest release.'
     default: ""
   working-directory:
     description: 'Directory to run vsg-rs in, relative to the repository root.'
     default: .
   annotations:
-    description: 'Show findings as annotations on the changed files (GitHub shows at most 10 errors and 10 warnings per step).'
+    description: 'Show findings as annotations: `changed` (on pull requests, only on lines the pull request adds or changes), `true` (all) or `false`. GitHub shows at most 10 errors and 10 warnings per step.'
+    default: changed
+  layout:
+    description: 'How layout findings are reported: `suggestions` (on pull requests, as suggested changes in a review; never as code scanning alerts) or `alerts` (as code scanning alerts, one per block of lines to reformat). Suggestions need `permissions: pull-requests: write`.'
+    default: suggestions
+  pr-comment:
+    description: 'On pull requests, keep one comment with a summary of the findings, updated on every run. Needs `permissions: pull-requests: write`.'
     default: "true"
   sarif-upload:
     description: 'Upload the findings to GitHub code scanning. The job needs `permissions: security-events: write`.'
@@ -85,7 +91,10 @@ runs:
       env:
         ARGS: ${{ inputs.args }}
         ANNOTATIONS: ${{ inputs.annotations }}
+        LAYOUT: ${{ inputs.layout }}
+        PR_COMMENT: ${{ inputs.pr-comment }}
         WORKDIR: ${{ inputs.working-directory }}
+        GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         sarif="$RUNNER_TEMP/vsg-rs.sarif"
         set +e
@@ -96,9 +105,18 @@ runs:
         set -e
         echo "exit-code=$code" >> "$GITHUB_OUTPUT"
         echo "sarif-file=$sarif" >> "$GITHUB_OUTPUT"
+        extra=()
+        if [ "$LAYOUT" = suggestions ] && [[ "$GITHUB_EVENT_NAME" == pull_request* ]]; then
+          diff="$RUNNER_TEMP/vsg-rs.diff"
+          # shellcheck disable=SC2086
+          vsg-rs $ARGS --fix --diff > "$diff" 2> /dev/null || true
+          extra=(--diff "$diff")
+        fi
         python=$(command -v python3 || command -v python || true)
         if [ -f "$sarif" ] && [ -n "$python" ]; then
-          "$python" "$GITHUB_ACTION_PATH/scripts/github_action_report.py" "$sarif" "$WORKDIR" "$ANNOTATIONS"
+          "$python" "$GITHUB_ACTION_PATH/scripts/github_action_report.py" --sarif "$sarif" \
+            --workdir "$WORKDIR" --annotations "$ANNOTATIONS" --layout "$LAYOUT" \
+            --pr-comment "$PR_COMMENT" --command "$ARGS" "${extra[@]}"
         fi
 
     - name: Upload to code scanning
