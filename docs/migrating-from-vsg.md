@@ -61,7 +61,6 @@ scanning ([GitHub Action](github-action.md)):
 - uses: ru551n/vsg-rs@v0.9.4
   with:
     args: -c vsg.yaml --recursive src
-    sarif-upload: true
 ```
 
 Instead of listing files, use `file_list` in the configuration (as in VSG) or

@@ -10,7 +10,7 @@ it keeps the noise down:
 * **One summary comment**, with the findings per rule and the command that fixes them,
   updated in place on every push (and not created while there is nothing to report).
 * **Annotations only on changed lines** (`annotations: changed`).
-* **Code scanning** (optional) for rule violations: naming, missing labels, and so on.
+* **Code scanning** (optional, see below) to track rule violations as alerts.
 
 ```yaml
 name: VHDL style
@@ -22,13 +22,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write     # suggestions and the summary comment
-      security-events: write   # only for sarif-upload
     steps:
       - uses: actions/checkout@v6
       - uses: ru551n/vsg-rs@v0.9.4
         with:
           args: -c vsg.yaml --recursive src
-          sarif-upload: true
 ```
 
 It runs on Linux, Windows and macOS runners (x64 and arm64).
@@ -53,7 +51,12 @@ summary. Suggestions refer to the pull request's head commit and are posted only
 that the pull request shows and that still read as vsg-rs saw them; at most 50 per run, and a
 suggestion that was already posted is not repeated.
 
-## Code scanning (SARIF)
+## Code scanning (SARIF), optional
+
+The suggestions, the summary comment and the annotations need nothing but the workflow. Code
+scanning is an addition for teams that want violations tracked over time: it adds GitHub's
+code scanning bot (`github-advanced-security[bot]`), which comments once per new alert, and
+a separate check. Enable it with `sarif-upload: true` and `security-events: write`.
 
 SARIF is the standard JSON format for static-analysis results that GitHub code scanning reads.
 With `sarif-upload: true` (or `vsg-rs --sarif FILE` followed by

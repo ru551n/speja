@@ -173,13 +173,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write     # suggestions and the summary comment
-      security-events: write   # only needed for sarif-upload
     steps:
       - uses: actions/checkout@v5
       - uses: ru551n/vsg-rs@v0.9.4
         with:
           args: -c vsg.yaml --recursive src   # any vsg-rs arguments
-          sarif-upload: true                  # optional: code scanning alerts
 ```
 
 The action downloads the vsg-rs release of its own tag (checked against `SHA256SUMS`) and
@@ -190,10 +188,9 @@ runs `vsg-rs` with `args`. On a pull request:
 * **One summary comment**: findings per rule and the command that fixes them, updated in place
   on every push.
 * **Annotations** on the lines the pull request adds or changes.
-* **Code scanning** (`sarif-upload: true`): rule violations become alerts under
-  *Security → Code scanning*, with review comments for the ones the pull request introduces;
-  alerts close when fixed. Free for public repositories. Running the workflow on pushes to the
-  default branch gives pull requests a baseline to compare with.
+* **Code scanning** (optional, `sarif-upload: true` with `security-events: write`): rule
+  violations also become tracked alerts under *Security → Code scanning*, and GitHub's
+  code scanning bot comments on the ones a pull request introduces.
 * **Result**: the step fails when vsg-rs reports error-severity violations
   (`fail-on-violations: false` only reports them).
 
