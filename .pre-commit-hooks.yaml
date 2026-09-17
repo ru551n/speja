@@ -1,0 +1,16 @@
+# pre-commit hooks (https://pre-commit.com). Installing from this repository builds vsg-rs
+# from source (Rust >= 1.95); see docs/migrating-from-vsg.md for a variant that uses the PyPI wheels.
+- id: vsg-rs
+  name: vsg-rs (check)
+  description: Report VSG style violations in VHDL files.
+  entry: vsg-rs
+  language: python
+  files: \.(vhd|vhdl)$
+  require_serial: true
+- id: vsg-rs-fix
+  name: vsg-rs (fix)
+  description: Fix and format VHDL files like `vsg --fix`.
+  entry: vsg-rs --fix
+  language: python
+  files: \.(vhd|vhdl)$
+  require_serial: true

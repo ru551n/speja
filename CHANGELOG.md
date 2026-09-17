@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+Command line and distribution.
+
+* `file_list` in the configuration is supported as in VSG: paths and glob patterns (with
+  environment variables), each optionally with its own `rule` block, checked together with the
+  files on the command line.
+* `--recursive` checks the VHDL files in directories given as inputs.
+* macOS wheels (arm64 and x86_64) on PyPI.
+* pre-commit hooks `vsg-rs` and `vsg-rs-fix` (`.pre-commit-hooks.yaml`).
+* A migration guide from VSG (`docs/migrating-from-vsg.md`), with CI and pre-commit setups.
+
 ## 0.6.0
 
 Formatter options.

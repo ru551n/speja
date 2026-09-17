@@ -39,7 +39,7 @@ structure. Expect layout changes before 1.0.
 ## Installation
 
 ```sh
-pip install vsg-rs            # Linux and Windows wheels, Python 3.10+ (or: uv tool install vsg-rs)
+pip install vsg-rs            # Linux, Windows and macOS wheels, Python 3.10+ (or: uv tool install vsg-rs)
 cargo install --path .        # from source (Rust 1.95 or newer)
 ```
 
@@ -62,10 +62,11 @@ vsg-rs --stdin < src/fifo.vhd                # read from stdin
 vsg-rs -rc entity_015                        # the configuration of one rule
 vsg-rs -oc effective.json                    # the whole effective configuration
 vsg-rs --style indent_only -f src/*.vhd --fix  # only re-indent
+vsg-rs --recursive src                       # every .vhd/.vhdl file below src
 ```
 
-As in VSG, directories are not searched; pass files (for example
-`vsg-rs -f $(find src -name '*.vhd')`). The exit code is `0` when no error-severity violations
+As in VSG, files can also be listed in the configuration (`file_list`), and directories are
+not searched unless `--recursive` is given. The exit code is `0` when no error-severity violations
 were found and `1` otherwise.
 
 ### What is reported
@@ -99,6 +100,7 @@ rules and lines, as in VSG.
 | `--range START:END` | with `--stdin --fix`, change only these lines (1-based) |
 | `--sarif FILE` | write a SARIF 2.1.0 report (GitHub code scanning) |
 | `--list_rules` | list every VSG rule and how vsg-rs handles it |
+| `--recursive` | check the `.vhd` / `.vhdl` files in directories given as inputs, and in their subdirectories |
 
 With `--stdin --fix`, the fixed source is written to stdout and the report to stderr (VSG 3.35
 cannot fix stdin). `-fp` and `-ap` are accepted and have no effect, `--force_fix` has no effect
@@ -159,6 +161,7 @@ The wheels install the `vsg-rs` executable. `python -m vsg_rs ...` runs it too, 
 * [Compatibility with VSG](docs/compatibility.md) and [rule status](docs/rule-status.md)
 * [Formatting](docs/formatting.md) (layout, alignment, blank lines, keyword case, indentation),
   [line folding](docs/line-folding.md) and its [coverage matrix](docs/line-folding-coverage.md)
+* [Migrating from VSG](docs/migrating-from-vsg.md) (including pre-commit and CI)
 * [Editor integration](docs/editors.md)
 * [Architecture](docs/architecture.md) and the [VHDL frontend](docs/vhdl-frontend.md)
   (why `vhdl_syntax`)

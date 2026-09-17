@@ -18,6 +18,7 @@ vsg-rs accepts VSG configuration documents in YAML or JSON.
 | `rule.length_001.length` | sets the formatter's target width and the `length_001` limit |
 | `rule.global.indent_size` | sets the formatter's indentation |
 | `rule.global.indent_style` | `spaces` (default) or `smart_tabs` |
+| `number_of_spaces`, port mode `spaces_before`/`spaces_after`, `action: same_line` of closing parentheses, `align_left`/`align_paren` | applied by the formatter (see `formatting.md`) |
 | `rule.global.case`, `rule.group.case` / `case::keyword` `.case` | sets keyword case (`lower` or `upper`) and the default of the identifier case rules |
 | `rule.group.case` / `case::keyword` `.disable: true` | keeps keywords as written |
 | keyword case rules (`entity_004`, …) `.case`, `.disable` | per keyword (see `formatting.md`) |
@@ -25,7 +26,7 @@ vsg-rs accepts VSG configuration documents in YAML or JSON.
 | alignment rules `.disable` and group options | applied by the formatter per kind of alignment (see `formatting.md`) |
 | rule options such as `action`, `parenthesis`, `case`, `case_exceptions`, `prefix_exceptions`, `suffix_exceptions`, `regex`, `prefixes`, `suffixes`, `exceptions`, `names`, `consecutive`, `method`, `clock`, `magnitude`, `units`, `keywords`, `standard` and the `block_comment` options | supported by the rules that define them |
 | `linesep` | supported (`"\n"` or `"\r\n"`); without it, the input's line ending is kept |
-| `file_list` | ignored with a warning; pass files and directories on the command line |
+| `file_list` | supported: paths and glob patterns (`*`, `?`, `**`, environment variables), relative to the working directory, each optionally with its own `rule` block; the files are checked in addition to those on the command line, and a pattern that matches nothing is an error, as in VSG |
 | `file_rules` | supported, as a mapping or a list; keys are paths or glob patterns (`*`, `?`, `**`); a relative pattern matches any path ending with it |
 | `pragma.patterns` | supported (`open`, `close` regular expressions) |
 | `indent.tokens` | supported for construct-level indentation (see `formatting.md`); other settings are reported |
@@ -60,10 +61,10 @@ layout.
 | `--force_fix` | accepted, no effect: files with syntax errors are never changed |
 | `--stdin --fix` | prints the fixed source on stdout and the report on stderr (VSG 3.35 fails); exit code 0 when code is printed |
 | `-v` | prints vsg-rs's version |
-| directories | reported as `source_file_001` (as in VSG); pass files |
+| directories | reported as `source_file_001` (as in VSG); with `--recursive`, their VHDL files are checked |
 
 vsg-rs additions: `--unsafe_fixes`, `--diff`, `--range START:END`, `--stdin_filename PATH`,
-`--sarif FILE`, `--list_rules`, and configuration discovery (`vsg-rs.yaml` / `.vsg-rs.yaml` /
+`--sarif FILE`, `--list_rules`, `--recursive`, and configuration discovery (`vsg-rs.yaml` / `.vsg-rs.yaml` /
 `.json` next to the input) when `-c` is not given.
 
 ### Exit codes

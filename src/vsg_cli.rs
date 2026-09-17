@@ -251,6 +251,10 @@ struct Args {
     /// Extract SARIF 2.1.0 file for code scanning (vsg-rs extension)
     #[arg(long, value_name = "SARIF")]
     sarif: Option<PathBuf>,
+    /// Check the VHDL files (.vhd, .vhdl) in directories and their subdirectories (vsg-rs
+    /// extension)
+    #[arg(long)]
+    recursive: bool,
     /// List every VSG rule and how vsg-rs handles it (vsg-rs extension)
     #[arg(long = "list_rules")]
     list_rules: bool,
@@ -814,6 +818,33 @@ pub(crate) fn main(command_line: Vec<String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    if !args.stdin {
+        for (pattern, source) in &cfg.file_list {
+            let found = vsg_rs::config::expand_pattern(pattern);
+            if found.is_empty() {
+                println!(
+                    "ERROR: Could not find file {pattern} in configuration file {}",
+                    source.display()
+                );
+                return ExitCode::from(1);
+            }
+            files.extend(found);
+        }
+        if args.recursive {
+            files = files
+                .into_iter()
+                .flat_map(|f| {
+                    if f.is_dir() {
+                        vsg_rs::config::vhdl_files(&f)
+                    } else {
+                        vec![f]
+                    }
+                })
+                .collect();
+        }
+        let mut seen = std::collections::HashSet::new();
+        files.retain(|f| seen.insert(f.clone()));
+    }
     if !args.stdin && files.is_empty() {
         if args.output_configuration.is_none() {
             let _ = Args::command().print_help();

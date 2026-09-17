@@ -251,3 +251,60 @@ fn configuration_is_discovered_next_to_the_input() {
     let out = vsg(&[file.to_str().unwrap()], "");
     assert_eq!(out.status.code(), Some(0), "{out:?}");
 }
+
+#[test]
+fn file_list_and_recursive_directories() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src/sub")).unwrap();
+    let a = write(dir.path(), "src/a.vhd", "entity A is\nend entity A;\n");
+    write(dir.path(), "src/sub/b.vhd", "entity B is\nend entity B;\n");
+    let root = dir.path().to_str().unwrap();
+    let cfg = write(
+        dir.path(),
+        "c.yaml",
+        &format!(
+            "file_list:\n  - '{root}/src/a.vhd'\n  - '{root}/src/**/b.vhd':\n      rule:\n        entity_008:\n          case: upper\n"
+        ),
+    );
+    let out = vsg(&["-c", cfg.to_str().unwrap(), "-of", "syntastic"], "");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(text.matches("entity_008").count(), 1, "{text}");
+    assert!(text.contains("a.vhd(1)entity_008"), "{text}");
+    // Files named on the command line and in the list are checked once.
+    let both = vsg(
+        &[
+            "-c",
+            cfg.to_str().unwrap(),
+            "-f",
+            a.to_str().unwrap(),
+            "-of",
+            "summary",
+        ],
+        "",
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&both.stdout)
+            .matches("File: ")
+            .count(),
+        2,
+        "{both:?}"
+    );
+    let missing = write(dir.path(), "m.yaml", "file_list:\n  - nothing/*.vhd\n");
+    let out = vsg(&["-c", missing.to_str().unwrap()], "");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Could not find file nothing/*.vhd"));
+    // Directories are only searched with --recursive.
+    let src = dir.path().join("src");
+    let flat = vsg(&[src.to_str().unwrap(), "-of", "syntastic"], "");
+    assert!(String::from_utf8_lossy(&flat.stdout).contains("source_file_001"));
+    let deep = vsg(
+        &["--recursive", src.to_str().unwrap(), "-of", "syntastic"],
+        "",
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&deep.stdout)
+            .matches("entity_008")
+            .count(),
+        2
+    );
+}

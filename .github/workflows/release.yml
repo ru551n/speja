@@ -1,5 +1,5 @@
-# Builds and tests the `vsg-rs` Python package (a wheel that ships the `vsg-rs` binary) for Linux
-# and Windows, and publishes it on version tags. See docs/releasing.md.
+# Builds and tests the `vsg-rs` Python package (a wheel that ships the `vsg-rs` binary) for Linux,
+# Windows and macOS, and publishes it on version tags. See docs/releasing.md.
 #
 # - push of a tag `vX.Y.Z`: build, test, publish to PyPI, create a GitHub release with the
 #   wheels, the sdist and standalone binaries for Linux, Windows and macOS
@@ -83,6 +83,29 @@ jobs:
           name: wheels-windows-${{ matrix.target }}
           path: dist
 
+  macos:
+    name: Wheel (macos, ${{ matrix.target }})
+    needs: version
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # x86_64 is cross-compiled on the arm64 runner.
+        target: [aarch64, x86_64]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}-apple-darwin
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: dist
+
   sdist:
     name: Source distribution
     needs: version
@@ -154,12 +177,12 @@ jobs:
 
   test-wheels:
     name: Test wheel (${{ matrix.os }}, Python ${{ matrix.python }})
-    needs: [linux, windows]
+    needs: [linux, windows, macos]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v6

@@ -161,6 +161,8 @@ pub struct Config {
     raw_pragma: Option<Value>,
     /// `file_rules`: (path pattern, `rule` block) applied to matching files.
     file_rules: Vec<(String, Value)>,
+    /// `file_list`: (path or glob pattern, the configuration file that lists it).
+    pub file_list: Vec<(String, PathBuf)>,
     /// Problems found while loading that did not prevent loading.
     pub warnings: Vec<String>,
 }
@@ -212,6 +214,83 @@ pub fn discover(dir: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+/// The files matching a `file_list` pattern (`*`, `?`, `**`), relative to the working
+/// directory, in sorted order. A pattern without wildcards is returned if the file exists.
+pub fn expand_pattern(pattern: &str) -> Vec<PathBuf> {
+    let pattern = &expand_vars(pattern);
+    if !pattern.contains(['*', '?']) {
+        return Some(PathBuf::from(pattern))
+            .filter(|p| p.exists())
+            .into_iter()
+            .collect();
+    }
+    let fixed: Vec<&str> = pattern
+        .split('/')
+        .take_while(|c| !c.contains(['*', '?']))
+        .collect();
+    let base = if fixed.is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(fixed.join("/"))
+    };
+    walk(&base)
+        .into_iter()
+        .filter(|p| {
+            let text = p.to_string_lossy().replace('\\', "/");
+            glob(pattern.as_bytes(), text.trim_start_matches("./").as_bytes())
+        })
+        .map(|p| p.strip_prefix(".").map(Path::to_path_buf).unwrap_or(p))
+        .collect()
+}
+
+/// `$NAME` and `${NAME}` replaced by environment variables; unknown ones are kept.
+fn expand_vars(text: &str) -> String {
+    static VAR: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    VAR.get_or_init(|| regex::Regex::new(r"\$(?:\{(\w+)\}|(\w+))").expect("valid regex"))
+        .replace_all(text, |c: &regex::Captures| {
+            let name = c.get(1).or_else(|| c.get(2)).map_or("", |m| m.as_str());
+            std::env::var(name).unwrap_or_else(|_| c[0].to_owned())
+        })
+        .into_owned()
+}
+
+/// The VHDL files (`.vhd`, `.vhdl`) in `dir` and its subdirectories, in sorted order. Hidden
+/// files and directories are skipped.
+pub fn vhdl_files(dir: &Path) -> Vec<PathBuf> {
+    walk(dir)
+        .into_iter()
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("vhd") || e.eq_ignore_ascii_case("vhdl"))
+        })
+        .collect()
+}
+
+/// The files below `dir`, skipping hidden entries.
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => stack.push(path),
+                Ok(_) => out.push(path),
+                Err(_) => {}
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 impl Config {
     /// Load and merge configuration files; later files override earlier ones.
     pub fn load(paths: &[PathBuf]) -> Result<Config, ConfigError> {
@@ -224,7 +303,11 @@ impl Config {
             let text = std::fs::read_to_string(path).map_err(|e| error(e.to_string()))?;
             // JSON is a subset of YAML, so one parser handles both formats.
             let doc: Value = yaml_serde::from_str(&text).map_err(|e| error(e.to_string()))?;
+            let listed = cfg.file_list.len();
             cfg.merge(&doc).map_err(error)?;
+            for entry in &mut cfg.file_list[listed..] {
+                entry.1.clone_from(path);
+            }
         }
         cfg.resolve_format();
         Ok(cfg)
@@ -257,8 +340,7 @@ impl Config {
                         _ => return Err(format!("linesep: unsupported value {value:?}")),
                     };
                 }
-                // Files are selected on the command line.
-                "file_list" => self.warn("file_list is ignored; pass files on the command line"),
+                "file_list" => self.merge_file_list(value)?,
                 "file_rules" => self.merge_file_rules(value)?,
                 "pragma" => {
                     self.merge_pragma(value)?;
@@ -300,6 +382,36 @@ impl Config {
         let (open, close) = (list("open")?, list("close")?);
         if !open.is_empty() || !close.is_empty() {
             self.pragma_patterns = Some((open, close));
+        }
+        Ok(())
+    }
+
+    /// `file_list`: paths or glob patterns, each optionally mapped to its own `rule` block.
+    fn merge_file_list(&mut self, value: &Value) -> Result<(), String> {
+        let items = value
+            .as_sequence()
+            .ok_or("`file_list` must be a list of files")?;
+        for item in items {
+            match item {
+                Value::String(pattern) => {
+                    self.file_list
+                        .push((pattern.replace('\\', "/"), PathBuf::new()));
+                }
+                Value::Mapping(map) => {
+                    for (pattern, settings) in map {
+                        let pattern = pattern
+                            .as_str()
+                            .ok_or("`file_list` entries must be paths")?
+                            .replace('\\', "/");
+                        if let Some(rule) = settings.as_mapping().and_then(|m| m.get("rule")) {
+                            Config::default().merge_rules(rule)?;
+                            self.file_rules.push((pattern.clone(), rule.clone()));
+                        }
+                        self.file_list.push((pattern, PathBuf::new()));
+                    }
+                }
+                _ => return Err("`file_list` entries must be paths".into()),
+            }
         }
         Ok(())
     }
@@ -923,6 +1035,15 @@ fn merge_layer(layer: &mut RuleLayer, settings: &Value, name: &str) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn environment_variables_in_file_list() {
+        let home = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        assert_eq!(
+            expand_vars("${CARGO_MANIFEST_DIR}/src/$CARGO_MANIFEST_DIR/$VSG_RS_UNSET_VARIABLE"),
+            format!("{home}/src/{home}/$VSG_RS_UNSET_VARIABLE")
+        );
+    }
 
     #[test]
     fn vsg_style_configuration() {
