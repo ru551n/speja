@@ -86,6 +86,34 @@ fn format_findings(old: &[u8], new: &[u8]) -> Vec<Diagnostic> {
     out
 }
 
+/// Violations for what formatting changes, under the VSG rule that reports each change.
+fn layout_findings(parsed: &Parsed, formatted: Vec<u8>, cfg: &Config) -> Vec<Diagnostic> {
+    let after = Parsed::new(formatted);
+    let mut out: Vec<Diagnostic> = Vec::new();
+    for change in vsg_rs::layout::layout_changes(parsed, &after) {
+        let rule = vsg_rs::layout::rule_for(&change);
+        // A disabled VSG rule does not report (the formatter still applies its policy).
+        if rule != "format" && cfg.rule_by_id(rule).is_some_and(|s| !s.enabled) {
+            continue;
+        }
+        if out.iter().any(|d| d.line == change.line && d.rule == rule) {
+            continue;
+        }
+        out.push(Diagnostic {
+            line: change.line,
+            column: 1,
+            rule: rule.to_owned(),
+            severity: "error".into(),
+            message: vsg_rs::layout::message(&change, cfg.format.indent),
+        });
+    }
+    if out.is_empty() {
+        // Only line endings or the final newline differ.
+        out = format_findings(parsed.source(), after.source());
+    }
+    out
+}
+
 /// Replace `path` with `contents` without ever leaving a partially written file.
 fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
     let dir = path
@@ -357,7 +385,7 @@ fn check(
         Ok(formatted) if formatted != parsed.source() => {
             result
                 .violations
-                .extend(format_findings(parsed.source(), &formatted));
+                .extend(layout_findings(&parsed, formatted, cfg));
         }
         Ok(_) => {}
         Err(e) => result.error = Some(describe_error(&parsed, &e)),

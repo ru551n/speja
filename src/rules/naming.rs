@@ -433,16 +433,36 @@ const RESERVED_2008: &[&str] = &[
     "vunit",
 ];
 const RESERVED_2019: &[&str] = &["private", "view"];
+/// VHDL-AMS (IEEE 1076.1), included by `standard: all` as in VSG.
+const RESERVED_AMS: &[&str] = &[
+    "across",
+    "break",
+    "limit",
+    "nature",
+    "noise",
+    "procedural",
+    "quantity",
+    "reference",
+    "spectrum",
+    "subnature",
+    "terminal",
+    "through",
+    "tolerance",
+];
 
 fn reserved_words(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
     let sets: &[&[&str]] = match settings.option_str("standard").unwrap_or("all") {
         "1993" | "93" => &[RESERVED_1993],
         "2008" | "08" => &[RESERVED_1993, RESERVED_2008],
-        _ => &[RESERVED_1993, RESERVED_2008, RESERVED_2019],
+        _ => &[RESERVED_1993, RESERVED_2008, RESERVED_2019, RESERVED_AMS],
     };
     for t in cx.parsed.tokens() {
         let name = text(t).to_ascii_lowercase();
-        if t.kind() == T::Identifier && sets.iter().any(|s| s.contains(&name.as_str())) {
+        // As in VSG, only where the identifier is declared.
+        if t.kind() == T::Identifier
+            && super::select::is_declaration_position(t)
+            && sets.iter().any(|s| s.contains(&name.as_str()))
+        {
             out.push(violation(
                 settings,
                 "reserved_001",
@@ -717,7 +737,7 @@ fn block_comment(
                 block[1..block.len() - 1]
                     .iter()
                     .filter(|c| !c.text.starts_with(&prefix))
-                    .map(|c| (c, format!("Add comment left \"{left}\"")))
+                    .map(|c| (c, format!("Comment must start with {prefix}")))
                     .collect()
             }
         };

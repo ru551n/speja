@@ -259,8 +259,17 @@ fn type_marks(cx: &Context<'_>) -> Vec<SyntaxToken> {
         .map(|t| text(t).to_ascii_lowercase())
         .collect();
     let returns = specs(cx, N::FunctionSpecification);
+    // As in VSG, subprogram parameters and protected types are not checked.
     cx.nodes(N::SubtypeIndication)
         .iter()
+        .filter(|n| {
+            !n.ancestors().any(|a| {
+                matches!(
+                    a.kind(),
+                    N::ParameterList | N::ProtectedTypeBody | N::ProtectedTypeDeclaration
+                )
+            })
+        })
         .chain(&returns)
         .filter_map(|n| name_parts(n).pop())
         .filter(|t| !local.contains(&text(t).to_ascii_lowercase()))
@@ -566,13 +575,19 @@ fn check_consistency(
     declaration_rule: &str,
     scopes: Scopes,
 ) {
-    // The declaration's own case rule decides the target spelling, so one fix run suffices.
+    // By default the declaration's own case rule decides the target spelling, so one fix run
+    // suffices; `spelling: declaration` compares with the declaration as written, as VSG does.
+    let as_declared = settings.option_str("spelling") == Some("declaration");
     let sites = cx.use_sites();
     for scope in scopes(cx) {
         let mut target: HashMap<String, Option<String>> = HashMap::new();
         for d in scope.decls.iter().filter(|d| !is_extended(d)) {
             let name = text(d);
-            let spelled = spelling(cx, declaration_rule, name);
+            let spelled = if as_declared {
+                name
+            } else {
+                spelling(cx, declaration_rule, name)
+            };
             target
                 .entry(spelled.to_ascii_lowercase())
                 .and_modify(|t| {
@@ -585,7 +600,11 @@ fn check_consistency(
         // Declarations in the file itself take precedence over those of other files.
         let mut external: HashMap<String, Option<String>> = HashMap::new();
         for name in &scope.external {
-            let spelled = spelling(cx, declaration_rule, name.clone());
+            let spelled = if as_declared {
+                name.clone()
+            } else {
+                spelling(cx, declaration_rule, name.clone())
+            };
             external
                 .entry(spelled.to_ascii_lowercase())
                 .and_modify(|t| {
@@ -883,6 +902,14 @@ mod tests {
         );
         let alone = crate::rules::check(&parsed, &config);
         assert!(!alone.iter().any(|v| v.rule == "constant_013"));
+    }
+
+    #[test]
+    fn consistency_against_the_declaration_as_written() {
+        let src = "architecture rtl of e is\n  signal Sig : bit;\nbegin\n  sig <= '0';\nend architecture rtl;\n";
+        assert!(!found(src, "").iter().any(|(r, _)| *r == "signal_014"));
+        let vsg = found(src, "rule:\n  signal_014:\n    spelling: declaration\n");
+        assert!(has(&vsg, "signal_014", "sig"), "{vsg:?}");
     }
 
     #[test]

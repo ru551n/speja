@@ -238,9 +238,9 @@ mod tests {
         ] {
             assert!(text.contains(expected), "missing {expected:?} in\n{text}");
         }
-        // Only the unfixable process label remains, and fixing again changes nothing.
+        // Only the unfixable process labels remain, and fixing again changes nothing.
         let remaining: Vec<_> = out.remaining.iter().map(|v| v.rule).collect();
-        assert_eq!(remaining, ["process_016"]);
+        assert_eq!(remaining, ["process_016", "process_018"]);
         assert_eq!(run(&text).output, out.output);
     }
 

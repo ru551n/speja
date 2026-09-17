@@ -79,9 +79,11 @@ could not be processed, missing files and invalid arguments).
   resolved again on the new text (a bounded number of rounds), and the result is formatted once.
   Running it again changes nothing.
 * **Formatting is not a set of fixes.** Whitespace, indentation, alignment, blank lines, keyword
-  case and line length are handled by one formatter with one canonical layout. Individual rules in
-  those groups are not reported as separate violations; unformatted lines are reported as
-  `format` violations instead.
+  case and line length are handled by one formatter with one canonical layout. Each change the
+  formatter would make is reported under the VSG rule that reports that kind of change
+  (keyword case exactly; the others through a table learned from VSG's reports on real code,
+  `src/layout_rules.json`). Changes without a known rule are reported as `format`, and where the
+  default layouts of VSG and vsg-rs differ, the reports differ too.
 * **`length_001` is fixable.** VSG never shortens lines. vsg-rs folds them. `length_001` reports only
   what remains, and says whether `--fix` would fold it.
 * **Which fixes `--fix` applies.** The same as VSG: the fixes of rules VSG fixes by default
@@ -90,7 +92,11 @@ could not be processed, missing files and invalid arguments).
   default value), and removing a statement label that is referenced elsewhere (which would
   break the code), are applied only with `--unsafe_fixes`.
 * **Identifier case consistency.** The consistency rules (`signal_014`, …) target the spelling
-  the declaration's case rule requires, so declaration and uses are fixed in the same run.
+  the declaration's case rule requires, so declaration and uses are fixed in the same run. Set
+  `spelling: declaration` on a consistency rule to compare with the declaration as written, as
+  VSG does.
+* **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
+  vsg-rs reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. vsg-rs leaves such files
   untouched and reports the first syntax error.
 * **Output verification.** Every fixed or formatted file is re-parsed and compared token by token
@@ -102,6 +108,11 @@ could not be processed, missing files and invalid arguments).
   list) between the comments, as in VSG. A bare `-- vsg_off` also switches formatting off (see
   `formatting.md`); `-- vsg-rs: fmt off` switches off only formatting.
 * **Line width** is measured in characters (Unicode scalar values for UTF-8 files), not bytes.
+
+## Measuring compatibility
+
+`scripts/compare_vsg.py FILE...` runs VSG 3.35 and vsg-rs on the same files and prints the
+findings per rule that both, only VSG, or only vsg-rs report.
 
 ## Known gaps
 

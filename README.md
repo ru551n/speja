@@ -72,9 +72,11 @@ were found and `1` otherwise.
 
 * **Rule violations**, with VSG's rule ids and solution texts, in VSG's console layout
   (`-of vsg`, the default), as `-of syntastic` lines or as an `-of summary`.
-* **`format` violations**: lines whose layout differs from what `--fix` produces. VSG reports
-  these under its individual whitespace, indentation, blank-line and alignment rules; vsg-rs
-  decides the whole layout at once and reports the line ranges instead.
+* **Layout violations**: every place where `--fix` would change the layout (indentation,
+  spacing, line breaks, blank lines, trailing whitespace, keyword case, comment columns), under
+  the VSG rule that reports it. vsg-rs decides the whole layout at once; the rule for each kind
+  of change was learned by comparing with VSG on real code. Changes without a known VSG rule are
+  reported as `format`.
 
 When several files are checked together, uses of names declared in another file's package, or
 of another file's entity ports and generics, are checked for consistent capitalization too.
@@ -175,6 +177,8 @@ cargo test
 cargo run --release --example corpus -- --width 80 path/to/vhdl   # stability and overflow report
 FIX=1 cargo run --release --example corpus -- path/to/vhdl         # the same for --fix (FIX=unsafe: --unsafe_fixes)
 cargo run --release --example bench                                # timing on generated inputs
+python scripts/compare_vsg.py FILE...                              # findings per rule, vsg-rs vs VSG 3.35
+python scripts/learn_layout_rules.py FILE...                       # relearn src/layout_rules.json
 UPDATE_EXPECT=1 cargo test --test golden                           # re-bless golden files (review the diff)
 ```
 

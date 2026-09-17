@@ -543,8 +543,8 @@ fn closing_name(
     name: fn(&SyntaxNode) -> Option<SyntaxToken>,
 ) {
     for n in cx.nodes(kind) {
-        if let (Some(epilogue), Some(name)) = (child(n, is_epilogue), name(n)) {
-            name_in_epilogue(cx, &epilogue, &name, settings, out, rule);
+        if let Some(epilogue) = child(n, is_epilogue) {
+            name_in_epilogue(cx, &epilogue, name(n).as_ref(), settings, out, rule);
         }
     }
 }
@@ -567,10 +567,12 @@ fn end_name_case_rule(rule: &str) -> &'static str {
     }
 }
 
+/// `name`: the opening name or label; without one, a missing closing name is still reported
+/// (as VSG does) but cannot be fixed.
 fn name_in_epilogue(
     cx: &Context<'_>,
     epilogue: &SyntaxNode,
-    name: &SyntaxToken,
+    name: Option<&SyntaxToken>,
     settings: &RuleSettings,
     out: &mut Vec<Violation>,
     rule: &'static str,
@@ -597,6 +599,10 @@ fn name_in_epilogue(
                 last.text_offset()
             } else {
                 last.text_range().end
+            };
+            let Some(name) = name else {
+                out.push(violation(settings, rule, last, solution(rule, true, "")));
+                return;
             };
             // Inserted as the end-name case rule wants it, so a second run finds nothing.
             let name = super::case::spelling(cx, end_name_case_rule(rule), text(name));
@@ -671,7 +677,7 @@ fn subprogram_designator(
             });
         let epilogue = child(body, |k| k == N::SubprogramBodyEpilogue);
         if let (Some(epilogue), Some(designator)) = (epilogue, designator) {
-            name_in_epilogue(cx, &epilogue, &designator, settings, out, rule);
+            name_in_epilogue(cx, &epilogue, Some(&designator), settings, out, rule);
         }
     }
 }
@@ -699,7 +705,13 @@ fn optional_is(
             }
             (None, false) => {
                 let last = preamble.last_token();
-                let mut v = violation(settings, rule, &last, "Add *is* keyword");
+                // Sic: VSG 3.35 ends only this one with a period.
+                let text = if rule == "component_021" {
+                    "Add *is* keyword."
+                } else {
+                    "Add *is* keyword"
+                };
+                let mut v = violation(settings, rule, &last, text);
                 v.fix = Some(safe(vec![insert(last.text_range().end, " is".into(), 2)]));
                 out.push(v);
             }
@@ -733,10 +745,10 @@ fn missing_label(
 fn enclosed(cond: &SyntaxNode) -> bool {
     match cond.kind() {
         N::ParenthesizedExpressionOrAggregate => is_parenthesized_expression(cond),
+        // As in VSG: a name with any parenthesized part (`f(x)`, `a(1).b`).
         N::NameExpression => cond
             .first_child()
-            .and_then(|name| name.children().last())
-            .is_some_and(|tail| tail.kind() == N::ParenthesizedName),
+            .is_some_and(|name| name.children().any(|c| c.kind() == N::ParenthesizedName)),
         _ => false,
     }
 }
@@ -847,7 +859,10 @@ mod tests {
     #[test]
     fn labels_and_conditions() {
         let src = "architecture a of e is\nbegin\n  process begin\n    if rising_edge(c) then null; elsif x then null; end if;\n  end process;\nend architecture a;\n";
-        assert_eq!(ids(src, ""), ["process_012", "process_016", "if_002"]);
+        assert_eq!(
+            ids(src, ""),
+            ["process_012", "process_016", "if_002", "process_018"]
+        );
     }
 
     #[test]

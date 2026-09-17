@@ -1304,7 +1304,7 @@ const MODE_WIDTH: usize = 5;
 
 /// The kind of a construct for keyword rules; subprogram bodies and declarations count as
 /// their function or procedure specification.
-fn construct_kind(n: &SyntaxNode) -> N {
+pub(crate) fn construct_kind(n: &SyntaxNode) -> N {
     let spec = match n.kind() {
         N::SubprogramBody => n
             .children()
