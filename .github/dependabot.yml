@@ -20,6 +20,9 @@ updates:
     directory: /   # includes .github/workflows
     schedule:
       interval: weekly
+    ignore:
+      # Its refs name Rust toolchains (`@1.95` is the MSRV, `@stable`), not action versions.
+      - dependency-name: dtolnay/rust-toolchain
     groups:
       github-actions:
         patterns: ["*"]
