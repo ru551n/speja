@@ -202,7 +202,7 @@ Other inputs: `version` (a release tag or `latest`), `working-directory`, `annot
 alert per block to reformat), `pr-comment`, and `token`. Outputs: `exit-code`, `sarif-file`
 and `version`. Linux, Windows and macOS runners are supported. To fix the reported violations
 locally, run the same arguments with `--fix`. See [GitHub Action](docs/github-action.md) for
-details, and [ru551n/vhdl-ai-test#8](https://github.com/ru551n/vhdl-ai-test/pull/8) for an
+details, and [ru551n/vhdl-ai-test#9](https://github.com/ru551n/vhdl-ai-test/pull/9) for an
 example pull request.
 
 ### Python
