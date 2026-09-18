@@ -18,7 +18,12 @@ pub enum KeywordCase {
 }
 
 /// Formatting policy. Everything here influences canonical output.
+///
+/// `#[non_exhaustive]`: new options are added here on most releases, so build one from
+/// [`FormatConfig::default`] (or [`crate::Config`]) and assign the fields you care about
+/// rather than writing a struct literal.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct FormatConfig {
     /// Target line width in display columns (see `docs/line-folding.md`).
     pub width: usize,
@@ -51,6 +56,10 @@ pub struct FormatConfig {
     pub close_paren_same_line: Vec<vhdl_syntax::syntax::NodeKind>,
     /// Continuation lines are indented instead of aligned (VSG `align_left`/`align_paren`).
     pub indent_continuations: bool,
+    /// Spaces before a trailing comment (VSG `comment_004`), where alignment does not decide.
+    pub comment_spaces: usize,
+    /// Re-wrap comment paragraphs to `width` (vsg-rs extension `vsg_rs: reflow_comments`).
+    pub reflow_comments: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +85,8 @@ impl Default for FormatConfig {
             mode_spacing: [(1, 4), (1, 3), (1, 1)],
             close_paren_same_line: Vec::new(),
             indent_continuations: false,
+            comment_spaces: 1,
+            reflow_comments: false,
         }
     }
 }
@@ -359,11 +370,28 @@ impl Config {
                     merge_raw(&mut self.raw_pragma, value);
                 }
                 "indent" => merge_raw(&mut self.raw_indent, value),
+                "vsg_rs" => self.merge_extensions(value)?,
                 "local_rules" => {
                     let dir = value.as_str().ok_or("`local_rules` must be a directory")?;
                     self.local_rules = Some(expand_path(dir));
                 }
                 _ => self.warn(&format!("unknown top-level key `{key}` ignored")),
+            }
+        }
+        Ok(())
+    }
+
+    /// `vsg_rs:` holds the options VSG does not have, kept out of its namespace.
+    fn merge_extensions(&mut self, value: &Value) -> Result<(), String> {
+        let map = value.as_mapping().ok_or("`vsg_rs` must be a mapping")?;
+        for (key, value) in map {
+            match key.as_str().unwrap_or_default() {
+                "reflow_comments" => {
+                    self.format.reflow_comments = value
+                        .as_bool()
+                        .ok_or("`reflow_comments` must be true or false")?;
+                }
+                key => self.warn(&format!("unknown `vsg_rs` key `{key}` ignored")),
             }
         }
         Ok(())
@@ -717,6 +745,28 @@ impl Config {
         })
         .map(|(_, kind)| kind)
         .collect();
+        // `comment_004` counts the spaces before an inline comment; `>=N` keeps wider source
+        // spacing, which the formatter approximates by taking N as the minimum.
+        if let Some(settings) = self.rule_by_id("comment_004").filter(|s| s.enabled) {
+            let text = settings
+                .option_str("number_of_spaces")
+                .map(str::to_owned)
+                .or_else(|| {
+                    settings
+                        .option_usize("number_of_spaces")
+                        .map(|n| n.to_string())
+                })
+                .unwrap_or_default();
+            let text = text.trim();
+            if let Ok(n) = text
+                .strip_prefix(">=")
+                .unwrap_or(text)
+                .trim()
+                .parse::<usize>()
+            {
+                self.format.comment_spaces = n.max(1);
+            }
+        }
         self.format.indent_continuations =
             ["concurrent_003", "sequential_004"].iter().any(|rule| {
                 self.rule_by_id(rule).is_some_and(|s| {

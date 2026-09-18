@@ -64,7 +64,7 @@ layout.
 | directories | reported as `source_file_001` (as in VSG); with `--recursive`, their VHDL files are checked |
 
 vsg-rs additions: `--unsafe_fixes`, `--diff`, `--range START:END`, `--stdin_filename PATH`,
-`--sarif FILE`, `--list_rules`, `--recursive`, and configuration discovery (`vsg-rs.yaml` / `.vsg-rs.yaml` /
+`--sarif FILE`, `--list_rules`, `--statistics`, `--recursive`, and configuration discovery (`vsg-rs.yaml` / `.vsg-rs.yaml` /
 `.json` next to the input) when `-c` is not given.
 
 ### Exit codes
@@ -123,7 +123,7 @@ disables every built-in rule, so that only the local rules run.
   and formats the copies' contents and writes the originals (or prints the diff). VSG then
   checks the result, and what the local rules still report is added. The copies have other
   paths than the originals, so `file_rules` patterns in the configuration do not match them in
-  VSG during fixing. With `--stdin --fix --range`, local rules only report.
+  VSG during fixing. With `--fix --range`, local rules only report.
 * If VSG cannot be started or fails, the error is printed and the exit code is 1.
 * VSG 3.35 crashes when the configuration sets `severity` for a local rule.
 
@@ -131,6 +131,23 @@ disables every built-in rule, so that only the local rules run.
 
 `scripts/compare_vsg.py FILE...` runs VSG 3.35 and vsg-rs on the same files and prints the
 findings per rule that both, only VSG, or only vsg-rs report.
+
+## Language coverage
+
+Measured over a 3,000-file corpus: 3 files (0.1%) do not parse and are reported and left
+unchanged. Two are non-UTF-8 charset fixtures, one uses PSL written as code.
+
+| Construct | Parses |
+|---|---|
+| VHDL-2008 external names, `case?`, contexts, generic package instantiation | yes |
+| VHDL-2019 conditional analysis (`` `if ``), generic subprograms, interface packages | yes |
+| VHDL-2019 mode views (`view v of r`, `port (x : view v)`) | no |
+| VHDL-2019 conditional expressions in a declaration (`:= if c then a else b`) | no |
+| PSL in comments (`-- psl assert ...`) | yes (comments are never changed) |
+| PSL as code (`default clock is ...`, `assert always (a -> b) @clk`) | no |
+
+The gaps are in the parser (`vhdl_syntax`), not in the rules; a file that does not parse is
+never modified.
 
 ## Known gaps
 

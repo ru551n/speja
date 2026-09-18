@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+* `--statistics` prints the violations per rule over all inputs, with how many files each
+  affects and whether `--fix` fixes it.
+* `comment_004` (`number_of_spaces`) sets the spaces before a trailing comment.
+* `--range` works with files, not only with `--stdin`.
+* A GitLab CI recipe (`docs/gitlab-ci.md`): code-quality report, JUnit and `--statistics`.
+* More layout violations report the VSG rule id instead of `format`: the learned table covers
+  410 kinds of token-pair change, up from 301. The same lines are reported, attributed more
+  precisely (on 150 VUnit files, `format` findings fall from 15118 to 11851).
+* A weekly job measures agreement with VSG 3.35 over VUnit's VHDL and writes the per-rule table
+  to the job summary (`scripts/compare_vsg.py --markdown`).
+* `vsg_rs: reflow_comments` re-wraps comment paragraphs to the line width (off by default; VSG
+  has no such rule). Structured comments, directives and formatter-off regions are left alone.
+* `FormatConfig` is `#[non_exhaustive]`: struct literals of it no longer compile outside the
+  crate (build one from `FormatConfig::default()` instead), and adding an option is no longer a
+  breaking change.
+* The fuzzer also generates configurations, so formatting has to be stable under any settings,
+  not only the default ones.
+
 ## 0.10.0
 
 Breaking for users of the Rust library; the command line, the configuration and the GitHub
