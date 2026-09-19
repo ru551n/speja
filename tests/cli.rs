@@ -249,6 +249,70 @@ fn extensions_diff_range_sarif_and_rule_list() {
 }
 
 #[test]
+fn sonarqube_report_carries_the_layer_as_the_issue_type() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = write(
+        dir.path(),
+        "dut.vhd",
+        "entity dut is\nend entity dut;\n\narchitecture rtl of dut is\n\n  signal a, b, c : bit;\n\
+         \n         begin\n\n  p : process (a, b) is\n  begin\n    if a = '1' then\n      \
+         c <= b;\n    end if;\n  end process p;\n\nend architecture rtl;\n",
+    );
+    let report = dir.path().join("sonar.json");
+    let out = vsg(
+        &[
+            file.to_str().unwrap(),
+            "--check",
+            "style,lint",
+            "--sonarqube",
+            report.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report).unwrap()).unwrap();
+    let issues = doc["issues"].as_array().expect("an issues array");
+    assert!(!issues.is_empty());
+    for issue in issues {
+        assert_eq!(issue["engineId"], "vsg-rs");
+        let rule = issue["ruleId"].as_str().unwrap_or_default();
+        // The layer decides the type: a lint finding is a bug, style is a code smell.
+        let expected = if rule.starts_with("lint_") {
+            "BUG"
+        } else {
+            "CODE_SMELL"
+        };
+        assert_eq!(issue["type"], expected, "{rule}");
+        let severity = issue["severity"].as_str().unwrap_or_default();
+        assert!(
+            ["INFO", "MINOR", "MAJOR", "CRITICAL"].contains(&severity),
+            "{rule}: {severity}"
+        );
+        // A lint finding never carries a fix, so it is never filed as trivially fixable.
+        if rule.starts_with("lint_") {
+            assert_ne!(severity, "INFO", "{rule}");
+        }
+        let range = &issue["primaryLocation"]["textRange"];
+        assert!(range["startLine"].as_u64().unwrap_or_default() >= 1);
+        // SonarQube counts columns from zero, so the report never carries a negative one.
+        assert!(range["startColumn"].as_i64().unwrap_or_default() >= 0);
+    }
+    // The latch this file infers is reported, as a bug, and as something to act on.
+    assert!(
+        issues.iter().any(|i| i["ruleId"] == "lint_600"
+            && i["type"] == "BUG"
+            && i["severity"] == "CRITICAL"),
+        "the lint layer reaches the report"
+    );
+    // The misplaced `begin` is layout, which --fix repairs, so it is filed as informational.
+    assert!(
+        issues.iter().any(|i| i["severity"] == "INFO"),
+        "a fixable finding is not technical debt"
+    );
+}
+
+#[test]
 fn lint_is_a_subcommand_and_the_root_stays_vsg() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = write(

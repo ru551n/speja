@@ -1,0 +1,65 @@
+# Report formats
+
+Every format is written alongside the console report, not instead of it, and any number of them
+can be produced in one run. None of them changes the exit code.
+
+| Option | Format | Read by |
+|---|---|---|
+| `--json FILE` | vsg-rs's own JSON | anything you script |
+| `-j`, `--junit FILE` | JUnit XML | GitLab, Jenkins, Azure Pipelines, most CI test tabs |
+| `--sarif FILE` | SARIF 2.1.0 | GitHub code scanning, Jenkins Warnings-NG, SonarQube |
+| `--quality_report FILE` | Code Climate JSON | GitLab's merge request widget |
+| `--sonarqube FILE` | SonarQube generic issues | SonarQube Server and Cloud |
+
+## SonarQube
+
+```sh
+vsg-rs --recursive src --check style,lint --sonarqube sonar-issues.json
+```
+
+```properties
+sonar.externalIssuesReportPaths=sonar-issues.json
+```
+
+SonarQube reads SARIF as well, and vsg-rs writes that too — but SonarQube files **every** issue
+from a SARIF report as a vulnerability. A missing blank line is not a security finding, and a few
+hundred of them would bury the ones that are. The generic format carries the type, so vsg-rs sets
+it from the layer the finding came from:
+
+* the lint layer (`lint_*`) arrives as a **bug** — it says the hardware is wrong;
+* style and layout arrive as a **code smell** — they say it reads badly.
+
+Severity separates the findings you have to think about from the ones you do not:
+
+| Severity | What it is |
+|---|---|
+| `INFO` | `--fix` repairs it on its own — one run removes all of them at once |
+| `MINOR` | the rule is configured as a warning |
+| `MAJOR` | style that needs a person: a name, a port mode, an instantiation |
+| `CRITICAL` | a lint finding — a latch, two drivers, a clock crossing |
+
+Fixability is asked of each finding rather than of its rule, because the same rule can offer a
+safe fix in one place and none in another. On open-logic that splits 33,693 issues into 32,003
+`INFO`, 653 `MAJOR`, 124 `MINOR` and 913 `CRITICAL` — and running `--fix` takes the `INFO` count
+to zero while leaving every `MAJOR` in place, which is what makes the distinction worth having.
+
+It is deliberately conservative: a finding is only `INFO` when a safe fix is attached to it, so
+the report never hides something as trivial that is not. The exit code is unaffected — an `INFO`
+violation still fails the run, it just does not pretend to be technical debt.
+
+Columns are converted, because SonarQube counts them from zero and every other format here counts
+from one.
+
+## Jenkins
+
+Use the SARIF file. The Warnings Next Generation plugin has a SARIF parser, so no vsg-rs-specific
+format is needed:
+
+```groovy
+recordIssues tool: sarif(pattern: 'vsg-rs.sarif')
+```
+
+## GitHub and GitLab
+
+Both have a page of their own: [GitHub Action](github-action.md) uploads SARIF to code scanning
+and posts suggested changes, and [GitLab CI](gitlab-ci.md) uses the code-quality report and JUnit.

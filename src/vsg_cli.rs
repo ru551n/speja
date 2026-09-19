@@ -24,6 +24,10 @@ struct Diagnostic {
     /// `error` or `warning`.
     severity: String,
     message: String,
+    /// Whether `--fix` removes this one without anybody reading it. Per finding rather than per
+    /// rule, because the same rule can offer a safe fix in one place and none in another.
+    #[serde(default)]
+    fixable: bool,
 }
 
 /// Which layer a finding came from, derived from its rule id so that it cannot disagree with
@@ -50,6 +54,10 @@ fn diagnostic(parsed: &Parsed, v: &Violation) -> Diagnostic {
         rule: v.rule.to_owned(),
         severity: v.severity.to_string(),
         message: v.message.clone(),
+        fixable: v
+            .fix
+            .as_ref()
+            .is_some_and(|f| f.safety == rules::FixSafety::Safe),
     }
 }
 
@@ -90,6 +98,7 @@ fn layout_findings(parsed: &Parsed, formatted: Vec<u8>, cfg: &Config) -> Vec<Dia
             rule: rule.to_owned(),
             severity: "error".into(),
             message: vsg_rs::layout::message(&change, cfg.format.indent),
+            fixable: true,
         });
     }
     if out.is_empty() {
@@ -100,6 +109,7 @@ fn layout_findings(parsed: &Parsed, formatted: Vec<u8>, cfg: &Config) -> Vec<Dia
             rule: "format".into(),
             severity: "error".into(),
             message: "File is not formatted".into(),
+            fixable: true,
         });
     }
     out
@@ -220,6 +230,9 @@ struct Args {
     /// Create code quality report for GitLab
     #[arg(long = "quality_report", value_name = "QUALITY_REPORT")]
     quality_report: Option<PathBuf>,
+    /// Write SonarQube generic issue JSON (sonar.externalIssuesReportPaths)
+    #[arg(long = "sonarqube", value_name = "SONARQUBE")]
+    sonarqube: Option<PathBuf>,
     /// number of parallel jobs to use, default is the number of cpu cores
     #[arg(short = 'p', long, value_name = "JOBS")]
     jobs: Option<usize>,
@@ -758,6 +771,65 @@ fn quality_report(results: &[FileResult]) -> String {
     serde_json::to_string_pretty(&issues).unwrap_or_default()
 }
 
+/// How much a finding should weigh in SonarQube, which grades on five levels where vsg-rs has
+/// two. The layer supplies what the severity alone cannot:
+///
+/// * anything `--fix` repairs on its own is `INFO`, because one run removes all of it at once.
+///   Without this, a large code base arrives as tens of thousands of items indistinguishable
+///   from the ones a person has to sit down and think about, and the few that need a decision
+///   are buried by the count. This is asked of each finding rather than of its rule, because the
+///   same rule can offer a safe fix in one place and none in another.
+/// * a lint finding is `CRITICAL`: a latch, two drivers or a clock crossing is a defect in the
+///   hardware, not an opinion about it.
+/// * a rule configured as a warning stays `MINOR`, since that is the project saying so.
+///
+/// The exit code is unaffected: a fixable violation still fails the run, it just does not
+/// pretend to be technical debt.
+fn sonar_severity(kind: &str, severity: &str, fixable: bool) -> &'static str {
+    match (kind, severity, fixable) {
+        (_, _, true) => "INFO",
+        (_, "warning", _) => "MINOR",
+        ("lint", _, _) => "CRITICAL",
+        _ => "MAJOR",
+    }
+}
+
+/// SonarQube's generic issue format, for `sonar.externalIssuesReportPaths`.
+///
+/// SonarQube also reads SARIF, which vsg-rs already writes, but it files every SARIF issue as a
+/// vulnerability. A style violation is not a security finding, and a few hundred of them would
+/// bury the project's real ones. This format carries the type, so the lint layer arrives as a
+/// bug and everything else as a code smell.
+fn sonar_report(results: &[FileResult]) -> String {
+    let issues: Vec<serde_json::Value> = results
+        .iter()
+        .flat_map(|r| by_rule(r).into_iter().map(move |d| (r, d)))
+        .map(|(r, d)| {
+            let mut range = serde_json::json!({ "startLine": d.line });
+            // SonarQube counts columns from zero, and every report format here from one.
+            if let Some(column) = d.column.checked_sub(1)
+                && let Some(range) = range.as_object_mut()
+            {
+                range.insert("startColumn".to_owned(), column.into());
+            }
+            let kind = kind_of(&d.rule);
+            serde_json::json!({
+                "engineId": "vsg-rs",
+                "ruleId": d.rule,
+                // A lint finding says the hardware is wrong; a style one says it reads badly.
+                "type": if kind == "lint" { "BUG" } else { "CODE_SMELL" },
+                "severity": sonar_severity(kind, &d.severity, d.fixable),
+                "primaryLocation": {
+                    "message": d.message,
+                    "filePath": r.name,
+                    "textRange": range,
+                },
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&serde_json::json!({ "issues": issues })).unwrap_or_default()
+}
+
 /// A file name as a SARIF URI: relative to the working directory with `/` separators (as code
 /// scanning expects), or a `file://` URI for files outside it.
 fn sarif_uri(name: &str) -> String {
@@ -1008,6 +1080,7 @@ fn directory_result(name: String) -> FileResult {
             rule: "source_file_001".into(),
             severity: "error".into(),
             message: "Is a directory".into(),
+            fixable: false,
         }],
         error: None,
         output: None,
@@ -1100,6 +1173,8 @@ fn check_local_rules(
                 rule: finding.rule,
                 severity: finding.severity,
                 message: finding.message,
+                // A VSG rule plugin reports; vsg-rs does not know how to fix what it found.
+                fixable: false,
             });
         }
     }
@@ -1652,6 +1727,8 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
                                 severity: settings
                                     .map_or_else(|| "error".to_owned(), |s| s.severity.to_string()),
                                 message: f.message,
+                                // A lint finding never carries a fix.
+                                fixable: false,
                             },
                         ))
                     })
@@ -1705,6 +1782,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
                         severity: settings
                             .map_or_else(|| "error".to_owned(), |s| s.severity.to_string()),
                         message: f.message,
+                        fixable: false,
                     });
                 }
                 for r in &mut results {
@@ -1866,11 +1944,12 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     } else {
         print!("{report}");
     }
-    let outputs: [(&Option<PathBuf>, Render); 4] = [
+    let outputs: [(&Option<PathBuf>, Render); 5] = [
         (&args.json, json_report),
         (&args.sarif, sarif_report),
         (&args.junit, junit_report),
         (&args.quality_report, quality_report),
+        (&args.sonarqube, sonar_report),
     ];
     for (path, render) in outputs {
         if let Some(path) = path
@@ -1899,6 +1978,7 @@ mod tests {
                     rule: rule.into(),
                     severity: severity.into(),
                     message: "Add *entity* keyword".into(),
+                    fixable: false,
                 })
                 .collect(),
             error: None,
