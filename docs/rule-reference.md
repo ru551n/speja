@@ -17,7 +17,7 @@ Reported by the VHDL front end from a resolved symbol table: a name, its declara
 | `lint_003` | An item that may not appear in a sensitivity list. |
 | `lint_004` | A declaration is never used. |
 | `lint_005` | `library work` is implicit and does not need declaring. |
-| `lint_006` | A context declared but never used. |
+| `lint_006` | A context clause is not attached to any design unit. |
 | `lint_100` | A name cannot be resolved to any declaration. |
 | `lint_101` | A declaration hides or repeats another. |
 | `lint_102` | A declaration is used before it is declared. |
@@ -82,9 +82,9 @@ Reported by vsg-rs from the syntax tree plus the design's port connections. The 
 | [`lint_730`](native-rules.md#lint_730) | A signal is read but nothing drives it: no assignment, and no instance output. |
 | [`lint_740`](native-rules.md#lint_740) | A vector is assigned to one of a different width. |
 
-## Heuristic
+## Experimental (off by default)
 
-These infer design intent that the source does not state outright. They are written to under-report rather than guess, but a finding here is weaker evidence than one above.
+These infer design intent that the source does not state outright, so they cannot point at the evidence the rules above can. `lint_700` is off unless you enable it; `lint_600` is on, because a latch is derived from the assignments themselves once a process is taken to be combinational.
 
 | Rule | Reports |
 |---|---|
