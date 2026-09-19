@@ -236,7 +236,64 @@ fn extensions_diff_range_sarif_and_rule_list() {
         serde_json::from_str(&std::fs::read_to_string(&sarif).unwrap()).unwrap();
     assert_eq!(doc["runs"][0]["results"][0]["ruleId"], "entity_015");
     let list = vsg(&["--list_rules"], "");
-    assert_eq!(String::from_utf8_lossy(&list.stdout).lines().count(), 972);
+    let listed = String::from_utf8_lossy(&list.stdout);
+    // Every VSG rule, and the lint layer's own rules after them.
+    assert_eq!(
+        listed.lines().filter(|l| !l.starts_with("lint_")).count(),
+        972
+    );
+    assert!(
+        listed.lines().any(|l| l.starts_with("lint_001")),
+        "lint rules are listed"
+    );
+}
+
+#[test]
+fn lint_is_a_subcommand_and_the_root_stays_vsg() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = write(
+        dir.path(),
+        "dut.vhd",
+        "entity dut is\nend entity dut;\n\narchitecture rtl of dut is\n\n  signal a, b, c : bit;\n\n         begin\n\n  p : process (a, b) is\n  begin\n    if a = '1' then\n      c <= b;\n    \
+         end if;\n  end process p;\n\nend architecture rtl;\n",
+    );
+    let path = file.to_str().unwrap();
+    // The root command is VSG's, and reports VSG's rules.
+    let bare = vsg(&[path, "--output_format", "syntastic"], "");
+    assert!(String::from_utf8_lossy(&bare.stdout).contains("process_"));
+    // `lint` reports its own rules and none of VSG's.
+    let lint = vsg(&["lint", path, "--output_format", "syntastic"], "");
+    let out = String::from_utf8_lossy(&lint.stdout);
+    assert!(out.contains("lint_600"), "{out}");
+    assert!(!out.contains("process_"), "only the lint layer runs: {out}");
+    // Both layers, still one command.
+    let both = vsg(
+        &[
+            "lint",
+            path,
+            "--check",
+            "style,lint",
+            "--output_format",
+            "syntastic",
+        ],
+        "",
+    );
+    let out = String::from_utf8_lossy(&both.stdout);
+    assert!(
+        out.contains("lint_600") && out.contains("process_"),
+        "{out}"
+    );
+    // A file of that name still wins over the subcommand.
+    let named = dir.path().join("lint");
+    std::fs::copy(&file, &named).expect("copy");
+    let by_name = vsg(
+        &[named.to_str().unwrap(), "--output_format", "syntastic"],
+        "",
+    );
+    assert!(
+        String::from_utf8_lossy(&by_name.stdout).contains("process_"),
+        "a file named `lint` is a file"
+    );
 }
 
 #[test]

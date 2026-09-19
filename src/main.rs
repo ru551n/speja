@@ -2,7 +2,10 @@
 
 use std::process::ExitCode;
 
+mod design;
+mod lint;
 mod local_rules;
+mod testbench;
 mod vsg_cli;
 mod waivers;
 

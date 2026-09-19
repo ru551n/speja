@@ -236,6 +236,15 @@ struct Args {
     /// Print how many violations each rule reports, over all inputs (vsg-rs extension)
     #[arg(long)]
     statistics: bool,
+    /// Configuration applied to the lint layer only, after `-c`. Several files are merged in
+    /// order (vsg-rs extension)
+    #[arg(long = "lint_configuration", value_name = "LINT_CONFIGURATION", num_args = 1..)]
+    lint_configuration: Vec<PathBuf>,
+    /// Which layers to run, comma separated: `style` (VSG's rules, the default) and `lint`
+    /// (rules that need name resolution). `vsg-rs lint ...` is the short way to say
+    /// `--check lint` (vsg-rs extension)
+    #[arg(long = "check", value_name = "LAYERS", default_value = "style")]
+    check: String,
     /// Accept the violations listed in this file, with their reasons (vsg-rs extension)
     #[arg(long = "waivers", value_name = "WAIVERS", num_args = 1..)]
     waivers: Vec<PathBuf>,
@@ -273,21 +282,49 @@ fn line_range(src: &[u8], (first, last): (usize, usize)) -> std::ops::Range<usiz
 }
 
 /// VSG's multi-letter single-dash options, as long options.
+/// The root command is VSG's: same arguments, same reports, style rules only. `vsg-rs lint ...`
+/// runs the lint layer instead, and is the same thing as `--check lint`.
+///
+/// VSG has no subcommands and its positional arguments are file names, so the word is only taken
+/// as a subcommand when it is the first argument and no file of that name exists; a file called
+/// `lint` still wins. An explicit `--check` is left alone, so `vsg-rs lint --check style,lint`
+/// runs both layers.
+fn lint_subcommand(args: &mut Vec<String>) {
+    let Some(first) = args.get(1) else {
+        return;
+    };
+    if first != "lint" || Path::new(first).exists() {
+        return;
+    }
+    args.remove(1);
+    if !args
+        .iter()
+        .any(|a| a == "--check" || a.starts_with("--check="))
+    {
+        args.insert(1, "--check".to_owned());
+        args.insert(2, "lint".to_owned());
+    }
+}
+
 fn normalize(args: impl Iterator<Item = String>) -> Vec<String> {
-    args.map(|a| {
-        let long = match a.as_str() {
-            "-lr" => "--local_rules",
-            "-fp" => "--fix_phase",
-            "-js" => "--json",
-            "-of" => "--output_format",
-            "-oc" => "--output_configuration",
-            "-rc" => "--rule_configuration",
-            "-ap" => "--all_phases",
-            _ => return a,
-        };
-        long.to_owned()
-    })
-    .collect()
+    let mut args: Vec<String> = args
+        .map(|a| {
+            let long = match a.as_str() {
+                "-lr" => "--local_rules",
+                "-fp" => "--fix_phase",
+                "-js" => "--json",
+                "-of" => "--output_format",
+                "-oc" => "--output_configuration",
+                "-rc" => "--rule_configuration",
+                "-lc" => "--lint_configuration",
+                "-ap" => "--all_phases",
+                _ => return a,
+            };
+            long.to_owned()
+        })
+        .collect();
+    lint_subcommand(&mut args);
+    args
 }
 
 fn usage_error(message: &str) -> ExitCode {
@@ -822,6 +859,9 @@ fn list_rules() -> ExitCode {
         };
         let _ = writeln!(out, "{id:42} {status}");
     }
+    for (id, description) in crate::lint::rules().chain(crate::design::RULES.iter().copied()) {
+        let _ = writeln!(out, "{id:42} lint (--check lint): {description}");
+    }
     ExitCode::SUCCESS
 }
 
@@ -1108,6 +1148,20 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
         );
         return ExitCode::SUCCESS;
     }
+    let layers: Vec<String> = args.check.split(',').map(|l| l.trim().to_owned()).collect();
+    if let Some(unknown) = layers
+        .iter()
+        .find(|l| !["style", "lint"].contains(&l.as_str()))
+    {
+        eprintln!("ERROR: --check: unknown layer `{unknown}` (style, lint)");
+        return ExitCode::from(1);
+    }
+    let style = layers.iter().any(|l| l == "style");
+    let lint = layers.iter().any(|l| l == "lint");
+    if !style && (args.fix || args.fix_only.is_some()) {
+        eprintln!("ERROR: --fix belongs to the style layer; add `style` to --check");
+        return ExitCode::from(1);
+    }
     if args.list_rules {
         return list_rules();
     }
@@ -1349,6 +1403,157 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     {
         eprintln!("ERROR: {e}");
         failed = true;
+    }
+    // The lint layer: one analysis over the whole file set, after any fixes were written, so its
+    // positions match what is now on disk. Style findings stand on their own if it fails.
+    if !style {
+        // Only the lint layer was asked for; the style findings were produced on the way here.
+        for r in &mut results {
+            r.violations.clear();
+        }
+    }
+    // The lint layer may have rules of its own: the base configuration with `--lint_configuration`
+    // merged over it, so one file can carry a team's lint policy without touching its style one.
+    let lint_cfg = if args.lint_configuration.is_empty() {
+        std::borrow::Cow::Borrowed(&cfg)
+    } else {
+        let mut paths = configuration.clone();
+        paths.extend(args.lint_configuration.iter().cloned());
+        match Config::load(&paths) {
+            Ok(merged) => std::borrow::Cow::Owned(merged),
+            Err(e) => {
+                eprintln!("ERROR: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    };
+    if lint && !args.stdin {
+        // Design checks on our own tree: they need no resolution, so they run per file and
+        // survive a file the analyser cannot parse.
+        let mut kinds: std::collections::BTreeMap<PathBuf, &'static str> =
+            std::collections::BTreeMap::new();
+        // Which library each file is in, so `testbench_libraries` can name the test ones.
+        let of_file = if cfg.testbench_libraries.is_empty() {
+            std::collections::BTreeMap::new()
+        } else {
+            crate::lint::libraries_of_files()
+        };
+        let kind_sources = crate::testbench::Kinds {
+            patterns: &cfg.testbench_files,
+            libraries: &cfg.testbench_libraries,
+            of_file: &of_file,
+        };
+        for file in &files {
+            // What is on disk now, so positions match the file after `--fix` wrote it.
+            let Ok(source) = std::fs::read(file) else {
+                continue;
+            };
+            let parsed = vsg_rs::Parsed::new(source);
+            if !parsed.syntax_errors().is_empty() {
+                continue;
+            }
+            // Testbench code gets the `testbench` rule block, hardware the `rtl` one.
+            let reason = crate::testbench::classify(&parsed, file, &kind_sources);
+            if let Some(reason) = reason {
+                kinds.insert(file.clone(), reason);
+            }
+            let cfg = lint_cfg.for_kind(if reason.is_some() { "testbench" } else { "rtl" });
+            for f in crate::design::check(&parsed, file) {
+                let settings = cfg.rule_by_id(f.rule);
+                if settings.as_ref().is_some_and(|s| !s.enabled) {
+                    continue;
+                }
+                if let Some(r) = results.iter_mut().find(|r| Path::new(&r.name) == f.file) {
+                    r.violations.push(Diagnostic {
+                        line: f.line,
+                        column: f.column,
+                        rule: f.rule.to_owned(),
+                        severity: settings
+                            .map_or_else(|| "error".to_owned(), |s| s.severity.to_string()),
+                        message: f.message,
+                    });
+                }
+            }
+        }
+        if args.debug && !kinds.is_empty() {
+            eprintln!("DEBUG: {} file(s) treated as testbench:", kinds.len());
+            for (file, reason) in &kinds {
+                eprintln!("DEBUG:   {} ({reason})", file.display());
+            }
+        }
+        match crate::lint::analyse(&files) {
+            Ok(analysis) => {
+                let mapped = analysis.mapped;
+                let mut held_back = 0usize;
+                for f in analysis.findings {
+                    if !mapped && !crate::lint::needs_no_library_map(f.rule) {
+                        held_back += 1;
+                        continue;
+                    }
+                    let Some(r) = results.iter_mut().find(|r| Path::new(&r.name) == f.file) else {
+                        continue;
+                    };
+                    // Picky by default: a lint rule is an error unless the configuration says
+                    // otherwise, and disabling it in the configuration switches it off.
+                    let file_cfg = lint_cfg.for_kind(if kinds.contains_key(&f.file) {
+                        "testbench"
+                    } else {
+                        "rtl"
+                    });
+                    let settings = file_cfg.rule_by_id(f.rule);
+                    if settings.as_ref().is_some_and(|s| !s.enabled) {
+                        continue;
+                    }
+                    r.violations.push(Diagnostic {
+                        line: f.line,
+                        column: f.column,
+                        rule: f.rule.to_owned(),
+                        severity: settings
+                            .map_or_else(|| "error".to_owned(), |s| s.severity.to_string()),
+                        message: f.message,
+                    });
+                }
+                for r in &mut results {
+                    r.violations.sort_by_key(|d| (d.line, d.column));
+                }
+                if !mapped {
+                    // Say this whether or not anything was held back: a clean report from five
+                    // rules must not look like a clean report from all of them.
+                    let all = crate::lint::rules().count() + crate::design::RULES.len();
+                    let inactive = crate::lint::rules()
+                        .filter(|(id, _)| !crate::lint::needs_no_library_map(id))
+                        .count();
+                    let findings = if held_back > 0 {
+                        format!(", and {held_back} finding(s) of theirs were held back")
+                    } else {
+                        String::new()
+                    };
+                    eprintln!(
+                        "WARNING: no vhdl_ls.toml found, so {inactive} of {all} lint rules did \
+                         not run{findings}. They need to know which library each file is in; \
+                         see docs/lint.md"
+                    );
+                }
+                if !analysis.unanalysed.is_empty() {
+                    eprintln!(
+                        "WARNING: {} of {} file(s) could not be analysed by the lint layer{}",
+                        analysis.unanalysed.len(),
+                        files.len(),
+                        if args.debug {
+                            ":"
+                        } else {
+                            "; run --debug to list them"
+                        }
+                    );
+                    if args.debug {
+                        for f in &analysis.unanalysed {
+                            eprintln!("DEBUG:   {}", f.display());
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("WARNING: the lint layer did not run: {e}"),
+        }
     }
     // Waivers are applied to everything the run found, whoever produced it (rules, layout or
     // local rules), so one file covers the whole report.
