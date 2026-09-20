@@ -149,8 +149,20 @@ claude mcp add vsg-rs -- vsg-rs mcp
 { "mcpServers": { "vsg-rs": { "command": "vsg-rs", "args": ["mcp"] } } }
 ```
 
-Both take a buffer rather than a path, so an agent can check what it is about to write before
-writing it. Catching a mistake there is one step earlier still.
+`lint` and `format` take a file path or a buffer. A buffer is how an agent checks what it is
+about to write before writing it, which is one step earlier still; `format` with `write` fixes a
+file in place without moving it through the conversation.
+
+For Claude Code there is a plugin, which installs a `vsg` skill and registers the MCP server:
+
+```text
+/plugin marketplace add ru551n/vsg-rs
+/plugin install vsg-rs@vsg-rs
+```
+
+The skill tells an agent to format and check VHDL before committing it, how to read a finding's
+class, and not to treat a run that skipped the library map as a clean file. `vsg-rs` itself still
+has to be on `PATH`.
 
 ### CI
 
@@ -176,8 +188,9 @@ repeated.
 * [Static analysis](https://vsg-rs.readthedocs.io/en/latest/lint/) and
   [project setup](https://vsg-rs.readthedocs.io/en/latest/project-setup/)
 * [Rule reference](https://vsg-rs.readthedocs.io/en/latest/rule-reference/)
-* [Language server](https://vsg-rs.readthedocs.io/en/latest/lsp/) and
-  [MCP server](https://vsg-rs.readthedocs.io/en/latest/mcp/)
+* [Language server](https://vsg-rs.readthedocs.io/en/latest/lsp/),
+  [MCP server](https://vsg-rs.readthedocs.io/en/latest/mcp/) and
+  [Claude Code plugin](https://vsg-rs.readthedocs.io/en/latest/claude-code/)
 * [Waivers](https://vsg-rs.readthedocs.io/en/latest/waivers/)
 * [Migrating from VSG](https://vsg-rs.readthedocs.io/en/latest/migrating-from-vsg/)
 * [Compatibility with VSG](https://vsg-rs.readthedocs.io/en/latest/compatibility/), measured
