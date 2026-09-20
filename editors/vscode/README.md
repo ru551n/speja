@@ -29,7 +29,8 @@ different one — a system install, or a local build — see
 
 ## Make it the VHDL formatter
 
-If another extension also offers formatting, name this one:
+Name this extension for VHDL, which also settles it if another VHDL extension offers formatting
+too:
 
 ```jsonc
 "[vhdl]": {
@@ -37,6 +38,11 @@ If another extension also offers formatting, name this one:
     "editor.formatOnSave": true
 }
 ```
+
+Formatting goes through the same entry point as `vsg-rs --fix`, so saving applies the safe rule
+fixes as well as the layout, and a file that does not parse is left alone. See
+[formatting and fixing](docs/formatting.md) for that, for quick fixes and Fix All, for running
+alongside VHDL-LS, and for troubleshooting.
 
 ## Configuring the rules
 
