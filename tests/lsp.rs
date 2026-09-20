@@ -3,6 +3,7 @@
 //! These drive the real binary through stdin and stdout, because the point of a protocol server
 //! is what it puts on the wire, not what its functions return.
 
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -105,6 +106,25 @@ impl Session {
         self.read_while(done)
     }
 
+    /// Everything that arrives in the next `millis`, however little that is.
+    ///
+    /// For asserting that something does *not* happen: waiting on a condition that never comes
+    /// true would burn the whole deadline on every run.
+    fn drain(&mut self, millis: u64) -> Vec<serde_json::Value> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(millis);
+        while std::time::Instant::now() < deadline {
+            match self
+                .reader
+                .recv_timeout(std::time::Duration::from_millis(20))
+            {
+                Ok(byte) => self.raw.push(byte),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        parse(&self.raw)
+    }
+
     /// Read until `wanted` messages have arrived in total, or time runs out.
     fn read_until(&mut self, wanted: usize) -> Vec<serde_json::Value> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -181,12 +201,26 @@ fn parse(mut data: &[u8]) -> Vec<serde_json::Value> {
 }
 
 /// A file URI for a path, on any platform: `file:///home/x.vhd`, `file:///C:/dir/x.vhd`.
+///
+/// Percent-encoded, because that is what an editor sends: a raw space or `#` in a URI is not a
+/// URI, and a test that sends one is testing a client nobody writes.
 fn file_uri(path: &std::path::Path) -> String {
     let text = path.display().to_string().replace('\\', "/");
-    if text.starts_with('/') {
-        format!("file://{text}")
+    let mut encoded = String::new();
+    for c in text.chars() {
+        if matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '/' | '-' | '.' | '_' | '~' | ':') {
+            encoded.push(c);
+        } else {
+            let mut buffer = [0u8; 4];
+            for b in c.encode_utf8(&mut buffer).as_bytes() {
+                write!(encoded, "%{b:02X}").expect("a String never fails to write");
+            }
+        }
+    }
+    if encoded.starts_with('/') {
+        format!("file://{encoded}")
     } else {
-        format!("file:///{text}")
+        format!("file:///{encoded}")
     }
 }
 
@@ -257,7 +291,12 @@ fn it_does_not_advertise_being_a_vhdl_language_server() {
 
 #[test]
 fn diagnostics_carry_related_locations() {
-    let got = Session::start().talk(&[did_open("file:///tmp/dut.vhd", TWO_DRIVERS)], 1);
+    // A real file: a related location names a file, and naming one that is not there is not a
+    // thing an editor ever asks about.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("dut.vhd");
+    std::fs::write(&file, TWO_DRIVERS).expect("write");
+    let got = Session::start().talk(&[did_open(&file_uri(&file), TWO_DRIVERS)], 1);
     let published = got
         .iter()
         .find(|m| m["method"] == "textDocument/publishDiagnostics")
@@ -601,5 +640,322 @@ fn formatting_is_what_the_command_line_would_have_written() {
         edits[0]["newText"].as_str().expect("new text"),
         expected,
         "the editor and the command line must not disagree"
+    );
+}
+
+#[test]
+fn a_closed_document_does_not_get_its_diagnostics_back() {
+    // Closing withdraws the diagnostics, but an analysis started before the close is still
+    // running. Publishing its result afterwards would put the problems back for a file the
+    // editor is no longer showing.
+    let mut session = Session::start();
+    let got = session.talk_while(
+        &[
+            did_open("file:///tmp/closing.vhd", TWO_DRIVERS),
+            serde_json::json!({
+                "jsonrpc": "2.0", "method": "textDocument/didClose",
+                "params": { "textDocument": { "uri": "file:///tmp/closing.vhd" } }
+            }),
+        ],
+        |seen| {
+            // The withdrawal `did_close` sends itself: an empty set with no version.
+            seen.iter().any(|m| {
+                m["method"] == "textDocument/publishDiagnostics"
+                    && m["params"]["diagnostics"]
+                        .as_array()
+                        .is_some_and(Vec::is_empty)
+            })
+        },
+    );
+    assert!(!got.is_empty(), "the server answered");
+
+    // Whatever else arrives, none of it may put diagnostics back.
+    // Long enough for the analysis that was in flight to finish: the first one builds the
+    // `ieee` and `std` libraries, so a few hundred milliseconds is not enough to prove anything.
+    let after = session.drain(4000);
+    let published: Vec<&serde_json::Value> = after
+        .iter()
+        .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+        .collect();
+    let last = published.last().expect("something was published");
+    assert!(
+        last["params"]["diagnostics"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "the last word on a closed document is that it has no diagnostics: {published:#?}"
+    );
+}
+
+#[test]
+fn related_locations_survive_a_path_that_needs_encoding() {
+    // `format!("file://{path}")` is not a URI. A space or a `#` made the parse fail, and the
+    // related location was quietly dropped -- so a multiple-driver finding lost the other
+    // driver depending on what the directory was called.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let awkward = dir.path().join("my design #2");
+    std::fs::create_dir_all(&awkward).expect("mkdir");
+    let file = awkward.join("dut.vhd");
+    std::fs::write(&file, TWO_DRIVERS).expect("write");
+
+    let uri = file_uri(&file);
+    let got = Session::start().talk(&[did_open(&uri, TWO_DRIVERS)], 1);
+    let published = got
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .unwrap_or_else(|| panic!("diagnostics were published; got {got:#?}"));
+    let drivers = published["params"]["diagnostics"]
+        .as_array()
+        .expect("diagnostics")
+        .iter()
+        .find(|d| d["code"] == "lint_601")
+        .expect("the multiple driver is reported");
+    let related = drivers["relatedInformation"]
+        .as_array()
+        .expect("relatedInformation");
+    assert_eq!(related.len(), 2, "both drivers are named: {related:#?}");
+    let named = related[0]["location"]["uri"].as_str().expect("a uri");
+    assert!(named.starts_with("file://"), "{named}");
+    assert!(
+        !named.contains(' '),
+        "a URI never contains a raw space: {named}"
+    );
+}
+
+#[test]
+fn a_configuration_that_does_not_load_stops_the_editor_rather_than_defaulting() {
+    // Silently falling back to the defaults let format-on-save rewrite a file under settings
+    // the project never chose, while the command line refused to run at all.
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("vsg-rs.yaml"),
+        "rule: [this is not a mapping\n",
+    )
+    .expect("write config");
+    let file = dir.path().join("dut.vhd");
+    std::fs::write(&file, TWO_DRIVERS).expect("write source");
+
+    let uri = file_uri(&file);
+    let mut session = Session::start_in(dir.path());
+    let got = session.talk_while(&[did_open(&uri, TWO_DRIVERS)], |seen| {
+        seen.iter()
+            .any(|m| m["method"] == "textDocument/publishDiagnostics")
+    });
+    let published = got
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .expect("diagnostics were published");
+    let diagnostics = published["params"]["diagnostics"]
+        .as_array()
+        .expect("diagnostics");
+    assert_eq!(
+        diagnostics.len(),
+        1,
+        "only the configuration: {diagnostics:#?}"
+    );
+    let message = diagnostics[0]["message"].as_str().expect("a message");
+    assert!(
+        message.contains("configuration could not be read"),
+        "{message}"
+    );
+    assert!(message.contains("vsg-rs.yaml"), "names the file: {message}");
+
+    // And it refuses to format, rather than formatting with the defaults.
+    let answered = session.talk_while(
+        &[serde_json::json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting",
+            "params": {
+                "textDocument": { "uri": uri },
+                "options": { "tabSize": 2, "insertSpaces": true }
+            }
+        })],
+        |seen| seen.iter().any(|m| m["id"] == 2),
+    );
+    let reply = answered
+        .iter()
+        .find(|m| m["id"] == 2)
+        .expect("the request was answered");
+    assert!(
+        reply["error"].is_object(),
+        "formatting is refused, not done with the defaults: {reply:#?}"
+    );
+}
+
+#[test]
+fn an_unreadable_library_map_says_why_the_resolving_rules_are_quiet() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+    std::fs::write(dir.path().join("vhdl_ls.toml"), "[libraries\nbroken = =\n")
+        .expect("write config");
+    let file = dir.path().join("src/dut.vhd");
+    std::fs::write(&file, TWO_DRIVERS).expect("write source");
+
+    let uri = file_uri(&file);
+    let got = Session::start_in(dir.path()).talk_while(&[did_open(&uri, TWO_DRIVERS)], |seen| {
+        seen.iter()
+            .any(|m| m["method"] == "textDocument/publishDiagnostics")
+    });
+    let published = got
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .expect("diagnostics were published");
+    let messages: Vec<&str> = published["params"]["diagnostics"]
+        .as_array()
+        .expect("diagnostics")
+        .iter()
+        .filter_map(|d| d["message"].as_str())
+        .collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("library map could not be read")),
+        "a report quietly missing most of its rules looks like a clean one: {messages:#?}"
+    );
+}
+
+#[test]
+fn a_finding_after_a_tab_points_at_the_right_character() {
+    // A rule working from the syntax tree reports a display column: the tab counts four. LSP
+    // counts UTF-16 code units, where it counts one, so the marker used to sit three characters
+    // to the right of the signal it is about. The comment adds a non-BMP character, which LSP
+    // counts as two and a display column as one -- the same disagreement the other way.
+    let source = "entity dut is\nend entity dut;\n\narchitecture rtl of dut is\n  \
+                  -- \u{1f980}\n  signal q : bit;\nbegin\n\tq <= '1';\n\tq <= '0';\n\
+                  end architecture rtl;\n";
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("tabbed.vhd");
+    std::fs::write(&file, source).expect("write");
+    let got = Session::start().talk(&[did_open(&file_uri(&file), source)], 1);
+    let published = got
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .unwrap_or_else(|| panic!("diagnostics were published; got {got:#?}"));
+    let drivers = published["params"]["diagnostics"]
+        .as_array()
+        .expect("diagnostics")
+        .iter()
+        .find(|d| d["code"] == "lint_601")
+        .expect("the multiple driver is reported");
+
+    // Line 8 (zero-based 7) is "\tq <= '1';": the tab is character 0, `q` is character 1.
+    assert_eq!(drivers["range"]["start"]["line"], 7, "{drivers:#?}");
+    assert_eq!(
+        drivers["range"]["start"]["character"], 1,
+        "one tab is one UTF-16 code unit, not four columns: {drivers:#?}"
+    );
+    // The other driver is a related location, in this same buffer, and counts the same way.
+    let related = drivers["relatedInformation"]
+        .as_array()
+        .expect("relatedInformation");
+    let lines: Vec<i64> = related
+        .iter()
+        .filter_map(|r| r["location"]["range"]["start"]["line"].as_i64())
+        .collect();
+    assert!(lines.contains(&7) && lines.contains(&8), "{related:#?}");
+    for r in related {
+        assert_eq!(
+            r["location"]["range"]["start"]["character"], 1,
+            "related locations count the same way: {r:#?}"
+        );
+    }
+}
+
+/// A project under `dir` whose library map is `library`, holding one file with an unused signal.
+fn project_named(dir: &std::path::Path, library: &str) -> PathBuf {
+    std::fs::create_dir_all(dir.join("src")).expect("mkdir");
+    std::fs::write(
+        dir.join("vhdl_ls.toml"),
+        format!("[libraries]\n{library}.files = [\"src/*.vhd\"]\n"),
+    )
+    .expect("write config");
+    let file = dir.join("src/e.vhd");
+    std::fs::write(
+        &file,
+        "entity e is\nend entity e;\n\narchitecture rtl of e is\n\n  signal spare : bit;\n\n\
+         begin\n\nend architecture rtl;\n",
+    )
+    .expect("write source");
+    file
+}
+
+/// The rule codes published for `uri` after opening it with `text`.
+fn codes_for(session: &mut Session, uri: &str, text: &str) -> Vec<String> {
+    let got = session.talk_while(&[did_open(uri, text)], |seen| {
+        seen.iter()
+            .any(|m| m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == uri)
+    });
+    got.iter()
+        .filter(|m| m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == uri)
+        .filter_map(|m| m["params"]["diagnostics"].as_array())
+        .flatten()
+        .filter_map(|d| d["code"].as_str().map(str::to_owned))
+        .collect()
+}
+
+#[test]
+fn two_projects_in_one_server_are_analysed_as_two_projects() {
+    // One analyser for the whole server meant the second project was resolved against the
+    // first one's library map. An editor with two folders open is the ordinary case.
+    let one = tempfile::tempdir().expect("tempdir");
+    let two = tempfile::tempdir().expect("tempdir");
+    let first = project_named(one.path(), "alpha");
+    let second = project_named(two.path(), "beta");
+
+    let source = std::fs::read_to_string(&first).expect("read");
+    let mut session = Session::start_in(one.path());
+    let a = codes_for(&mut session, &file_uri(&first), &source);
+    let b = codes_for(&mut session, &file_uri(&second), &source);
+    // lint_004 needs the file's own library map. Both files have one, so both get it.
+    assert!(a.contains(&"lint_004".to_owned()), "first project: {a:?}");
+    assert!(
+        b.contains(&"lint_004".to_owned()),
+        "the second project has its own map and is not answered from the first: {b:?}"
+    );
+}
+
+#[test]
+fn editing_the_library_map_rebuilds_the_project() {
+    // The project used to be built once and kept for the life of the server, so a library map
+    // that changed was believed until someone restarted the editor.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = project_named(dir.path(), "mylib");
+    let source = std::fs::read_to_string(&file).expect("read");
+    // Start with a map that covers nothing: the file is in no library, so the rules that
+    // resolve names across files cannot run.
+    std::fs::write(
+        dir.path().join("vhdl_ls.toml"),
+        "[libraries]\nmylib.files = [\"elsewhere/*.vhd\"]\n",
+    )
+    .expect("rewrite config");
+    // Both files exist on disk before anything is analysed, so the only thing that changes
+    // between the two answers is the map.
+    let other = dir.path().join("src/other.vhd");
+    std::fs::write(
+        &other,
+        source
+            .replace("entity e", "entity o")
+            .replace("of e", "of o"),
+    )
+    .expect("write source");
+
+    let mut session = Session::start_in(dir.path());
+    let before = codes_for(&mut session, &file_uri(&file), &source);
+    assert!(
+        !before.contains(&"lint_004".to_owned()),
+        "nothing is in a library yet: {before:?}"
+    );
+
+    std::fs::write(
+        dir.path().join("vhdl_ls.toml"),
+        "[libraries]\nmylib.files = [\"src/*.vhd\"]\n",
+    )
+    .expect("rewrite config");
+    let after = codes_for(
+        &mut session,
+        &file_uri(&other),
+        &std::fs::read_to_string(&other).expect("read"),
+    );
+    assert!(
+        after.contains(&"lint_004".to_owned()),
+        "the rewritten map is read, not the one from start-up: {after:?}"
     );
 }
