@@ -20,14 +20,14 @@ use std::path::Path;
 use crate::Parsed;
 use vhdl_syntax::syntax::{NodeKind, SyntaxNode};
 
-use super::design::{all_tokens, assignments, find, path, reads, text_of};
+use super::design::{all_tokens, assignments, entity_of, find, lower, path, reads};
 use super::lint::Finding;
 
 /// The lower-case text of every token under a node, with semicolons dropped.
 fn words(node: &SyntaxNode) -> Vec<String> {
     all_tokens(node)
         .iter()
-        .map(|t| String::from_utf8_lossy(t.text().as_bytes()).to_ascii_lowercase())
+        .map(lower)
         .filter(|t| t != ";")
         .collect()
 }
@@ -72,13 +72,7 @@ fn through_synchronizers(architecture: &SyntaxNode, patterns: &[String]) -> BTre
         return out;
     }
     for instance in find(architecture, NodeKind::ComponentInstantiationStatement) {
-        let name = text_of(&instance);
-        let name = name.split('(').next().unwrap_or(&name).to_ascii_lowercase();
-        let entity = name
-            .rsplit(['.', ' ', '\n', '\t'])
-            .find(|part| !part.is_empty())
-            .unwrap_or_default()
-            .to_owned();
+        let entity = entity_of(&instance).unwrap_or_default();
         if !patterns
             .iter()
             .any(|pattern| crate::config::glob(pattern.as_bytes(), entity.as_bytes()))
@@ -236,6 +230,21 @@ mod tests {
                       if rising_edge(clk) then\n      a <= not a;\n      y <= a and y;\n    \
                       end if;\n  end process p;\n\nend architecture rtl;\n";
         assert!(check_source(source, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_synchroniser_is_named_by_its_entity_and_nothing_else() {
+        // The name matched against `synchronizers` is the entity's, not the whole statement's
+        // text. It used to be taken from the statement, so it carried the port map with it and
+        // only a pattern ending in `*` ever matched; an exact name silently did not.
+        let body = "  u : entity work.cdc_bit_sync\n    port map (\n      d => a_data,\n      \
+                    q => b_sync\n    );\n\n  b : process (clk_b) is\n  begin\n    \
+                    if rising_edge(clk_b) then\n      y <= a_data and b_data;\n    end if;\n  \
+                    end process b;\n";
+        assert!(
+            check_source(&two_clocks(body), &["cdc_bit_sync"]).is_empty(),
+            "an exact entity name must match"
+        );
     }
 
     #[test]
