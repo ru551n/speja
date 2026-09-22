@@ -133,8 +133,8 @@ assert.deepEqual(
   { line: 0, text: "library ieee;\nuse ieee.numeric_std.all;\n\n" },
 );
 
-// The library is already declared, so only the use clause is added, and it goes in alphabetical
-// order among that library's own clauses: numeric_std sorts before std_logic_1164.
+// The library is already declared, so only the use clause is added, and it goes where that
+// library is conventionally written: numeric_std after std_logic_1164, not alphabetically.
 const existing = [
   "library ieee;",
   "use ieee.std_logic_1164.all;",
@@ -142,7 +142,7 @@ const existing = [
   "entity foo is",
 ];
 assert.deepEqual(contextClauseEdit(existing, 3, "ieee", "numeric_std"), {
-  line: 1,
+  line: 2,
   text: "use ieee.numeric_std.all;\n",
 });
 
@@ -159,7 +159,7 @@ const twoLibraries = [
   "entity foo is",
 ];
 assert.deepEqual(contextClauseEdit(twoLibraries, 6, "ieee", "numeric_std"), {
-  line: 1,
+  line: 2,
   text: "use ieee.numeric_std.all;\n",
 });
 
@@ -425,6 +425,7 @@ import {
   missingChoices,
   renderWhenChoices,
   renderStateDeclarations,
+  comparePackages,
 } from "./generate.ts";
 
 // The operator settles what the name is; a process assigns to the architecture's signals too.
@@ -482,5 +483,31 @@ assert.match(
 const machine = renderStateDeclarations("t_state", "state", ["idle", "run"]);
 assert.equal(machine.type, "  type t_state is (idle, run);");
 assert.equal(machine.declaration, "  signal state : t_state := idle;");
+
+// The ieee block is not alphabetical: std_logic_1164 declares what the rest are built on, and
+// that is how hdl-modules, tsfpga and VUnit all write it.
+assert.ok(comparePackages("ieee", "std_logic_1164", "numeric_std") < 0);
+assert.ok(comparePackages("ieee", "numeric_std", "fixed_pkg") < 0);
+assert.ok(comparePackages("ieee", "fixed_pkg", "math_real") < 0);
+// Any other library is plain alphabetical.
+assert.ok(comparePackages("osvvm", "std_logic_1164", "numeric_std") > 0);
+
+{
+  const lines = [
+    "library ieee;",
+    "use ieee.std_logic_1164.all;",
+    "",
+    "entity e is",
+  ];
+  const added = contextClauseEdit(lines, 3, "ieee", "numeric_std");
+  assert.equal(added.line, 2, "numeric_std goes after std_logic_1164");
+  const before = contextClauseEdit(
+    ["library ieee;", "use ieee.numeric_std.all;", "", "entity e is"],
+    3,
+    "ieee",
+    "std_logic_1164",
+  );
+  assert.equal(before.line, 1, "std_logic_1164 goes before numeric_std");
+}
 
 console.log("generate.test.ts: ok");

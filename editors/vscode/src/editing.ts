@@ -869,15 +869,25 @@ function sequentialHome(
   doc: vscode.TextDocument,
   from: vscode.Position,
 ): number | null {
+  let nested = 0;
   for (let l = from.line; l >= 0; l--) {
     const text = doc.lineAt(l).text.replace(/--.*$/, "");
-    if (/^\s*end\s+(process|function|procedure)\b/i.test(text)) return null;
-    if (/^\s*(\w+\s*:\s*)?process\b/i.test(text)) return l;
-    if (
-      /^\s*(impure\s+|pure\s+)?(function|procedure)\b/i.test(text) &&
-      !/;\s*$/.test(text)
-    )
-      return l;
+    // A subprogram declared above the cursor and already closed is not the cursor's home: skip
+    // the whole of it and keep looking. Giving up here lost the process around a procedure.
+    if (/^\s*end\s+(process|function|procedure)\b/i.test(text)) {
+      nested += 1;
+      continue;
+    }
+    const opens =
+      /^\s*(\w+\s*:\s*)?process\b/i.test(text) ||
+      (/^\s*(impure\s+|pure\s+)?(function|procedure)\b/i.test(text) &&
+        !/;\s*$/.test(text));
+    if (!opens) continue;
+    if (nested > 0) {
+      nested -= 1;
+      continue;
+    }
+    return l;
   }
   return null;
 }
@@ -913,24 +923,87 @@ function architectureBegin(
   return best;
 }
 
-/** Where a declaration of `kind` belongs, given where the name was used. */
+/**
+ * The innermost `generate` or `block` the cursor is inside, both of which declare signals of
+ * their own.
+ *
+ * A signal used only inside one belongs to it: declaring it in the architecture works but widens
+ * its scope for no reason, and in a `for ... generate` it is the difference between one signal
+ * and one per iteration. Which of the two is wanted is the author's call, so both are offered.
+ */
+function concurrentScope(
+  doc: vscode.TextDocument,
+  from: vscode.Position,
+): { line: number; label: string; begin: number | null } | null {
+  let nested = 0;
+  for (let l = from.line; l >= 0; l--) {
+    const text = doc.lineAt(l).text.replace(/--.*$/, "");
+    if (/^\s*end\s+(generate|block)\b/i.test(text)) {
+      nested += 1;
+      continue;
+    }
+    const header = /^\s*(\w+)\s*:\s*(.*\bgenerate\b|block\b)/i.exec(text);
+    // `elsif ... generate` and `else generate` continue an if-generate rather than opening one.
+    if (!header || /^\s*(elsif|else|when)\b/i.test(text)) continue;
+    if (nested > 0) {
+      nested -= 1;
+      continue;
+    }
+    // Its own `begin`, at its own indentation: a process inside it has one too, deeper.
+    const opens = new RegExp(`^${indentOf(text)}begin\\b`, "i");
+    let begin: number | null = null;
+    for (let i = l + 1; i <= from.line && i < doc.lineCount; i++)
+      if (opens.test(doc.lineAt(i).text)) {
+        begin = i;
+        break;
+      }
+    return { line: l, label: header[1], begin };
+  }
+  return null;
+}
+
+interface DeclarationSite {
+  position: vscode.Position;
+  indent: string;
+  /** A generate or block with no declarative part yet needs the `begin` writing too. */
+  opensDeclarativePart?: boolean;
+}
+
+/**
+ * Where a declaration of `kind` belongs, given where the name was used.
+ *
+ * `local` asks for the innermost generate or block instead of the architecture. A variable
+ * ignores it: it belongs to the process or subprogram around it and nowhere else.
+ */
 function declarationSite(
   doc: vscode.TextDocument,
   at: vscode.Position,
   kind: ObjectKind,
-): { position: vscode.Position; indent: string } | null {
-  const home = sequentialHome(doc, at);
-  const line =
-    kind === "variable"
-      ? home === null
-        ? null
-        : beginAt(doc, home)
-      : architectureBegin(doc, at);
-  if (line === null) return null;
-  return {
+  local = false,
+): DeclarationSite | null {
+  const site = (line: number): DeclarationSite => ({
     position: new vscode.Position(line, 0),
     indent: indentOf(doc.lineAt(line).text) + "  ",
-  };
+  });
+
+  if (kind === "variable") {
+    const home = sequentialHome(doc, at);
+    const begin = home === null ? null : beginAt(doc, home);
+    return begin === null ? null : site(begin);
+  }
+  if (local) {
+    const scope = concurrentScope(doc, at);
+    if (!scope) return null;
+    if (scope.begin !== null) return site(scope.begin);
+    // No declarations yet, so there is no `begin` either, and VHDL wants one once there are.
+    return {
+      position: new vscode.Position(scope.line + 1, 0),
+      indent: indentOf(doc.lineAt(scope.line).text) + "  ",
+      opensDeclarativePart: true,
+    };
+  }
+  const begin = architectureBegin(doc, at);
+  return begin === null ? null : site(begin);
 }
 
 /**
@@ -944,19 +1017,25 @@ async function declareObject(
   kind: ObjectKind,
   name: string,
   anchor: vscode.Position,
+  local = false,
 ): Promise<void> {
   const editor = await vscode.window.showTextDocument(
     await vscode.workspace.openTextDocument(uri),
   );
-  const site = declarationSite(editor.document, anchor, kind);
+  const site = declarationSite(editor.document, anchor, kind, local);
   if (!site) {
     vscode.window.showWarningMessage(
       `Could not find the declarative part a ${kind} would go in.`,
     );
     return;
   }
+  const opening = site.opensDeclarativePart
+    ? `${indentOf(editor.document.lineAt(site.position.line - 1).text)}begin\n`
+    : "";
   await editor.insertSnippet(
-    new vscode.SnippetString(renderDeclaration(kind, name, site.indent) + "\n"),
+    new vscode.SnippetString(
+      renderDeclaration(kind, name, site.indent) + "\n" + opening,
+    ),
     site.position,
   );
 }
@@ -1343,19 +1422,41 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         sequentialHome(document, diagnostic.range.start) !== null,
         assignmentKind(document.lineAt(diagnostic.range.start.line).text, name),
       );
+      // A signal used inside a generate or a block can belong to it or to the architecture, and
+      // only the author knows which. Both are offered, the nearer scope first.
+      const scope =
+        kinds.includes("variable") && kinds.length === 1
+          ? null
+          : concurrentScope(document, diagnostic.range.start);
       for (const kind of kinds) {
-        if (!declarationSite(document, diagnostic.range.start, kind)) continue;
-        const action = new vscode.CodeAction(
-          `Declare ${kind} ${name}`,
-          vscode.CodeActionKind.QuickFix,
-        );
-        action.command = {
-          command: "speja.declareObject",
-          title: action.title,
-          arguments: [document.uri, kind, name, diagnostic.range.start],
-        };
-        action.diagnostics = [diagnostic];
-        actions.push(action);
+        const places: [boolean, string][] =
+          scope && kind !== "variable"
+            ? [
+                [true, ` in ${scope.label}`],
+                [false, " in the architecture"],
+              ]
+            : [[false, ""]];
+        for (const [local, where] of places) {
+          if (!declarationSite(document, diagnostic.range.start, kind, local))
+            continue;
+          const action = new vscode.CodeAction(
+            `Declare ${kind} ${name}${where}`,
+            vscode.CodeActionKind.QuickFix,
+          );
+          action.command = {
+            command: "speja.declareObject",
+            title: action.title,
+            arguments: [
+              document.uri,
+              kind,
+              name,
+              diagnostic.range.start,
+              local,
+            ],
+          };
+          action.diagnostics = [diagnostic];
+          actions.push(action);
+        }
       }
     }
 

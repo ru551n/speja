@@ -129,6 +129,27 @@ own declarative part, a signal or constant in the architecture's, even when the 
 prompted it is inside a process. The type is left selected as `std_logic`, so typing over it
 costs one keystroke.
 
+Inside a `generate` or a `block`, which declare signals of their own, both scopes are offered and
+the nearer one comes first: **Declare signal x in g_lanes** above **Declare signal x in the
+architecture**. Which is wanted is a design decision, and in a `for ... generate` it is the
+difference between one signal and one per iteration. A generate or block with no declarative part
+yet gets its `begin` written along with the declaration.
+
+!!! tip "Make the squiggle amber"
+
+    The underline these actions hang off is VHDL-LS's `unresolved`, and it is red by default. A
+    name with no declaration is not a mistake yet: declaring it, importing it, or fixing the typo
+    are all reasonable, and which one is the author's call. Amber says so. Put this in your
+    `vhdl_ls.toml`:
+
+    ```toml
+    [lint]
+    unresolved = "warning"
+    ```
+
+    speja cannot set it: the diagnostic belongs to VHDL-LS, and no extension can recolour
+    another's.
+
 **Declare N signals for this port map** is the same thing for a whole instantiation: every actual
 the map names that nothing has declared yet, with each port's type and the instance's generic
 values substituted.

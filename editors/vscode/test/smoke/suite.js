@@ -543,6 +543,48 @@ exports.run = async function run() {
         onScratch.join(" | "),
       );
 
+      // The squiggle the declare actions hang off is amber, not red: with no declaration in
+      // sight, whether to declare the name, import it or fix the typo is the author's call.
+      const unresolved = vscode.languages
+        .getDiagnostics(decl.uri)
+        .filter((d) => d.code === "unresolved");
+      check(
+        unresolved.length > 0 &&
+          unresolved.every((d) => d.severity === vscode.DiagnosticSeverity.Warning),
+        "an unresolved name is amber, which is what the declare actions hang off",
+        unresolved.map((d) => `${d.source}/${d.severity}`).join(", "),
+      );
+
+      // A generate declares signals of its own, so both scopes are offered, nearest first.
+      const lane = lineOf(/lane_out <= lane_valid;/);
+      const onLane = await actionsOn(lane, text[lane].indexOf("lane_out") + 1);
+      check(
+        onLane.indexOf("Declare signal lane_out in g_lanes") >= 0 &&
+          onLane.indexOf("Declare signal lane_out in g_lanes") <
+            onLane.indexOf("Declare signal lane_out in the architecture"),
+        "inside a generate, the generate is offered before the architecture",
+        onLane.join(" | "),
+      );
+
+      // A block that has no declarative part yet: it still gets the offer.
+      const guarded = lineOf(/gate_out <= go;/);
+      const onGuarded = await actionsOn(guarded, text[guarded].indexOf("gate_out") + 1);
+      check(
+        onGuarded.includes("Declare signal gate_out in b_guard") &&
+          onGuarded.includes("Declare signal gate_out in the architecture"),
+        "and a block with no declarations yet is offered too",
+        onGuarded.join(" | "),
+      );
+
+      // A variable assigned in a procedure belongs to the procedure, not to the process.
+      const tally = lineOf(/tally := tally \+ n;/);
+      const onTally = await actionsOn(tally, text[tally].indexOf("tally") + 1);
+      check(
+        onTally.includes("Declare variable tally"),
+        "a variable is offered inside a procedure",
+        onTally.join(" | "),
+      );
+
       // The port map's actuals.
       const portMap = lineOf(/rst  => reset_n/);
       const onMap = await actionsOn(portMap, text[portMap].indexOf("reset_n") + 1);

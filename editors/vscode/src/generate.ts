@@ -339,6 +339,27 @@ export function designatorOf(symbolName: string): string | null {
   return subprogram ? subprogram[1] : null;
 }
 
+/**
+ * Where an `ieee` package sorts among its siblings: `std_logic_1164`, then `numeric_std`, then
+ * the rest alphabetically.
+ *
+ * Not alphabetical throughout, because the ecosystem is not. Counted across hdl-modules, tsfpga
+ * and VUnit, `std_logic_1164` is written before `numeric_std` between seven and twenty-two times
+ * as often as after it. Nothing else in `ieee` shows a preference worth encoding.
+ */
+export function comparePackages(library: string, a: string, b: string): number {
+  const rank = (name: string): [number, string] => {
+    const lower = name.toLowerCase();
+    if (library.toLowerCase() !== "ieee") return [2, lower];
+    if (lower === "std_logic_1164") return [0, lower];
+    if (lower === "numeric_std") return [1, lower];
+    return [2, lower];
+  };
+  const [ra, na] = rank(a);
+  const [rb, nb] = rank(b);
+  return ra !== rb ? ra - rb : na < nb ? -1 : na > nb ? 1 : 0;
+}
+
 export interface ContextEdit {
   /** Line to insert before. */
   line: number;
@@ -381,7 +402,7 @@ export function contextClauseEdit(
   if (!pkg && hasLibrary) return null;
 
   // Where the clause belongs, rather than at the end of whatever is there. A `use` goes with the
-  // library it names, in alphabetical order among that library's other `use` clauses, and a new
+  // library it names, in the order that library is conventionally written in, and a new
   // library goes in the order `source.organizeImports` sorts into: `ieee` and `std` first, then
   // everything else alphabetically, then `work` last. Appending to the end is legal VHDL but
   // leaves a `use` orphaned from its `library`, which is what someone reading the file trips on.
@@ -407,12 +428,7 @@ export function contextClauseEdit(
     let at = -1;
     region.forEach((l, i) => {
       const u = useOf(l);
-      if (
-        u &&
-        u[1].toLowerCase() === lib &&
-        u[2].toLowerCase() < pkg.toLowerCase()
-      )
-        at = i;
+      if (u && u[1].toLowerCase() === lib && comparePackages(lib, u[2], pkg) < 0) at = i;
       else if (at < 0 && libOf(l)?.[1].toLowerCase() === lib) at = i;
     });
     if (at >= 0) line = start + at + 1;

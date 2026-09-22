@@ -56,7 +56,14 @@ const ENTITIES = 48;   // includes layout.vhd and declare.vhd, the editing fixtu
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
-write("vhdl_ls.toml", "[libraries]\nmylib.files = ['*.vhd']\nother.files = ['other/*.vhd']\n");
+// `unresolved` is VHDL-LS's diagnostic, and amber is the honest colour for it: what to do about
+// a name with no declaration -- declare it, import it, fix the typo -- is the author's call, and
+// the declare actions hang off it. VHDL-LS is the only thing that can set it, from here.
+write(
+  "vhdl_ls.toml",
+  "[libraries]\nmylib.files = ['*.vhd']\nother.files = ['other/*.vhd']\n\n" +
+    "[lint]\nunresolved = 'warning'\n",
+);
 write(".vscode/settings.json", JSON.stringify({
   "vhdlls.languageServer": "user",
   "vhdlls.languageServerUserPath": vhdlLs,
@@ -206,7 +213,23 @@ begin
       dout => data_out
     );
 
+  g_lanes : for i in 0 to 3 generate
+    signal lane_valid : std_logic;
+  begin
+    lane_valid <= go;
+    lane_out <= lane_valid;
+  end generate g_lanes;
+
+  b_guard : block is
+  begin
+    gate_out <= go;
+  end block b_guard;
+
   p_main : process (clk) is
+    procedure bump (n : in integer) is
+    begin
+      tally := tally + n;
+    end procedure bump;
   begin
     if rising_edge(clk) then
       scratch := go;

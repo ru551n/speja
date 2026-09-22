@@ -26,6 +26,31 @@ use vhdl_syntax::syntax::{NodeKind, SyntaxNode};
 use crate::Parsed;
 use crate::analysis::design::{find, text_of};
 
+/// Where an `ieee` package sorts among its siblings.
+///
+/// Not alphabetical: `std_logic_1164` declares the types the rest are built on, and every VHDL
+/// codebase worth copying writes it first. Counted across hdl-modules, tsfpga, VUnit and one
+/// private design, it leads `numeric_std` between seven and twenty-two times as often as it
+/// follows it, and it opens the `ieee` block in the large majority of files. `fixed_pkg` and
+/// `math_real` appear on both sides in numbers too small to mean anything, so they sort
+/// alphabetically after the two that do.
+fn package_rank(library: &str, name: &str) -> (u8, String) {
+    let package = name
+        .split('.')
+        .nth(1)
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if library != "ieee" {
+        return (2, name.to_ascii_lowercase());
+    }
+    match package.as_str() {
+        "std_logic_1164" => (0, package),
+        "numeric_std" => (1, package),
+        _ => (2, name.to_ascii_lowercase()),
+    }
+}
+
 /// Where a library sorts: the standard ones first, `work` last, the rest alphabetically between.
 fn rank(library: &str) -> (u8, String) {
     match library {
@@ -194,7 +219,9 @@ fn sort_one(
         if at > 0 {
             text.push('\n');
         }
-        group.uses.sort_by(|a, b| a.0.cmp(&b.0));
+        group
+            .uses
+            .sort_by_key(|(name, _)| package_rank(&group.library, name));
         for (from, to) in group
             .clause
             .iter()
@@ -245,6 +272,23 @@ mod tests {
         assert_eq!(sorted(&source).expect("a reordering"), wanted);
     }
 
+    /// `std_logic_1164` leads its library, whatever the alphabet says.
+    #[test]
+    fn the_ieee_packages_sort_in_the_order_the_ecosystem_writes_them() {
+        let source = format!(
+            "library ieee;\nuse ieee.numeric_std.all;\nuse ieee.math_real.all;\n\
+             use ieee.std_logic_1164.all;\nuse ieee.fixed_pkg.all;\n{ENTITY}"
+        );
+        let got = sorted(&source).expect("a reordering");
+        assert!(
+            got.starts_with(
+                "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\
+                 use ieee.fixed_pkg.all;\nuse ieee.math_real.all;\n"
+            ),
+            "{got}"
+        );
+    }
+
     #[test]
     fn use_clauses_sort_within_their_library() {
         let source = format!(
@@ -254,8 +298,8 @@ mod tests {
         let got = sorted(&source).expect("a reordering");
         assert!(
             got.starts_with(
-                "library ieee;\nuse ieee.fixed_pkg.all;\nuse ieee.numeric_std.all;\n\
-                 use ieee.std_logic_1164.all;\n"
+                "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\
+                 use ieee.fixed_pkg.all;\n"
             ),
             "{got}"
         );

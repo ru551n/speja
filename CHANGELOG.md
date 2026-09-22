@@ -21,10 +21,15 @@ reports are that version's. `speja --version` prints the same thing.
   own clauses, and a new library sorts into the order `source.organizeImports` uses, `ieee` and
   `std` first, then everything else alphabetically, then `work` last, separated from the block it
   precedes.
+* **`use ieee.std_logic_1164.all` comes first.** Organizing context clauses, and inserting a use
+  clause, now order the `ieee` packages the way the ecosystem writes them rather than
+  alphabetically: `std_logic_1164`, then `numeric_std`, then the rest by name. Counted across
+  hdl-modules, tsfpga and VUnit, that is what VHDL is written like.
 * **Declarations offered where you are typing.** A name the analyser cannot resolve offers to be
   declared as a signal, a variable or a constant, chosen by the assignment operator, and the
-  declaration goes in the declarative part that can hold it. A port map offers to declare every
-  actual it names at once.
+  declaration goes in the declarative part that can hold it. Inside a generate or a block, which
+  declare signals of their own, both that scope and the architecture are offered. A port map
+  offers to declare every actual it names at once.
 * **A `case` that is a state machine.** Over an enumeration, the `when` arms it does not cover;
   over a name that does not exist yet, the enumeration, the signal and the arms together.
 * **`speja: exclude` leaves directories alone.** Generated and vendored sources get no
