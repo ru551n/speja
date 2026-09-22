@@ -347,12 +347,58 @@ export function contextClauseEdit(
 
   if (!pkg && hasLibrary) return null;
 
-  let lastClause = -1;
-  region.forEach((l, i) => {
-    if (/^\s*(library|use)\b/i.test(l)) lastClause = i;
-  });
+  // Where the clause belongs, rather than at the end of whatever is there. A `use` goes with the
+  // library it names, in alphabetical order among that library's other `use` clauses, and a new
+  // library goes in the order `source.organizeImports` sorts into: `ieee` and `std` first, then
+  // everything else alphabetically, then `work` last. Appending to the end is legal VHDL but
+  // leaves a `use` orphaned from its `library`, which is what someone reading the file trips on.
+  const rank = (name: string): [number, string] => {
+    const n = name.toLowerCase();
+    if (n === "ieee" || n === "std") return [0, n];
+    if (n === "work") return [2, n];
+    return [1, n];
+  };
+  const before = (a: string, b: string) => {
+    const [ra, na] = rank(a);
+    const [rb, nb] = rank(b);
+    return ra !== rb ? ra < rb : na < nb;
+  };
+  const useOf = (l: string) => /^\s*use\s+([A-Za-z]\w*)\s*\.\s*([A-Za-z]\w*)/i.exec(l);
+  const libOf = (l: string) => /^\s*library\s+([A-Za-z]\w*)/i.exec(l);
 
-  const line = lastClause >= 0 ? start + lastClause + 1 : unitLine;
+  let line = unitLine;
+  if (pkg && hasLibrary) {
+    // Last `use` of this library that still sorts before the new package, else just after the
+    // `library` clause itself.
+    let at = -1;
+    region.forEach((l, i) => {
+      const u = useOf(l);
+      if (u && u[1].toLowerCase() === lib && u[2].toLowerCase() < pkg.toLowerCase()) at = i;
+      else if (at < 0 && libOf(l)?.[1].toLowerCase() === lib) at = i;
+    });
+    if (at >= 0) line = start + at + 1;
+  }
+  if (line === unitLine) {
+    // A whole new library block, or no context clause to join. Place it before the first library
+    // that sorts after it, so the file stays in the order organizeImports would put it in.
+    let at = -1;
+    for (const [i, l] of region.entries()) {
+      const name = libOf(l)?.[1] ?? useOf(l)?.[1];
+      if (name && before(library, name)) {
+        at = i;
+        break;
+      }
+    }
+    if (at >= 0) {
+      line = start + at;
+    } else {
+      let lastClause = -1;
+      region.forEach((l, i) => {
+        if (/^\s*(library|use)\b/i.test(l)) lastClause = i;
+      });
+      line = lastClause >= 0 ? start + lastClause + 1 : unitLine;
+    }
+  }
   const indent = /^\s*/.exec(lines[unitLine] ?? "")![0];
 
   let text = "";
@@ -360,6 +406,9 @@ export function contextClauseEdit(
   if (pkg) text += `${indent}use ${library}.${pkg}.all;\n`;
   // Keep a blank line between the clause and the design unit it precedes.
   if (line === unitLine && (lines[unitLine] ?? "").trim()) text += "\n";
+  // And between a whole new library block and the one it was placed in front of, so the groups
+  // stay groups rather than running together.
+  else if (!hasLibrary && libOf(lines[line] ?? "")) text += "\n";
 
   return { line, text };
 }

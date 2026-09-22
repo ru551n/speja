@@ -14,6 +14,13 @@ reports are that version's. `speja --version` prints the same thing.
 * **A line the formatter would change offers to format itself**, from the lightbulb, whatever it
   tripped. A badly laid out line usually breaks several layout rules at once, and clearing them
   one rule at a time is not what someone looking at the squiggle wants.
+* **The added use clause goes where it belongs.** It was appended after the last context clause
+  in the file, so adding `ieee.numeric_std` to a file whose `library ieee;` block is followed by
+  another library left the `use` orphaned from its own `library` clause: legal VHDL, and
+  unreadable. A `use` now joins the library it names, in alphabetical order among that library's
+  own clauses, and a new library sorts into the order `source.organizeImports` uses, `ieee` and
+  `std` first, then everything else alphabetically, then `work` last, separated from the block it
+  precedes.
 * **Layout findings reach the editor.** The language server published rule violations but not the
   findings that come from comparing the source with what the formatter would write, so a
   misindented line was never underlined even though `speja` reported it on the command line and

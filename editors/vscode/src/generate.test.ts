@@ -112,12 +112,45 @@ assert.deepEqual(
   { line: 0, text: "library ieee;\nuse ieee.numeric_std.all;\n\n" },
 );
 
-// The library is already declared, so only the use clause is added, after the
-// last existing clause rather than at the unit.
+// The library is already declared, so only the use clause is added, and it goes in alphabetical
+// order among that library's own clauses: numeric_std sorts before std_logic_1164.
 const existing = ["library ieee;", "use ieee.std_logic_1164.all;", "", "entity foo is"];
 assert.deepEqual(
   contextClauseEdit(existing, 3, "ieee", "numeric_std"),
-  { line: 2, text: "use ieee.numeric_std.all;\n" },
+  { line: 1, text: "use ieee.numeric_std.all;\n" },
+);
+
+// A use clause belongs with the library it names, not at the end of whatever is there. Appending
+// after a later library block would leave it orphaned from its own `library` clause, which is
+// legal VHDL and unreadable.
+const twoLibraries = [
+  "library ieee;",
+  "use ieee.std_logic_1164.all;",
+  "",
+  "library osvvm;",
+  "use osvvm.randompkg.all;",
+  "",
+  "entity foo is",
+];
+assert.deepEqual(
+  contextClauseEdit(twoLibraries, 6, "ieee", "numeric_std"),
+  { line: 1, text: "use ieee.numeric_std.all;\n" },
+);
+
+// A whole new library sorts into place too, in the order organizeImports uses: ieee and std
+// first, everything else alphabetically, work last. It is separated from the block it precedes.
+const ieeeAndWork = [
+  "library ieee;",
+  "use ieee.std_logic_1164.all;",
+  "",
+  "library work;",
+  "use work.pkg.all;",
+  "",
+  "entity foo is",
+];
+assert.deepEqual(
+  contextClauseEdit(ieeeAndWork, 6, "osvvm", "randompkg"),
+  { line: 3, text: "library osvvm;\nuse osvvm.randompkg.all;\n\n" },
 );
 
 // Already visible.
