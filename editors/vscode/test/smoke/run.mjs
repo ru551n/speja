@@ -207,6 +207,9 @@ architecture rtl of declare_me is
 begin
 
   u_fifo : entity work.fifo
+    generic map (
+      width => 8
+    )
     port map (
       clk  => clk,
       rst  => reset_n,

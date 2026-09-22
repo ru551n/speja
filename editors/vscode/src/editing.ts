@@ -11,6 +11,7 @@ import {
   missingChoices,
   renderDeclaration,
   renderWhenChoices,
+  typeOfLiteral,
   compareCandidates,
   contextClause,
   contextClauseEdit,
@@ -24,6 +25,7 @@ import {
   renderInstance,
   renderMissingAssociations,
   renderSignals,
+  substituteGenerics,
   portMapShape,
 } from "./generate";
 
@@ -1018,6 +1020,69 @@ function declarationSite(
 }
 
 /**
+ * The type a name must have, worked out from where it is used.
+ *
+ * An actual in a port map has the type of the port it feeds, generics substituted, which is
+ * exactly what the port-map action already writes. An assignment from a single name has the type
+ * of that name, and from a literal the type the literal says. Anything else is left to the
+ * author, as the tab stop it already was: a wrong type inserted confidently is worse than an
+ * obvious placeholder.
+ */
+async function inferredType(
+  doc: vscode.TextDocument,
+  name: string,
+  at: vscode.Position,
+): Promise<string | undefined> {
+  const inst = await instanceAt(doc, at);
+  const resolved = inst && (await resolveInstance(doc, inst));
+  if (inst && resolved) {
+    const text = doc.getText(inst.range);
+    const ports = resolved.entity.ports;
+    const hit = readAssociations(
+      text,
+      ports.map((p) => p.name),
+    ).find((a) => a.actual.trim().toLowerCase() === name.toLowerCase());
+    const port = ports.find(
+      (p) => p.name.toLowerCase() === hit?.formal.toLowerCase(),
+    );
+    if (port) {
+      const generics = new Map(
+        readAssociations(
+          text,
+          resolved.entity.generics.map((g) => g.name),
+        ).map((a) => [a.formal, a.actual]),
+      );
+      for (const g of resolved.entity.generics)
+        if (!generics.has(g.name) && g.def !== undefined)
+          generics.set(g.name, g.def);
+      return substituteGenerics(port.type, generics);
+    }
+  }
+
+  const line = doc.lineAt(at.line).text.replace(/--.*$/, "");
+  const assigned = new RegExp(
+    `^\\s*${name}\\s*(\\([^)]*\\))?\\s*(?:<=|:=)\\s*(.+?)\\s*;?\\s*$`,
+    "i",
+  ).exec(line);
+  if (!assigned) return undefined;
+  const expression = assigned[2].trim();
+  const literal = typeOfLiteral(expression);
+  if (literal) return literal;
+  if (!/^[A-Za-z]\w*$/.test(expression)) return undefined;
+  // A name on the right: whatever the server says that one is.
+  const column = line.indexOf(expression, line.indexOf(name) + name.length);
+  const hover = await hoverText(
+    doc.uri,
+    new vscode.Position(at.line, column + 1),
+  );
+  const type =
+    /:\s*(?:in|out|inout|buffer)?\s*([A-Za-z]\w*(?:\s*\([^)]*\))?)/.exec(
+      hover,
+    )?.[1];
+  return type?.trim();
+}
+
+/**
  * Declare a name the analyser could not resolve, in the part of the unit that can hold it.
  *
  * The type is a snippet tab stop rather than a question: the editor puts the cursor on
@@ -1029,6 +1094,7 @@ async function declareObject(
   name: string,
   anchor: vscode.Position,
   local = false,
+  type?: string,
 ): Promise<void> {
   const editor = await vscode.window.showTextDocument(
     await vscode.workspace.openTextDocument(uri),
@@ -1045,7 +1111,7 @@ async function declareObject(
     : "";
   await editor.insertSnippet(
     new vscode.SnippetString(
-      renderDeclaration(kind, name, site.indent) + "\n" + opening,
+      renderDeclaration(kind, name, site.indent, type) + "\n" + opening,
     ),
     site.position,
   );
@@ -1385,6 +1451,7 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         sequentialHome(document, diagnostic.range.start) !== null,
         assignmentKind(document.lineAt(diagnostic.range.start.line).text, name),
       );
+      const type = await inferredType(document, name, diagnostic.range.start);
       // A signal used inside a generate or a block can belong to it or to the architecture, and
       // only the author knows which. Both are offered, the nearer scope first.
       const scope =
@@ -1415,6 +1482,7 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
               name,
               diagnostic.range.start,
               local,
+              type,
             ],
           };
           action.diagnostics = [diagnostic];

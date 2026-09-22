@@ -474,6 +474,7 @@ import {
   declarableKinds,
   assignmentKind,
   renderDeclaration,
+  typeOfLiteral,
   caseSelector,
   enumFromSource,
   coveredChoices,

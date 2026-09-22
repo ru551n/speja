@@ -126,8 +126,16 @@ where the cursor is.
 
 The declaration goes in the part that can hold it: a variable in the process's or subprogram's
 own declarative part, a signal or constant in the architecture's, even when the assignment that
-prompted it is inside a process. The type is left selected as `std_logic`, so typing over it
-costs one keystroke.
+prompted it is inside a process.
+
+The type comes from where the name is used. An actual in a port map takes the type of the port it
+feeds, with the instance's generics substituted, so `rst => sys_rst` declares `sys_rst` as
+`std_logic` and `din => data_in` as `std_logic_vector(8 - 1 downto 0)`. An assignment from a
+single name takes that name's type, and from a literal the type the literal says: `'0'` is a
+`std_logic`, `true` a `boolean`, `42` a `natural`, `10 ns` a `time`. Anything that needs thinking
+about, an expression or a bit string that could be three different vector types, is left as
+`std_logic` selected in the editor, so typing over it costs one keystroke. A wrong type written
+confidently is worse than a placeholder.
 
 Inside a `generate` or a `block`, which declare signals of their own, both scopes are offered and
 the nearer one comes first: **Declare signal x in g_lanes** above **Declare signal x in the

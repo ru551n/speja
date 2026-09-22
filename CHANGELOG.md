@@ -30,6 +30,9 @@ reports are that version's. `speja --version` prints the same thing.
   declaration goes in the declarative part that can hold it. Inside a generate or a block, which
   declare signals of their own, both that scope and the architecture are offered. A port map
   offers to declare every actual it names at once.
+* **The type of a declaration is inferred.** An actual in a port map takes the port's type with
+  generics substituted; an assignment takes the type of the name or literal on the right. Only
+  what cannot be worked out is left as a placeholder to type over.
 * **A use clause for a name used in an architecture goes in the entity's context clause**, which
   the architecture inherits, rather than in a second one wedged between `end entity` and
   `architecture`. A second entity in the file still gets its own.

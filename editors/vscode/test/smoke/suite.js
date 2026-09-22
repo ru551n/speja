@@ -734,6 +734,16 @@ exports.run = async function run() {
         JSON.stringify(between(/p_main : process/, /^\s*begin\b/)),
       );
 
+      // The type is inferred, not asked for: `reset_n` feeds the `rst` port, so it is whatever
+      // that port is, and `busy <= go` is whatever `go` is.
+      check(
+        /variable scratch : std_logic;/.test(apply.getText()),
+        "the variable takes the type of what is assigned to it",
+        JSON.stringify(
+          apply.getText().split("\n").find((l) => /variable scratch/.test(l)) ?? "missing",
+        ),
+      );
+
       // A signal used in a generate, declared in the generate rather than the architecture.
       check(
         !!(await actionFor(/lane_out <= lane_valid;/, "lane_out", "Declare signal lane_out in g_lanes")),
@@ -757,14 +767,27 @@ exports.run = async function run() {
         JSON.stringify(block),
       );
 
+      // One actual on its own takes the type of the port it feeds, not a placeholder.
+      check(
+        !!(await actionFor(/rst  => reset_n/, "reset_n", "Declare signal reset_n")),
+        "a single actual can be declared on its own",
+      );
+      check(
+        /signal reset_n : std_logic;/.test(apply.getText()),
+        "and takes the type of the port it feeds",
+        JSON.stringify(
+          apply.getText().split("\n").find((l) => /signal reset_n/.test(l)) ?? "missing",
+        ),
+      );
+
       // Every actual of a port map at once.
       check(
-        !!(await actionFor(/rst  => reset_n/, "reset_n", "Declare 4 signals for this port map")),
+        !!(await actionFor(/rst  => reset_n/, "reset_n", "Declare 3 signals for this port map")),
         "the port-map action is there to apply",
       );
       const declarations = between(/^architecture rtl/, /^begin\b/);
       check(
-        ["reset_n", "data_in", "data_out", "empty"].every((n) =>
+        ["data_in", "data_out", "empty"].every((n) =>
           new RegExp(`signal ${n} `).test(declarations),
         ),
         "and declares every actual the map names, with the port's type",

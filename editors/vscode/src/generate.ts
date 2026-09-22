@@ -742,6 +742,24 @@ export function declarableKinds(
     : ["signal", "constant"];
 }
 
+/**
+ * The type a literal says it is, or null when it says nothing.
+ *
+ * Only the forms that are unambiguous. A bit string could be a `std_logic_vector`, an `unsigned`
+ * or a `bit_vector`, and guessing between those is worse than leaving the tab stop for the
+ * author, so `std_logic_vector` is offered as the tab stop's default rather than as a fact.
+ */
+export function typeOfLiteral(expr: string): string | null {
+  const e = expr.trim();
+  if (/^'[^']'$/.test(e)) return "std_logic";
+  if (/^"[01uxzwlh-]*"$/i.test(e)) return "std_logic_vector";
+  if (/^(true|false)$/i.test(e)) return "boolean";
+  if (/^\d+$/.test(e)) return "natural";
+  if (/^-\d+$/.test(e)) return "integer";
+  if (/^\d+\s*(ns|us|ms|ps|fs|sec|min|hr)$/i.test(e)) return "time";
+  return null;
+}
+
 /** A one-line object declaration, with the type left as a tab stop for the editor. */
 export function renderDeclaration(
   kind: ObjectKind,
