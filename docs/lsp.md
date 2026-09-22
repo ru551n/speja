@@ -44,6 +44,17 @@ Underneath, the document is formatted in full and only the edits falling in the 
 with the partial result re-parsed to confirm it still has no syntax error. A selection cutting
 through a construct therefore yields the part that can be applied safely rather than half a fold.
 
+## What the colours mean
+
+Red is what is wrong, or what speja can put right itself. Amber is what it will not decide for
+you: a finding whose only fix is classified unsafe, meaning applying it can change what the
+design does. `signal_007` is the example, since it wants a signal's initial value removed and
+that value is its power-on state. Colouring that the same red as a missing keyword would call
+the author's judgement a mistake.
+
+Only the editor does this. The command line keeps VSG's severities, because that report is
+VSG's.
+
 ## Quick fixes and fix-all
 
 A quick fix comes from the fix the finding already carries, so what an editor offers is what

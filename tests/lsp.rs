@@ -781,6 +781,60 @@ fn a_badly_laid_out_line_offers_to_format_itself() {
 }
 
 #[test]
+fn a_finding_speja_will_not_decide_is_a_warning_not_an_error() {
+    // `signal_007` wants the initial value removed, and its fix is classified unsafe because
+    // that value is the signal's power-on state: deleting it can change what the design does, so
+    // speja never applies it. Red would call the author's judgement a mistake. A missing process
+    // label, which has no fix at all, is simply absent and stays red.
+    let source = concat!(
+        "entity e is\n",
+        "end entity e;\n",
+        "\n",
+        "architecture rtl of e is\n",
+        "\n",
+        "  signal count : integer := 0;\n",
+        "\n",
+        "begin\n",
+        "\n",
+        "  process (count) is\n",
+        "  begin\n",
+        "  end process;\n",
+        "\n",
+        "end architecture rtl;\n",
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("sev.vhd");
+    std::fs::write(&file, source).expect("write");
+    let uri = file_uri(&file);
+
+    let got = Session::start().talk(&[did_open(&uri, source)], 1);
+    let published = got
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .expect("diagnostics")["params"]["diagnostics"]
+        .as_array()
+        .expect("a list")
+        .clone();
+    let severity_of = |rule: &str| {
+        published
+            .iter()
+            .find(|d| d["code"] == rule)
+            .map(|d| d["severity"].as_u64().expect("a severity"))
+    };
+    // 1 is error, 2 is warning.
+    assert_eq!(
+        severity_of("signal_007"),
+        Some(2),
+        "a finding whose only fix is unsafe is the author's call: {published:#?}"
+    );
+    assert_eq!(
+        severity_of("process_016"),
+        Some(1),
+        "a missing label has no fix and is simply missing: {published:#?}"
+    );
+}
+
+#[test]
 fn range_formatting_is_advertised() {
     let got = Session::start().talk(&[initialize()], 1);
     let capabilities = &got

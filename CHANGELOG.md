@@ -21,6 +21,12 @@ reports are that version's. `speja --version` prints the same thing.
   own clauses, and a new library sorts into the order `source.organizeImports` uses, `ieee` and
   `std` first, then everything else alphabetically, then `work` last, separated from the block it
   precedes.
+* **Amber for what speja will not decide.** A finding whose only fix can change what the design
+  does was underlined in the same red as a missing keyword, and offered no action, because speja
+  will not apply such a fix itself. `signal_007` asks for a signal's initial value to be removed,
+  and that value is its power-on state. Those are warnings in the editor now: red means wrong or
+  mechanically fixable, amber means the call is yours. The command line is unchanged, since its
+  severities are VSG's.
 * **Layout findings reach the editor.** The language server published rule violations but not the
   findings that come from comparing the source with what the formatter would write, so a
   misindented line was never underlined even though `speja` reported it on the command line and

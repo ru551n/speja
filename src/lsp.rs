@@ -478,11 +478,24 @@ fn diagnose(
                 position_of(text, violation.start),
                 position_of(text, violation.end),
             ),
-            severity: Some(if violation.severity.to_string() == "warning" {
-                DiagnosticSeverity::WARNING
-            } else {
-                DiagnosticSeverity::ERROR
-            }),
+            // Red for what is wrong or what speja can put right itself; amber for what it will
+            // not decide. A fix classified unsafe is one that can change what the design does,
+            // so speja never applies it: `signal_007` deletes a signal's initial value, which is
+            // its power-on state. Colouring that the same red as a missing keyword says "this is
+            // wrong" about a judgement that belongs to whoever wrote it. Only the editor changes;
+            // the command line keeps VSG's severities, because that report is VSG's.
+            severity: Some(
+                if violation.severity.to_string() == "warning"
+                    || violation
+                        .fix
+                        .as_ref()
+                        .is_some_and(|fix| fix.safety == speja::rules::FixSafety::Unsafe)
+                {
+                    DiagnosticSeverity::WARNING
+                } else {
+                    DiagnosticSeverity::ERROR
+                },
+            ),
             code: Some(NumberOrString::String(violation.rule.to_owned())),
             source: Some("speja".to_owned()),
             message: violation.message.clone(),
