@@ -46,13 +46,14 @@ const workspace = join(scratch, "ws");
 const extension = join(scratch, "ext");
 const userData = join(scratch, "profile");
 const results = join(scratch, "results.txt");
-for (const directory of [workspace, join(workspace, "other"), join(workspace, ".vscode"), extension, userData]) {
+for (const directory of [workspace, join(workspace, "other"), join(workspace, "generated"), join(workspace, ".vscode"), extension, userData]) {
   mkdirSync(directory, { recursive: true });
 }
 const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
-const ENTITIES = 48;   // includes layout.vhd and declare.vhd, the editing fixtures
+// `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
+const ENTITIES = 50;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -246,6 +247,69 @@ begin
   end process;
 
 end architecture rtl;
+`);
+
+// A second copy of the same shapes, untouched by the checks that only read titles, so the
+// actions can be applied to it and the result checked against the server.
+write("apply.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity apply_me is
+  port (
+    clk : in    std_logic;
+    go  : in    std_logic
+  );
+end entity apply_me;
+
+architecture rtl of apply_me is
+
+begin
+
+  u_fifo : entity work.fifo
+    port map (
+      clk  => clk,
+      rst  => reset_n,
+      din  => data_in,
+      dout => data_out
+    );
+
+  g_lanes : for i in 0 to 3 generate
+    signal lane_valid : std_logic;
+  begin
+    lane_valid <= go;
+    lane_out <= lane_valid;
+  end generate g_lanes;
+
+  b_guard : block is
+  begin
+    gate_out <= go;
+  end block b_guard;
+
+  p_main : process (clk) is
+  begin
+    if rising_edge(clk) then
+      scratch := go;
+      case sequencer is
+        when others =>
+          null;
+      end case;
+    end if;
+  end process;
+
+end architecture rtl;
+`);
+
+// `speja: exclude` in the workspace root, and a file inside it. speja should have nothing to say
+// about the file however badly it is laid out.
+write("speja.yaml", `speja:
+  exclude:
+    - generated
+`);
+write("generated/excluded.vhd", `entity excluded is
+port (
+a : in bit
+);
+end;
 `);
 
 // A use clause that nothing needs, beside one that is needed.

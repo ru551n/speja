@@ -675,6 +675,151 @@ exports.run = async function run() {
       );
     }
 
+    // 15. The same actions applied rather than counted. A title is a promise; this is whether it
+    // is kept. Each runs on its own fixture so one edit cannot flatter the next, and the file is
+    // handed back to the servers afterwards to say whether what was written is VHDL.
+    {
+      const apply = await vscode.workspace.openTextDocument(at("apply.vhd"));
+      await vscode.window.showTextDocument(apply);
+      await until(
+        async () => (await symbols("apply_me")).some((s) => /^entity/i.test(s.name)),
+        30000,
+        "the server to read apply.vhd",
+      );
+
+      const lineWith = (pattern) =>
+        apply.getText().split("\n").findIndex((l) => pattern.test(l));
+      const actionFor = async (pattern, word, title) => {
+        const line = lineWith(pattern);
+        const column = apply.lineAt(line).text.indexOf(word) + 1;
+        const at0 = new vscode.Position(line, column);
+        const found = (
+          (await limit(
+            vscode.commands.executeCommand(
+              "vscode.executeCodeActionProvider",
+              apply.uri,
+              new vscode.Range(at0, at0),
+            ),
+            30000,
+            `code actions for ${title}`,
+          )) || []
+        ).find((a) => a.title === title);
+        if (!found) return null;
+        if (found.edit) await vscode.workspace.applyEdit(found.edit);
+        else
+          await vscode.commands.executeCommand(
+            found.command.command,
+            ...found.command.arguments,
+          );
+        await wait(400);
+        return found;
+      };
+      const between = (openPattern, closePattern) => {
+        const lines = apply.getText().split("\n");
+        const from = lines.findIndex((l) => openPattern.test(l));
+        const to = lines.findIndex((l, i) => i > from && closePattern.test(l));
+        return lines.slice(from + 1, to).join("\n");
+      };
+
+      // A variable assigned in a process, declared above that process's own begin.
+      check(
+        !!(await actionFor(/scratch := go;/, "scratch", "Declare variable scratch")),
+        "the variable action is there to apply",
+      );
+      check(
+        /variable scratch :/.test(between(/p_main : process/, /^\s*begin\b/)),
+        "and puts the variable in the process, above its begin",
+        JSON.stringify(between(/p_main : process/, /^\s*begin\b/)),
+      );
+
+      // A signal used in a generate, declared in the generate rather than the architecture.
+      check(
+        !!(await actionFor(/lane_out <= lane_valid;/, "lane_out", "Declare signal lane_out in g_lanes")),
+        "the generate-scoped action is there to apply",
+      );
+      check(
+        /signal lane_out :/.test(between(/g_lanes : for/, /^\s{2}begin\b/)),
+        "and puts the signal in the generate's own declarative part",
+        JSON.stringify(between(/g_lanes : for/, /^\s{2}begin\b/)),
+      );
+
+      // A block with no declarative part at all: the `begin` has to be written too.
+      check(
+        !!(await actionFor(/gate_out <= go;/, "gate_out", "Declare signal gate_out in b_guard")),
+        "the block-scoped action is there to apply",
+      );
+      const block = between(/b_guard : block/, /end block/);
+      check(
+        /signal gate_out :/.test(block) && /^\s*begin\b/m.test(block),
+        "and opens the block's declarative part with a begin of its own",
+        JSON.stringify(block),
+      );
+
+      // Every actual of a port map at once.
+      check(
+        !!(await actionFor(/rst  => reset_n/, "reset_n", "Declare 4 signals for this port map")),
+        "the port-map action is there to apply",
+      );
+      const declarations = between(/^architecture rtl/, /^begin\b/);
+      check(
+        ["reset_n", "data_in", "data_out", "empty"].every((n) =>
+          new RegExp(`signal ${n} `).test(declarations),
+        ),
+        "and declares every actual the map names, with the port's type",
+        JSON.stringify(declarations.trim()),
+      );
+
+      // A case over a name that does not exist: the enumeration, the signal and the arms.
+      check(
+        !!(await actionFor(/case sequencer is/, "sequencer", "Insert state machine over sequencer")),
+        "the state machine action is there to apply",
+      );
+      const afterFsm = apply.getText();
+      check(
+        /type t_sequencer is \(idle, busy, done\);/.test(afterFsm) &&
+          /signal sequencer : t_sequencer := idle;/.test(afterFsm),
+        "and declares the enumeration and the state signal",
+      );
+      check(
+        /when idle =>/.test(afterFsm) &&
+          /when busy =>/.test(afterFsm) &&
+          /when done =>/.test(afterFsm),
+        "and writes an arm for every state",
+      );
+
+      // The verdict that matters: everything written above has to be VHDL. Saved first, because
+      // both servers answer about the file on disk.
+      await apply.save();
+      await wait(2500);
+      const left = vscode.languages.getDiagnostics(apply.uri);
+      check(
+        left.filter((d) => d.source === "speja" && d.code === "syntax_error").length === 0,
+        "speja can still parse what the actions wrote",
+        left.filter((d) => d.source === "speja").map((d) => d.code).join(", ") || "nothing",
+      );
+      const unresolvedLeft = left.filter((d) => d.code === "unresolved").map((d) =>
+        apply.getText(d.range),
+      );
+      check(
+        unresolvedLeft.length === 0,
+        "and every name the actions were raised on now resolves",
+        unresolvedLeft.join(", ") || "none left",
+      );
+
+      // A file under `speja: exclude` gets nothing from speja, however it is written.
+      const excluded = await vscode.workspace.openTextDocument(at("generated/excluded.vhd"));
+      await vscode.window.showTextDocument(excluded);
+      await wait(2500);
+      const fromSpeja = vscode.languages
+        .getDiagnostics(excluded.uri)
+        .filter((d) => d.source === "speja");
+      check(
+        fromSpeja.length === 0,
+        "an excluded file gets no diagnostics from speja",
+        fromSpeja.map((d) => d.code).join(", ") || "none",
+      );
+    }
+
     out("done");
   } catch (error) {
     out("HARNESS ERROR: " + (error && error.stack ? error.stack : error));
