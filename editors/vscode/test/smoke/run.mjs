@@ -53,7 +53,7 @@ const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
 // `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
-const ENTITIES = 50;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
+const ENTITIES = 51;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -310,6 +310,41 @@ port (
 a : in bit
 );
 end;
+`);
+
+// A case statement as it looks while it is being typed: no arms, no `end case`, so the file does
+// not parse. This is the moment "insert state machine" is for, and the only moment the action is
+// reached through text rather than through anything the server said.
+write("halfcase.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity halfcase is
+  port (
+    clk : in    std_logic
+  );
+end entity halfcase;
+
+architecture rtl of halfcase is
+
+  signal tick : std_logic;
+  signal counter : integer;
+
+begin
+
+  p_typed : process (clk) is
+  begin
+    case walker is
+  end process;
+
+  p_declared : process (clk) is
+  begin
+    case counter is
+      when others =>
+        null;
+    end case;
+  end process;
+
+end architecture rtl;
 `);
 
 // A use clause that nothing needs, beside one that is needed.

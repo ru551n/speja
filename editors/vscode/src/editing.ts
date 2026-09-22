@@ -1080,13 +1080,20 @@ function caseBody(
   return null;
 }
 
-/** The enumeration a case selector has as its type, through the signal's declaration. */
-async function enumOfSelector(
+/**
+ * What a case selector is: the enumeration it has as its type, and whether it exists at all.
+ *
+ * The two are separate answers, and conflating them was a bug. A selector that is declared but is
+ * not an enumeration, `case counter is` over an integer, has no literals to offer *and* must not
+ * be offered a state machine: that would declare it a second time.
+ */
+async function selectorType(
   doc: vscode.TextDocument,
   at: vscode.Position,
-): Promise<EnumType | null> {
-  const direct = parseEnumHover(await hoverText(doc.uri, at));
-  if (direct) return direct;
+): Promise<{ literals: EnumType | null; declared: boolean }> {
+  const hover = await hoverText(doc.uri, at);
+  const direct = parseEnumHover(hover);
+  if (direct) return { literals: direct, declared: true };
 
   // `signal state : t_state;` names the type but does not list its literals, so the selector's
   // declaration is opened and the type name in it hovered in its turn. Asking the workspace
@@ -1113,9 +1120,10 @@ async function enumOfSelector(
         new vscode.Position(range.start.line, line.indexOf(type, colon) + 1),
       ),
     );
-    if (found) return found;
+    if (found) return { literals: found, declared: true };
   }
-  return null;
+  // A name the server can point at or say anything about is declared, whatever its type.
+  return { literals: null, declared: locations.length > 0 || hover.length > 0 };
 }
 
 /**
@@ -1528,13 +1536,16 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         sel.line,
         header.text.indexOf(sel.selector),
       );
-      const en = /^[a-z]\w*$/i.test(sel.selector)
-        ? await enumOfSelector(document, at)
-        : null;
+      const named = /^[a-z]\w*$/i.test(sel.selector);
+      const { literals, declared } = named
+        ? await selectorType(document, at)
+        : { literals: null, declared: true };
       const body = caseBody(document, sel.line);
-      const missing = en ? missingChoices(body?.text ?? "", en.literals) : [];
+      const missing = literals
+        ? missingChoices(body?.text ?? "", literals.literals)
+        : [];
 
-      if (en && missing.length && body) {
+      if (literals && missing.length && body) {
         const action = new vscode.CodeAction(
           `Add ${missing.length} missing when choice${missing.length > 1 ? "s" : ""}`,
           vscode.CodeActionKind.QuickFix,
@@ -1548,7 +1559,9 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         action.edit = edit;
         actions.push(action);
       }
-      if (!en && /^[a-z]\w*$/i.test(sel.selector)) {
+      // Only for a selector that does not exist yet. One that is declared and simply is not a
+      // state has nothing to gain from this and a duplicate declaration to lose.
+      if (named && !declared) {
         const action = new vscode.CodeAction(
           `Insert state machine over ${sel.selector}`,
           vscode.CodeActionKind.QuickFix,

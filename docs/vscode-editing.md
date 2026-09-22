@@ -159,8 +159,14 @@ each literal the case does not cover. The literals come from the selector's decl
 signal does not have to be the thing under the cursor.
 
 **Insert state machine over x** appears instead when the `case` selects on a name that does not
-exist yet, which is what half-written state machine looks like. It asks for the states, declares
-the enumeration and the signal, and writes the arms.
+exist yet, which is what a half-written state machine looks like. It asks for the states, declares
+the enumeration and the signal, and writes the arms. The `case` does not have to be finished: with
+no arms and no `end case` the file does not parse, and this is found by reading the line rather
+than by asking the server, which is the only way an action can reach you mid-sentence.
+
+A selector that already exists gets neither action unless it is an enumeration. `case counter is`
+over an integer has no states to fill in, and offering to make it a state machine would declare
+`counter` a second time.
 
 **VHDL Design** is a tree in the Explorer of every entity in the workspace, expanding through its
 architectures into the instances they contain, each resolved to the entity it instantiates. It

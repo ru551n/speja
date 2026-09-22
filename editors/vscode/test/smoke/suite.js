@@ -854,6 +854,78 @@ exports.run = async function run() {
       );
     }
 
+    // 16. The case statement as it is actually typed: half written, file not parsing. And a case
+    // over something that is declared but is not a state: offering to make it one would declare
+    // it a second time.
+    {
+      const half = await vscode.workspace.openTextDocument(at("halfcase.vhd"));
+      await vscode.window.showTextDocument(half);
+      await wait(2500);
+      const lineOfHalf = (pattern) =>
+        half.getText().split("\n").findIndex((l) => pattern.test(l));
+      const titlesAt = async (line, word) => {
+        const p = new vscode.Position(line, half.lineAt(line).text.indexOf(word) + 1);
+        return (
+          (await limit(
+            vscode.commands.executeCommand(
+              "vscode.executeCodeActionProvider",
+              half.uri,
+              new vscode.Range(p, p),
+            ),
+            30000,
+            `code actions on line ${line + 1}`,
+          )) || []
+        ).map((a) => a.title);
+      };
+
+      const typed = lineOfHalf(/case walker is/);
+      const onTyped = await titlesAt(typed, "walker");
+      check(
+        onTyped.includes("Insert state machine over walker"),
+        "a half-typed case still offers the state machine",
+        onTyped.join(" | "),
+      );
+
+      const declared = lineOfHalf(/case counter is/);
+      const onDeclared = await titlesAt(declared, "counter");
+      check(
+        !onDeclared.includes("Insert state machine over counter"),
+        "a case over something already declared does not offer to declare it again",
+        onDeclared.join(" | "),
+      );
+
+      const action = (
+        await limit(
+          vscode.commands.executeCommand(
+            "vscode.executeCodeActionProvider",
+            half.uri,
+            new vscode.Range(
+              new vscode.Position(typed, half.lineAt(typed).text.indexOf("walker") + 1),
+              new vscode.Position(typed, half.lineAt(typed).text.indexOf("walker") + 1),
+            ),
+          ),
+          30000,
+          "the state machine action",
+        )
+      ).find((a) => /Insert state machine/.test(a.title));
+      if (action) {
+        await vscode.commands.executeCommand(
+          action.command.command,
+          ...action.command.arguments,
+        );
+        await wait(1000);
+        await wait(2500);
+        const bad = vscode.languages
+          .getDiagnostics(half.uri)
+          .filter((d) => d.source === "speja" && d.code === "syntax_error");
+        check(
+          bad.length === 0,
+          "and what it writes into a half-typed case parses",
+          bad.map((d) => d.message).join(" ; ") || "no syntax errors",
+        );
+      }
+    }
+
     out("done");
   } catch (error) {
     out("HARNESS ERROR: " + (error && error.stack ? error.stack : error));
