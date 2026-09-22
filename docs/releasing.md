@@ -67,6 +67,10 @@ written for the older one may not load (see `scripts/migrate_vsg_config.py`).
    the wheels, the sdist, the binary archives and `SHA256SUMS` attached, with build provenance
    attestations (GitHub for all files, PEP 740 on PyPI). Attestations are skipped if the repository is private,
    because GitHub does not offer them for private repositories on its Free plan.
+5. on tags only, after the release exists: publishes each platform VSIX to the **VS Code
+   Marketplace** and to **Open VSX**, which is the registry VSCodium, Cursor and Gitpod read.
+   One target at a time, and `skipDuplicate` is set, so re-running the job after a partial
+   failure uploads only what is missing.
 
 Manual runs (`gh workflow run release.yml`) and pull requests that touch the packaging do steps
 1 to 3 only.
@@ -102,8 +106,18 @@ in the `msrv` job), and the runner images (`ubuntu-latest` and friends).
    before the first upload).
 2. In the GitHub repository settings, create the environment `pypi` (optionally with required
    reviewers).
+3. On the **VS Code Marketplace**, create the publisher `ru551n`, then mint an Azure DevOps
+   personal access token for the same account with the scope *Marketplace: Manage*, scoped to
+   *All accessible organizations*, and store it as the repository secret `VSCE_PAT`. A token
+   scoped to one organisation is rejected at publish time with a misleading 401.
+4. On **Open VSX**, sign in with GitHub, agree to the publisher agreement, create the namespace
+   `ru551n`, and store an access token as the repository secret `OPEN_VSX_PAT`. The namespace
+   must exist before the first publish; the upload fails otherwise.
+5. In the GitHub repository settings, create the environment `marketplace` (optionally with
+   required reviewers, which is how to keep a human in front of both registries).
 
-No API tokens are stored in the repository.
+PyPI needs no token, because it uses trusted publishing. The two registry tokens above are the
+only secrets the release needs, and both are write-only credentials for their own registry.
 
 ## Making a release
 

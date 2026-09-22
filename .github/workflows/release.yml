@@ -357,3 +357,52 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --verify-tag
+
+  # The extension, on both registries: the VS Code Marketplace and Open VSX, which is what
+  # VSCodium, Cursor, Gitpod and the other non-Microsoft builds read. It runs after the GitHub
+  # release exists, so a rejected upload never costs the release: the VSIX files are already
+  # attached to it, and a retry re-runs only this job.
+  #
+  # Needs two repository secrets, VSCE_PAT and OPEN_VSX_PAT, and an `ru551n` namespace on Open
+  # VSX. See docs/releasing.md.
+  extension-registries:
+    name: Publish the extension (${{ matrix.target }})
+    needs: [vscode, github-release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: marketplace
+      url: https://marketplace.visualstudio.com/items?itemName=ru551n.speja
+    strategy:
+      # One at a time. The first publish of a version is what creates the listing, and six
+      # parallel uploads racing to do that is a way to find out which registry handles it badly.
+      max-parallel: 1
+      # A target that fails should not strand the other five: each is an independent upload, and
+      # `skipDuplicate` makes re-running the job skip whatever already landed.
+      fail-fast: false
+      matrix:
+        target: [linux-x64, linux-arm64, win32-x64, win32-arm64, darwin-x64, darwin-arm64]
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: vsix-extension
+          path: vsix
+      - name: Find the package for this target
+        id: vsix
+        run: |
+          path=$(ls vsix/speja-${{ matrix.target }}-*.vsix)
+          test -f "$path"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+      - name: Open VSX
+        uses: HaaLeo/publish-vscode-extension@ca5561daa085dee804bf9f37fe0165785a9b14db # v2
+        with:
+          pat: ${{ secrets.OPEN_VSX_PAT }}
+          extensionFile: ${{ steps.vsix.outputs.path }}
+          skipDuplicate: true
+      - name: VS Code Marketplace
+        uses: HaaLeo/publish-vscode-extension@ca5561daa085dee804bf9f37fe0165785a9b14db # v2
+        with:
+          pat: ${{ secrets.VSCE_PAT }}
+          registryUrl: https://marketplace.visualstudio.com
+          extensionFile: ${{ steps.vsix.outputs.path }}
+          skipDuplicate: true
