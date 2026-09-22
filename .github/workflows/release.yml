@@ -393,16 +393,20 @@ jobs:
           path=$(ls vsix/speja-${{ matrix.target }}-*.vsix)
           test -f "$path"
           echo "path=$path" >> "$GITHUB_OUTPUT"
-      - name: Open VSX
-        uses: HaaLeo/publish-vscode-extension@ca5561daa085dee804bf9f37fe0165785a9b14db # v2
-        with:
-          pat: ${{ secrets.OPEN_VSX_PAT }}
-          extensionFile: ${{ steps.vsix.outputs.path }}
-          skipDuplicate: true
       - name: VS Code Marketplace
         uses: HaaLeo/publish-vscode-extension@ca5561daa085dee804bf9f37fe0165785a9b14db # v2
         with:
           pat: ${{ secrets.VSCE_PAT }}
           registryUrl: https://marketplace.visualstudio.com
+          extensionFile: ${{ steps.vsix.outputs.path }}
+          skipDuplicate: true
+      # `always()` because the two registries are independent. On the 0.13.0 release Open VSX
+      # answered 503 after accepting the upload, which killed the job before it reached the other
+      # registry and left one target published to one of them only. Neither can block the other.
+      - name: Open VSX
+        if: always()
+        uses: HaaLeo/publish-vscode-extension@ca5561daa085dee804bf9f37fe0165785a9b14db # v2
+        with:
+          pat: ${{ secrets.OPEN_VSX_PAT }}
           extensionFile: ${{ steps.vsix.outputs.path }}
           skipDuplicate: true
