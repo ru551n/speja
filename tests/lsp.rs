@@ -661,6 +661,136 @@ fn formatting_is_what_the_command_line_would_have_written() {
 }
 
 #[test]
+fn range_formatting_changes_only_the_selected_lines() {
+    // Two badly laid out lines, so that formatting one proves the other was left alone.
+    let source = concat!(
+        "entity e is\n",
+        "end entity e;\n",
+        "\n",
+        "architecture rtl of e is\n",
+        "signal a : bit;\n",
+        "signal b : bit;\n",
+        "begin\n",
+        "end architecture rtl;\n",
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("e.vhd");
+    std::fs::write(&file, source).expect("write");
+    let uri = file_uri(&file);
+
+    // Line 4, 0-based: the first unindented signal.
+    let got = Session::start().talk(
+        &[
+            did_open(&uri, source),
+            serde_json::json!({
+                "jsonrpc": "2.0", "id": 2, "method": "textDocument/rangeFormatting",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "range": {
+                        "start": { "line": 4, "character": 0 },
+                        "end": { "line": 5, "character": 0 }
+                    },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }
+            }),
+        ],
+        2,
+    );
+    let edits = got
+        .iter()
+        .find(|m| m["id"] == 2)
+        .expect("a range formatting response")["result"]
+        .as_array()
+        .expect("edits")
+        .clone();
+    assert!(!edits.is_empty(), "the selected line needed indenting");
+
+    // Every edit has to fall inside the selection. An edit outside it would mean the editor
+    // silently rewrote a line the user did not select.
+    for edit in &edits {
+        let start = edit["range"]["start"]["line"].as_u64().expect("start line");
+        let end = edit["range"]["end"]["line"].as_u64().expect("end line");
+        assert!(
+            (4..=5).contains(&start) && (4..=5).contains(&end),
+            "edit at lines {start}..{end} is outside the selected line 4"
+        );
+    }
+}
+
+#[test]
+fn a_badly_laid_out_line_offers_to_format_itself() {
+    // An unindented signal: the kind of squiggle someone wants to clear from the lightbulb
+    // rather than by reading which of several layout rules it tripped.
+    let source = concat!(
+        "entity e is\n",
+        "end entity e;\n",
+        "\n",
+        "architecture rtl of e is\n",
+        "signal a : bit;\n",
+        "begin\n",
+        "end architecture rtl;\n",
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("e.vhd");
+    std::fs::write(&file, source).expect("write");
+    let uri = file_uri(&file);
+
+    let got = Session::start().talk(
+        &[
+            did_open(&uri, source),
+            serde_json::json!({
+                "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "range": {
+                        "start": { "line": 4, "character": 0 },
+                        "end": { "line": 4, "character": 0 }
+                    },
+                    "context": { "diagnostics": [] }
+                }
+            }),
+        ],
+        2,
+    );
+    let actions = got
+        .iter()
+        .find(|m| m["id"] == 2)
+        .expect("a code action response")["result"]
+        .as_array()
+        .expect("actions")
+        .clone();
+    let format = actions
+        .iter()
+        .find(|a| {
+            a["title"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("speja: format line"))
+        })
+        .expect("an action offering to format the line");
+    assert_eq!(format["kind"], "quickfix");
+    let edits = format["edit"]["changes"]
+        .as_object()
+        .and_then(|changes| changes.values().next())
+        .and_then(serde_json::Value::as_array)
+        .expect("the action carries the edit, so accepting it needs no round trip");
+    assert!(!edits.is_empty());
+    // The edit must stay on the line the lightbulb was opened on.
+    for edit in edits {
+        assert_eq!(edit["range"]["start"]["line"], 4);
+    }
+}
+
+#[test]
+fn range_formatting_is_advertised() {
+    let got = Session::start().talk(&[initialize()], 1);
+    let capabilities = &got
+        .iter()
+        .find(|m| m["id"] == 1)
+        .expect("an initialize response")["result"]["capabilities"];
+    assert_eq!(capabilities["documentRangeFormattingProvider"], true);
+}
+
+#[test]
 fn a_closed_document_does_not_get_its_diagnostics_back() {
     // Closing withdraws the diagnostics, but an analysis started before the close is still
     // running. Publishing its result afterwards would put the problems back for a file the

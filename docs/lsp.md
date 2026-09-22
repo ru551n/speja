@@ -28,14 +28,33 @@ giving. A test asserts each of those is absent.
 | `textDocument/didOpen`, `didChange`, `didClose` | full-document sync |
 | `textDocument/publishDiagnostics` | the style rules and the lint layer, with `relatedInformation` |
 | `textDocument/formatting` | one edit for the whole document |
+| `textDocument/rangeFormatting` | the selected lines only, the rest untouched |
 | `textDocument/codeAction` | a quick fix per fixable finding, `source.fixAll`, a waiver for each finding, and `source.organizeImports` |
 | `workspace/executeCommand` | `speja.applyWaiver`, which writes a waiver the client has collected a reason for |
+
+## Formatting a selection
+
+*Format Selection* formats the lines you have selected and leaves the rest of the file alone. It
+works in whole lines, as `--range` does on the command line: a layout is decided for a line, not
+for the columns someone happened to drag across, and half a line cannot be folded. A selection
+that stops at the start of a line stops before it, which is where an editor puts the end when
+whole lines are selected.
+
+Underneath, the document is formatted in full and only the edits falling in the range are kept,
+with the partial result re-parsed to confirm it still has no syntax error. A selection cutting
+through a construct therefore yields the part that can be applied safely rather than half a fold.
 
 ## Quick fixes and fix-all
 
 A quick fix comes from the fix the finding already carries, so what an editor offers is what
 `--fix` would do to that one violation. **Fix-all** (`source.fixAll`) is the whole document as
 `--fix` would write it.
+
+A line the formatter would change also offers **speja: format line N**, whatever tripped it.
+The per-rule fixes are one rule each, and a badly laid out line usually breaks several at once,
+an indent and a blank line and a fold; picking them off one at a time is not what someone looking
+at the squiggle wants. The action carries the same edit `--fix` would make, restricted to those
+lines.
 
 Only fixes speja would apply itself are offered, in either form. A fix VSG does not apply by
 default (the ones `--unsafe_fixes` exists for) is never offered as a quick fix and never

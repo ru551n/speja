@@ -3,6 +3,18 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## Unreleased
+
+* **Format a selection.** The language server answers `textDocument/rangeFormatting`, so
+  *Format Selection* formats the lines you picked and leaves the rest of the file alone. It works
+  in whole lines, as `--range` does: the document is formatted in full, only the edits inside the
+  range are kept, and the partial result is re-parsed to confirm it still has no syntax error, so
+  a selection cutting through a construct yields what can be applied safely rather than half a
+  fold.
+* **A line the formatter would change offers to format itself**, from the lightbulb, whatever it
+  tripped. A badly laid out line usually breaks several layout rules at once, and clearing them
+  one rule at a time is not what someone looking at the squiggle wants.
+
 ## 0.13.0
 
 **Targets VSG 3.35.**

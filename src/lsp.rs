@@ -23,11 +23,12 @@ use tower_lsp_server::ls_types::{
     CodeActionProviderCapability, CodeActionResponse, CreateFile, CreateFileOptions, Diagnostic,
     DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeTextDocumentParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentChangeOperation,
-    DocumentChanges, DocumentFormattingParams, ExecuteCommandOptions, ExecuteCommandParams,
-    InitializeParams, InitializeResult, InitializedParams, Location, MessageType, NumberOrString,
-    OneOf, OptionalVersionedTextDocumentIdentifier, Position, Range, ResourceOp,
-    ServerCapabilities, ServerInfo, TextDocumentEdit, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Uri, WorkspaceEdit,
+    DocumentChanges, DocumentFormattingParams, DocumentRangeFormattingParams,
+    ExecuteCommandOptions, ExecuteCommandParams, InitializeParams, InitializeResult,
+    InitializedParams, Location, MessageType, NumberOrString, OneOf,
+    OptionalVersionedTextDocumentIdentifier, Position, Range, ResourceOp, ServerCapabilities,
+    ServerInfo, TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
+    WorkspaceEdit,
 };
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
@@ -306,6 +307,45 @@ fn position_at(line: usize, column: usize) -> Position {
         line: u32::try_from(line.saturating_sub(1)).unwrap_or(0),
         character: u32::try_from(column.saturating_sub(1)).unwrap_or(0),
     }
+}
+
+/// The byte range of whole lines `first..=last`, 0-based, clamped to the text.
+///
+/// Formatting a selection works in whole lines, as `--range` does. A layout is decided for a
+/// line, not for the columns someone happened to drag across, and half a line cannot be folded.
+/// speja's byte-offset edits as the editor's line/character edits.
+fn lsp_edits(text: &str, edits: &[speja::TextEdit]) -> Vec<TextEdit> {
+    edits
+        .iter()
+        .filter_map(|edit| {
+            Some(TextEdit {
+                range: Range::new(position_of(text, edit.start), position_of(text, edit.end)),
+                new_text: String::from_utf8(edit.text.clone()).ok()?,
+            })
+        })
+        .collect()
+}
+
+fn line_span(text: &str, first: u32, last: u32) -> std::ops::Range<usize> {
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(text.match_indices('\n').map(|(at, _)| at + 1))
+        .collect();
+    let start = starts.get(first as usize).copied().unwrap_or(text.len());
+    let end = starts.get(last as usize + 1).copied().unwrap_or(text.len());
+    start..end.max(start)
+}
+
+/// The lines an LSP range covers, as whole lines.
+///
+/// A selection dragged to the start of a line stops before it: that is where an editor puts the
+/// end when whole lines are selected, and formatting the line below the selection would surprise.
+fn selected_lines(range: Range) -> (u32, u32) {
+    let last = if range.end.character == 0 && range.end.line > range.start.line {
+        range.end.line - 1
+    } else {
+        range.end.line
+    };
+    (range.start.line, last)
 }
 
 impl Backend {
@@ -635,6 +675,7 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                document_range_formatting_provider: Some(OneOf::Left(true)),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec![WAIVE_COMMAND.to_owned()],
                     ..ExecuteCommandOptions::default()
@@ -863,6 +904,33 @@ impl LanguageServer for Backend {
                     }
                 }
 
+                // Formatting for the lines the request covers, offered whenever the formatter
+                // would change them. The per-violation fixes above are one rule each; a badly
+                // laid out line usually trips several at once (indent, a blank line, a fold),
+                // and picking them off individually is not what someone looking at the squiggle
+                // wants. This is the same edit `--fix` would make, restricted to those lines.
+                if allows(&CodeActionKind::QUICKFIX) {
+                    let (first, last) = selected_lines(range);
+                    let span = line_span(&text, first, last);
+                    if !span.is_empty()
+                        && let Ok(edits) =
+                            speja::fix_range(&parsed, &cfg, &speja::FixOptions::default(), span)
+                        && !edits.is_empty()
+                    {
+                        let title = if first == last {
+                            format!("speja: format line {}", first + 1)
+                        } else {
+                            format!("speja: format lines {}-{}", first + 1, last + 1)
+                        };
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title,
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            edit: Some(workspace_edit(&uri, lsp_edits(&text, &edits))),
+                            ..CodeAction::default()
+                        }));
+                    }
+                }
+
                 // A waiver for each finding under the cursor, at each scope. These carry a
                 // command rather than an edit: the reason has to come from a person, and the
                 // client is the only side that can ask for one.
@@ -1000,6 +1068,53 @@ impl LanguageServer for Backend {
             range: Range::new(Position::new(0, 0), position_of(&text, text.len())),
             new_text: formatted,
         }]))
+    }
+
+    /// Format the selected lines, leaving the rest of the file untouched.
+    ///
+    /// `fix_range` formats the whole document and then keeps only the edits that fall in the
+    /// range, re-parsing to confirm the partial result still has no syntax error. A selection
+    /// cutting through a construct therefore yields the part that can be applied safely rather
+    /// than half a fold.
+    async fn range_formatting(
+        &self,
+        params: DocumentRangeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let uri = params.text_document.uri;
+        let Some(text) = self
+            .documents
+            .read()
+            .await
+            .get(&uri)
+            .map(|d| d.text.clone())
+        else {
+            return Ok(None);
+        };
+        let path = path_of(&uri);
+        let (first, last) = selected_lines(params.range);
+        let span = line_span(&text, first, last);
+        if span.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+        let edits = tokio::task::spawn_blocking({
+            let source = text.as_bytes().to_vec();
+            move || -> std::result::Result<Vec<speja::TextEdit>, String> {
+                let cfg = config_for(&path)?;
+                let parsed = speja::Parsed::new(source);
+                speja::fix_range(&parsed, &cfg, &speja::FixOptions::default(), span)
+                    .map_err(|error| error.to_string())
+            }
+        })
+        .await
+        .map_err(|_| jsonrpc::Error::internal_error())?;
+        // Same refusal as whole-document formatting: without the project's own configuration the
+        // edit would not be the one `--fix` makes, and the editor would disagree with CI.
+        let edits = edits.map_err(|message| jsonrpc::Error {
+            code: jsonrpc::ErrorCode::InvalidParams,
+            message: format!("speja did not format this selection: {message}").into(),
+            data: None,
+        })?;
+        Ok(Some(lsp_edits(&text, &edits)))
     }
 }
 
