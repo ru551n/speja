@@ -931,13 +931,15 @@ impl LanguageServer for Backend {
                 // an editor never offers something the command line would refuse.
                 if allows(&CodeActionKind::QUICKFIX) {
                     for violation in speja::rules::check_with(&parsed, &cfg, None) {
-                        let Some(fix) = violation
-                            .fix
-                            .as_ref()
-                            .filter(|f| f.safety == speja::rules::FixSafety::Safe)
-                        else {
+                        let Some(fix) = violation.fix.as_ref() else {
                             continue;
                         };
+                        // An unsafe fix is offered, and says so. speja will not apply one itself,
+                        // so it stays out of fix-all and out of format-on-save, which are built
+                        // from `fix_with` and never ask for unsafe fixes. But refusing to offer
+                        // it at all left the finding with no way to act on it: an underline
+                        // saying "this is your call" and no means of making the call.
+                        let risky = fix.safety != speja::rules::FixSafety::Safe;
                         let at = Range::new(
                             position_of(&text, violation.start),
                             position_of(&text, violation.end),
@@ -945,9 +947,19 @@ impl LanguageServer for Backend {
                         if !overlaps(&at, &range) {
                             continue;
                         }
+                        let title = if risky {
+                            format!(
+                                "{}: {} (may change behaviour)",
+                                violation.rule, violation.message
+                            )
+                        } else {
+                            format!("{}: {}", violation.rule, violation.message)
+                        };
                         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                            title: format!("{}: {}", violation.rule, violation.message),
+                            title,
                             kind: Some(CodeActionKind::QUICKFIX),
+                            // Never the default action an editor would apply on its own.
+                            is_preferred: (!risky).then_some(true),
                             edit: Some(workspace_edit(&uri, edits_of(&text, fix))),
                             ..CodeAction::default()
                         }));

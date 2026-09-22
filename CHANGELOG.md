@@ -21,6 +21,10 @@ reports are that version's. `speja --version` prints the same thing.
   own clauses, and a new library sorts into the order `source.organizeImports` uses, `ieee` and
   `std` first, then everything else alphabetically, then `work` last, separated from the block it
   precedes.
+* **And the fix it will not apply is still offered**, marked `(may change behaviour)`. It is
+  never the preferred action and never reached by fix-all or format-on-save, which are built from
+  the entry point `--fix` uses and never ask for unsafe fixes. An amber underline with no action
+  was a dead end.
 * **Amber for what speja will not decide.** A finding whose only fix can change what the design
   does was underlined in the same red as a missing keyword, and offered no action, because speja
   will not apply such a fix itself. `signal_007` asks for a signal's initial value to be removed,

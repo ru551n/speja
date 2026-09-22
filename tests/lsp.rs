@@ -835,6 +835,75 @@ fn a_finding_speja_will_not_decide_is_a_warning_not_an_error() {
 }
 
 #[test]
+fn an_unsafe_fix_is_offered_and_says_so() {
+    // The warning colour says the call is the author's; without an action there is no way to
+    // make it. The fix is offered, marked, and never the editor's preferred one, so nothing
+    // applies it without being asked. Fix-all and format-on-save are built from `fix_with`,
+    // which is not given `unsafe_fixes`, so neither can reach it.
+    let source = concat!(
+        "entity e is\n",
+        "end entity e;\n",
+        "\n",
+        "architecture rtl of e is\n",
+        "\n",
+        "  signal count : integer := 0;\n",
+        "\n",
+        "begin\n",
+        "\n",
+        "end architecture rtl;\n",
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("risky.vhd");
+    std::fs::write(&file, source).expect("write");
+    let uri = file_uri(&file);
+
+    let got = Session::start().talk(
+        &[
+            did_open(&uri, source),
+            serde_json::json!({
+                "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    // The whole line: the finding is anchored on `:= 0`, not the declaration.
+                    "range": {
+                        "start": { "line": 5, "character": 0 },
+                        "end": { "line": 5, "character": 30 }
+                    },
+                    "context": { "diagnostics": [] }
+                }
+            }),
+        ],
+        2,
+    );
+    let actions = got
+        .iter()
+        .find(|m| m["id"] == 2)
+        .expect("a code action response")["result"]
+        .as_array()
+        .expect("actions")
+        .clone();
+    let offered = actions
+        .iter()
+        .find(|a| {
+            a["title"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("signal_007"))
+        })
+        .unwrap_or_else(|| panic!("the unsafe fix is offered: {actions:#?}"));
+    assert!(
+        offered["title"]
+            .as_str()
+            .is_some_and(|t| t.contains("may change behaviour")),
+        "and says what it is: {}",
+        offered["title"]
+    );
+    assert!(
+        offered["isPreferred"].as_bool() != Some(true),
+        "but is never the preferred action"
+    );
+}
+
+#[test]
 fn range_formatting_is_advertised() {
     let got = Session::start().talk(&[initialize()], 1);
     let capabilities = &got

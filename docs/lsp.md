@@ -67,7 +67,13 @@ an indent and a blank line and a fold; picking them off one at a time is not wha
 at the squiggle wants. The action carries the same edit `--fix` would make, restricted to those
 lines.
 
-Only fixes speja would apply itself are offered, in either form. A fix VSG does not apply by
+A fix that can change what the design does is offered too, and says so: `signal_007: Remove
+default assignment. (may change behaviour)`. It is never the preferred action, so nothing applies
+it without being asked, and it stays out of **fix-all** and out of format-on-save, both of which
+are built from the same entry point `--fix` uses and never ask for unsafe fixes. Amber without an
+action was a dead end: an underline saying the call is yours and no way to make it.
+
+Only fixes speja would apply itself are applied automatically. A fix VSG does not apply by
 default (the ones `--unsafe_fixes` exists for) is never offered as a quick fix and never
 included in fix-all, because it may change what the design does. One safety rule governs the
 command line, quick fixes and fix-all alike; a test asserts fix-all leaves an unsafe fix alone.
