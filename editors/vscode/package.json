@@ -1,6 +1,6 @@
 {
   "name": "speja",
-  "displayName": "Speja: VHDL formatter and static analysis",
+  "displayName": "Speja VHDL",
   "description": "VHDL for VS Code: formatting and static analysis from the speja language server, plus syntax highlighting and editing actions such as instantiating an entity, declaring port map signals and generating a state machine.",
   "version": "0.13.0",
   "publisher": "ru551n",
