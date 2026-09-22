@@ -5,7 +5,7 @@ can be produced in one run. None of them changes the exit code.
 
 | Option | Format | Read by |
 |---|---|---|
-| `--json FILE` | vsg-rs's own JSON | anything you script |
+| `--json FILE` | speja's own JSON | anything you script |
 | `-j`, `--junit FILE` | JUnit XML | GitLab, Jenkins, Azure Pipelines, most CI test tabs |
 | `--sarif FILE` | SARIF 2.1.0 | GitHub code scanning, Jenkins Warnings-NG, SonarQube |
 | `--quality_report FILE` | Code Climate JSON | GitLab's merge request widget |
@@ -14,16 +14,16 @@ can be produced in one run. None of them changes the exit code.
 ## SonarQube
 
 ```sh
-vsg-rs --recursive src --check style,lint --sonarqube sonar-issues.json
+speja --recursive src --check style,lint --sonarqube sonar-issues.json
 ```
 
 ```properties
 sonar.externalIssuesReportPaths=sonar-issues.json
 ```
 
-SonarQube reads SARIF as well, and vsg-rs writes that too — but SonarQube files **every** issue
+SonarQube reads SARIF as well, and speja writes that too — but SonarQube files **every** issue
 from a SARIF report as a vulnerability. A missing blank line is not a security finding, and a few
-hundred of them would bury the ones that are. The generic format carries the type, so vsg-rs sets
+hundred of them would bury the ones that are. The generic format carries the type, so speja sets
 it from the layer the finding came from:
 
 * a **definite error** arrives as a **bug** — it says the design cannot do what it says;
@@ -74,7 +74,7 @@ the rule or its group to report without failing.
 ## SARIF
 
 ```sh
-vsg-rs --recursive src --check style,lint --sarif vsg-rs.sarif
+speja --recursive src --check style,lint --sarif speja.sarif
 ```
 
 Findings carry more than a position:
@@ -82,7 +82,7 @@ Findings carry more than a position:
 * **`relatedLocations`** — the other places a finding is about. `lint_601` lists each driver of
   the signal; `lint_720` lists each signal on the cycle. Code scanning links them, so a multiple
   driver is two places you can click rather than two numbers in a sentence.
-* **`fixes`** — the edits of a safe fix, as regions and replacement text. Only fixes vsg-rs would
+* **`fixes`** — the edits of a safe fix, as regions and replacement text. Only fixes speja would
   apply itself are offered, so a fix suggested in a review matches what `--fix` does. Fixes VSG
   does not apply by default (`--unsafe_fixes`) are never emitted, and a lint finding never carries
   one, because applying it would change what the design does.
@@ -91,11 +91,11 @@ Each fix is independently applicable, as SARIF intends: applying one may leave o
 
 ## Jenkins
 
-Use the SARIF file. The Warnings Next Generation plugin has a SARIF parser, so no vsg-rs-specific
+Use the SARIF file. The Warnings Next Generation plugin has a SARIF parser, so no speja-specific
 format is needed:
 
 ```groovy
-recordIssues tool: sarif(pattern: 'vsg-rs.sarif')
+recordIssues tool: sarif(pattern: 'speja.sarif')
 ```
 
 ## GitHub and GitLab

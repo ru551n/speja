@@ -1,4 +1,4 @@
-//! `vsg-rs mcp`: the same analysis, answered over the Model Context Protocol.
+//! `speja mcp`: the same analysis, answered over the Model Context Protocol.
 //!
 //! A coding agent editing VHDL wants what an editor wants: what is wrong with this buffer, and
 //! what the formatter would do to it. The language server already answers both, but only to a
@@ -45,9 +45,9 @@ fn tools() -> Value {
     json!([
         {
             "name": "lint",
-            "description": "Check VHDL and return what vsg-rs reports about it: syntax errors, \
+            "description": "Check VHDL and return what speja reports about it: syntax errors, \
                             style violations and lint findings, each with a rule id, a position \
-                            and a message. The same answer `vsg-rs --check style,lint` gives for \
+                            and a message. The same answer `speja --check style,lint` gives for \
                             the same bytes. Pass `path` alone to check a file, or `source` to \
                             check a buffer before it is written.",
             "inputSchema": {
@@ -69,8 +69,8 @@ fn tools() -> Value {
         },
         {
             "name": "format",
-            "description": "Format VHDL as vsg-rs would write it: the project's layout, with \
-                            every safe rule fix applied, which is exactly what `vsg-rs --fix` \
+            "description": "Format VHDL as speja would write it: the project's layout, with \
+                            every safe rule fix applied, which is exactly what `speja --fix` \
                             writes. Pass `source` to get the formatted text back, or `path` \
                             with `write` to fix a file in place without moving it through this \
                             conversation. Source that does not parse comes back unchanged, with \
@@ -142,19 +142,19 @@ fn subject(arguments: &Value) -> Result<(String, PathBuf), String> {
 }
 
 /// The configuration that applies to a name, found the way every other entry point finds it.
-fn config_for(path: &Path) -> Result<vsg_rs::Config, String> {
-    let Some(file) = path.parent().and_then(vsg_rs::config::discover) else {
-        return Ok(vsg_rs::Config::default().for_path(path).into_owned());
+fn config_for(path: &Path) -> Result<speja::Config, String> {
+    let Some(file) = path.parent().and_then(speja::config::discover) else {
+        return Ok(speja::Config::default().for_path(path).into_owned());
     };
-    let cfg = vsg_rs::Config::load(std::slice::from_ref(&file))
+    let cfg = speja::Config::load(std::slice::from_ref(&file))
         .map_err(|e| format!("{}: {e}", file.display()))?;
     Ok(cfg.for_path(path).into_owned())
 }
 
-/// Everything vsg-rs reports about one buffer, as data.
+/// Everything speja reports about one buffer, as data.
 fn lint(source: &str, path: &Path) -> Result<Value, String> {
     let cfg = config_for(path)?;
-    let parsed = vsg_rs::Parsed::new(source.as_bytes().to_vec());
+    let parsed = speja::Parsed::new(source.as_bytes().to_vec());
     let at = |offset: usize| {
         let (line, column) = parsed.line_col(offset);
         json!({ "line": line, "column": column })
@@ -174,7 +174,7 @@ fn lint(source: &str, path: &Path) -> Result<Value, String> {
         return Ok(json!({ "findings": found, "parsed": false }));
     }
 
-    for violation in vsg_rs::rules::check_with(&parsed, &cfg, None) {
+    for violation in speja::rules::check_with(&parsed, &cfg, None) {
         found.push(json!({
             "rule": violation.rule,
             "at": at(violation.start),
@@ -186,11 +186,11 @@ fn lint(source: &str, path: &Path) -> Result<Value, String> {
     // the project's library map, found from the file's path; without one only a few of them
     // report, exactly as on the command line.
     let (front_end, unbuilt) =
-        match vsg_rs::analysis::lint::front_end_for(path, source.as_bytes().to_vec()) {
+        match speja::analysis::lint::front_end_for(path, source.as_bytes().to_vec()) {
             Ok(findings) => (findings, None),
             Err(why) => (Vec::new(), Some(why)),
         };
-    let native = vsg_rs::analysis::findings_for(&parsed, path, &cfg)
+    let native = speja::analysis::findings_for(&parsed, path, &cfg)
         .into_iter()
         .chain(front_end);
     for finding in native {
@@ -201,7 +201,7 @@ fn lint(source: &str, path: &Path) -> Result<Value, String> {
             "rule": finding.rule,
             "at": { "line": finding.line, "column": finding.column },
             "message": finding.message,
-            "certainty": vsg_rs::analysis::certainty_of(finding.rule).map(Certainty::name),
+            "certainty": speja::analysis::certainty_of(finding.rule).map(Certainty::name),
         }));
     }
     let mut answer = json!({ "findings": found, "parsed": true });
@@ -216,13 +216,13 @@ fn lint(source: &str, path: &Path) -> Result<Value, String> {
     Ok(answer)
 }
 
-use vsg_rs::analysis::Certainty;
+use speja::analysis::Certainty;
 
 /// The source as `--fix` would write it, and on request written there.
 fn format(source: &str, path: &Path, write: bool) -> Result<Value, String> {
     let cfg = config_for(path)?;
-    let parsed = vsg_rs::Parsed::new(source.as_bytes().to_vec());
-    let out = match vsg_rs::fix_with(&parsed, &cfg, &vsg_rs::FixOptions::default()) {
+    let parsed = speja::Parsed::new(source.as_bytes().to_vec());
+    let out = match speja::fix_with(&parsed, &cfg, &speja::FixOptions::default()) {
         Ok(out) => out,
         // Left exactly as it was, and why, which is what the command line does too. Nothing is
         // written: source that does not parse is the case where a formatter can do most harm.
@@ -246,11 +246,11 @@ fn format(source: &str, path: &Path, write: bool) -> Result<Value, String> {
 
 /// What a rule reports, how sure it is, and whether a default run uses it.
 fn explain(rule: &str) -> Result<Value, String> {
-    let certainty = vsg_rs::analysis::certainty_of(rule);
-    let description = vsg_rs::analysis::rules()
+    let certainty = speja::analysis::certainty_of(rule);
+    let description = speja::analysis::rules()
         .find(|known| known.id == rule)
         .map(|known| known.description.to_owned())
-        .or_else(|| vsg_rs::rules::info(rule).map(|info| info.description.to_owned()))
+        .or_else(|| speja::rules::info(rule).map(|info| info.description.to_owned()))
         .ok_or_else(|| format!("no rule called '{rule}'"))?;
     Ok(json!({
         "rule": rule,
@@ -296,19 +296,19 @@ fn answer(message: &Value) -> Option<Value> {
             "capabilities": { "tools": {} },
             "_meta": {
                 "io.modelcontextprotocol/serverInfo": {
-                    "name": "vsg-rs",
+                    "name": "speja",
                     "version": env!("CARGO_PKG_VERSION"),
                 }
             },
             "instructions": "Ask `lint` what is wrong with a VHDL buffer, `format` for what \
-                             vsg-rs would write, and `explain_rule` what a rule id means.",
+                             speja would write, and `explain_rule` what a rule id means.",
         })),
         // What revisions before 2026-07-28 opened with. Answered so a client of either era is
         // served; nothing here depends on it having happened.
         "initialize" => json!({
             "protocolVersion": params["protocolVersion"].as_str().unwrap_or(VERSION),
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": "vsg-rs", "version": env!("CARGO_PKG_VERSION") },
+            "serverInfo": { "name": "speja", "version": env!("CARGO_PKG_VERSION") },
         }),
         "tools/list" => complete(&json!({ "tools": tools() })),
         "tools/call" => call(
@@ -339,7 +339,7 @@ pub(crate) fn serve() -> std::process::ExitCode {
             continue;
         }
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
-            eprintln!("vsg-rs mcp: ignoring a line that is not JSON");
+            eprintln!("speja mcp: ignoring a line that is not JSON");
             continue;
         };
         let Some(reply) = answer(&message) else {
@@ -392,7 +392,7 @@ mod tests {
     fn the_older_handshake_is_answered_too() {
         let reply = request("initialize", &json!({ "protocolVersion": "2025-06-18" }));
         assert_eq!(reply["result"]["protocolVersion"], "2025-06-18");
-        assert_eq!(reply["result"]["serverInfo"]["name"], "vsg-rs");
+        assert_eq!(reply["result"]["serverInfo"]["name"], "speja");
     }
 
     #[test]

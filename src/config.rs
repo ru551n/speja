@@ -58,7 +58,7 @@ pub struct FormatConfig {
     pub indent_continuations: bool,
     /// Spaces before a trailing comment (VSG `comment_004`), where alignment does not decide.
     pub comment_spaces: usize,
-    /// Re-wrap comment paragraphs to `width` (vsg-rs extension `vsg_rs: reflow_comments`).
+    /// Re-wrap comment paragraphs to `width` (speja extension `speja: reflow_comments`).
     pub reflow_comments: bool,
 }
 
@@ -120,7 +120,7 @@ struct RuleLayer {
 pub struct RuleSettings {
     pub enabled: bool,
     pub severity: Severity,
-    /// Whether `vsg-rs fix` applies the rule's fixes: VSG's default for the rule unless the
+    /// Whether `speja fix` applies the rule's fixes: VSG's default for the rule unless the
     /// configuration sets `fixable`.
     pub fixable: bool,
     /// The configuration sets `fixable` (as opposed to VSG's default).
@@ -172,19 +172,19 @@ pub struct Config {
     raw_pragma: Option<serde_json::Value>,
     /// `file_rules`: (path pattern, `rule` block) applied to matching files.
     file_rules: Vec<(String, Value)>,
-    /// `vsg_rs: testbench_files`: globs naming the files that are testbenches, not hardware.
+    /// `speja: testbench_files`: globs naming the files that are testbenches, not hardware.
     pub testbench_files: Vec<String>,
-    /// `vsg_rs: testbench_libraries`: libraries (from `vhdl_ls.toml`) that hold testbenches.
+    /// `speja: testbench_libraries`: libraries (from `vhdl_ls.toml`) that hold testbenches.
     pub testbench_libraries: Vec<String>,
-    /// `vsg_rs: synchronizers`: entity names (globs) that make a clock domain crossing safe.
+    /// `speja: synchronizers`: entity names (globs) that make a clock domain crossing safe.
     pub synchronizers: Vec<String>,
-    /// `vsg_rs: rtl` / `vsg_rs: testbench`: a `rule` block for each kind of file.
+    /// `speja: rtl` / `speja: testbench`: a `rule` block for each kind of file.
     kind_rules: BTreeMap<String, Value>,
     /// `file_list`: (path or glob pattern, the configuration file that lists it).
     pub file_list: Vec<(String, PathBuf)>,
     /// `local_rules`: the directory of VSG rule plugins.
     pub local_rules: Option<PathBuf>,
-    /// Configured rule ids that vsg-rs does not know (possibly local rules).
+    /// Configured rule ids that speja does not know (possibly local rules).
     unknown_rules: Vec<String>,
     /// Problems found while loading that did not prevent loading.
     pub warnings: Vec<String>,
@@ -227,7 +227,7 @@ static PRAGMA_RULES: [crate::rules::RuleInfo; 4] = [
 
 /// File names looked up by [`discover`], in order of preference.
 pub const CONFIG_FILE_NAMES: [&str; 4] =
-    ["vsg-rs.yaml", ".vsg-rs.yaml", "vsg-rs.json", ".vsg-rs.json"];
+    ["speja.yaml", ".speja.yaml", "speja.json", ".speja.json"];
 
 /// The nearest configuration file in `dir` or its ancestors.
 pub fn discover(dir: &Path) -> Option<PathBuf> {
@@ -378,7 +378,7 @@ impl Config {
                     merge_raw(&mut self.raw_pragma, value);
                 }
                 "indent" => merge_raw(&mut self.raw_indent, value),
-                "vsg_rs" => self.merge_extensions(value)?,
+                "speja" => self.merge_extensions(value)?,
                 "local_rules" => {
                     let dir = value.as_str().ok_or("`local_rules` must be a directory")?;
                     self.local_rules = Some(expand_path(dir));
@@ -389,9 +389,9 @@ impl Config {
         Ok(())
     }
 
-    /// `vsg_rs:` holds the options VSG does not have, kept out of its namespace.
+    /// `speja:` holds the options VSG does not have, kept out of its namespace.
     fn merge_extensions(&mut self, value: &Value) -> Result<(), String> {
-        let map = value.as_mapping().ok_or("`vsg_rs` must be a mapping")?;
+        let map = value.as_mapping().ok_or("`speja` must be a mapping")?;
         for (key, value) in map {
             match key.as_str().unwrap_or_default() {
                 "testbench_files" => {
@@ -428,7 +428,7 @@ impl Config {
                     let rule = value
                         .as_mapping()
                         .and_then(|m| m.get("rule"))
-                        .ok_or_else(|| format!("`vsg_rs: {kind}` needs a `rule` block"))?;
+                        .ok_or_else(|| format!("`speja: {kind}` needs a `rule` block"))?;
                     // Validated now, applied per file once its kind is known.
                     let mut probe = self.clone();
                     probe.merge_rules(rule)?;
@@ -439,7 +439,7 @@ impl Config {
                         .as_bool()
                         .ok_or("`reflow_comments` must be true or false")?;
                 }
-                key => self.warn(&format!("unknown `vsg_rs` key `{key}` ignored")),
+                key => self.warn(&format!("unknown `speja` key `{key}` ignored")),
             }
         }
         Ok(())
@@ -603,7 +603,7 @@ impl Config {
         for id in std::mem::take(&mut self.unknown_rules) {
             if self.local_rules.is_none() {
                 self.warn(&format!(
-                    "rule `{id}` is not implemented by vsg-rs; its settings are ignored"
+                    "rule `{id}` is not implemented by speja; its settings are ignored"
                 ));
             }
         }
@@ -1192,7 +1192,7 @@ fn merge_layer(layer: &mut RuleLayer, settings: &Value, name: &str) -> Result<()
                     },
                 );
             }
-            // VSG phases do not exist in vsg-rs; see docs/compatibility.md.
+            // VSG phases do not exist in speja; see docs/compatibility.md.
             "phase" | "user_error_message" => {}
             _ => {
                 layer.options.insert(key.to_owned(), value.clone());
@@ -1210,8 +1210,8 @@ mod tests {
     fn environment_variables_in_file_list() {
         let home = std::env::var("CARGO_MANIFEST_DIR").unwrap();
         assert_eq!(
-            expand_vars("${CARGO_MANIFEST_DIR}/src/$CARGO_MANIFEST_DIR/$VSG_RS_UNSET_VARIABLE"),
-            format!("{home}/src/{home}/$VSG_RS_UNSET_VARIABLE")
+            expand_vars("${CARGO_MANIFEST_DIR}/src/$CARGO_MANIFEST_DIR/$SPEJA_UNSET_VARIABLE"),
+            format!("{home}/src/{home}/$SPEJA_UNSET_VARIABLE")
         );
     }
 

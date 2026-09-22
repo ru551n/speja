@@ -2,11 +2,11 @@
 
 # CLI reference
 
-Generated from `vsg-rs --help`, so this page cannot drift from the binary.
+Generated from `speja --help`, so this page cannot drift from the binary.
 
 ```text
-vsg-rs [OPTIONS] [FILENAME]...
-vsg-rs lint [OPTIONS] [FILENAME]...
+speja [OPTIONS] [FILENAME]...
+speja lint [OPTIONS] [FILENAME]...
 ```
 
 `lint` is a subcommand only when it is the first argument and no file or directory of
@@ -24,7 +24,7 @@ These behave as VSG's do, and
 | `--local_rules <LOCAL_RULES>` | Path to local rules |
 | `-c, --configuration <CONFIGURATION>...` | JSON or YAML configuration file(s) |
 | `--fix` | Fix issues found |
-| `--fix_phase <FIX_PHASE>` | Fix issues up to and including this phase (vsg-rs has one phase) |
+| `--fix_phase <FIX_PHASE>` | Fix issues up to and including this phase (speja has one phase) |
 | `-j, --junit <JUNIT>` | Extract Junit file |
 | `--json <JSON>` | Extract JSON file |
 | `--output_format <OUTPUT_FORMAT>` | Sets the output format [default: vsg] [possible values: vsg, syntastic, summary] |
@@ -33,7 +33,7 @@ These behave as VSG's do, and
 | `--rule_configuration <RULE_CONFIGURATION>` | Display configuration of a rule |
 | `--style <STYLE>` | Use predefined style [possible values: indent_only, jcl] |
 | `-v, --version` | Displays version information |
-| `--all_phases` | Do not stop when a violation is detected (always the case in vsg-rs) |
+| `--all_phases` | Do not stop when a violation is detected (always the case in speja) |
 | `--fix_only <FIX_ONLY>` | Restrict fixing via JSON file |
 | `--stdin` | Read VHDL input from stdin, disables all other file selections, disables multiprocessing |
 | `--force_fix` | Apply fixes if syntax errors are detected (no effect: such files are never changed) |
@@ -43,7 +43,7 @@ These behave as VSG's do, and
 | `--debug` | Displays verbose debug information |
 | `-h, --help` | Print help |
 
-## Options vsg-rs adds
+## Options speja adds
 
 | Option | Meaning |
 |---|---|
@@ -53,12 +53,12 @@ These behave as VSG's do, and
 | `--stdin_filename <PATH>` | Path of the --stdin input, for configuration lookup and reports |
 | `--sarif <SARIF>` | Extract SARIF 2.1.0 file for code scanning |
 | `--recursive` | Check the VHDL files (.vhd, .vhdl) in directories and their subdirectories |
-| `--list_rules` | List every VSG rule and how vsg-rs handles it |
+| `--list_rules` | List every VSG rule and how speja handles it |
 | `--statistics` | Print how many violations each rule reports, over all inputs |
 | `--lint_configuration <LINT_CONFIGURATION>...` | Configuration applied to the lint layer only, after `-c`. Several files are merged in order |
 | `--explain <RULE>` | Describe one rule: what it checks, which layer it belongs to and whether it is fixed |
 | `--fail_on <LAYERS>` | Which layers make the run fail, comma separated: `style`, `layout`, `lint`. By default any error-severity violation does |
-| `--check <LAYERS>` | Which layers to run, comma separated: `style` (VSG's rules, the default) and `lint` (rules that need name resolution). `vsg-rs lint ...` is the short way to say `--check lint` [default: style] |
+| `--check <LAYERS>` | Which layers to run, comma separated: `style` (VSG's rules, the default) and `lint` (rules that need name resolution). `speja lint ...` is the short way to say `--check lint` [default: style] |
 | `--waivers <WAIVERS>...` | Accept the violations listed in this file, with their reasons |
 | `--generate_waivers <FILE>` | Write a waiver file accepting every violation found now |
 | `--show_waived` | List the waived violations instead of only counting them |
@@ -83,7 +83,7 @@ for configuration lookup and reports.
 ## Where configuration comes from
 
 1. `-c/--configuration`, merged in the order given.
-2. Otherwise `vsg-rs.yaml`, `.vsg-rs.yaml`, `vsg-rs.json` or `.vsg-rs.json`, searched
+2. Otherwise `speja.yaml`, `.speja.yaml`, `speja.json` or `.speja.json`, searched
    from the file's own directory upwards.
 3. `--lint_configuration` is merged on top for the lint layer only.
 

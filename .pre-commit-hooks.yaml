@@ -1,16 +1,16 @@
-# pre-commit hooks (https://pre-commit.com). Installing from this repository builds vsg-rs
+# pre-commit hooks (https://pre-commit.com). Installing from this repository builds speja
 # from source (Rust >= 1.95); see docs/migrating-from-vsg.md for a variant that uses the PyPI wheels.
-- id: vsg-rs
-  name: vsg-rs (check)
+- id: speja
+  name: speja (check)
   description: Report VSG style violations in VHDL files.
-  entry: vsg-rs
+  entry: speja
   language: python
   files: \.(vhd|vhdl)$
   require_serial: true
-- id: vsg-rs-fix
-  name: vsg-rs (fix)
+- id: speja-fix
+  name: speja (fix)
   description: Fix and format VHDL files like `vsg --fix`.
-  entry: vsg-rs --fix
+  entry: speja --fix
   language: python
   files: \.(vhd|vhdl)$
   require_serial: true

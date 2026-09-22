@@ -1,4 +1,4 @@
--- vsg-rs-test: width=80
+-- speja-test: width=80
 LIBRARY ieee; USE ieee.std_logic_1164.ALL; use ieee.numeric_std.all;
 entity fifo is generic (width : positive := 8; depth : positive := 16; init_value : std_logic_vector(7 downto 0) := (others => '0'));
 port (clk, rst : in std_logic; -- clock and reset

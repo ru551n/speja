@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Compare vsg-rs with VSG on a set of VHDL files.
+"""Compare speja with VSG on a set of VHDL files.
 
 Both tools run without --fix and write VSG's JSON report (-js). The findings are compared per
 rule as (file, line, rule) triples. VSG runs with all phases (-ap) so that it reports as much as
-vsg-rs does.
+speja does.
 
     python scripts/compare_vsg.py [--vsg "uvx --from vsg==3.35.0 vsg"]
-        [--vsg-rs target/release/vsg-rs] [-c config.yaml] [--jobs N] [--out DIR] FILE...
+        [--speja target/release/speja] [-c config.yaml] [--jobs N] [--out DIR] FILE...
 
-Prints, per rule, the findings both tools report, only VSG, and only vsg-rs. For VSG's layout
-rules, the last column counts VSG findings on lines that vsg-rs reports as `format`. The raw
+Prints, per rule, the findings both tools report, only VSG, and only speja. For VSG's layout
+rules, the last column counts VSG findings on lines that speja reports as `format`. The raw
 reports and the differing findings are written to DIR (default: .compare).
 """
 
@@ -49,9 +49,9 @@ def findings(report: dict) -> set[tuple[str, int, str]]:
     }
 
 
-def layout_rules(vsg_rs: str) -> set[str]:
+def layout_rules(speja: str) -> set[str]:
     listing = subprocess.run(
-        [vsg_rs, "--list_rules"], capture_output=True, text=True, check=True
+        [speja, "--list_rules"], capture_output=True, text=True, check=True
     ).stdout
     return {line.split()[0] for line in listing.splitlines() if "formatter" in line.split()[1:2]}
 
@@ -77,7 +77,7 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--vsg", default="uvx --from vsg==3.35.0 vsg")
-    parser.add_argument("--vsg-rs", default="target/release/vsg-rs")
+    parser.add_argument("--speja", default="target/release/speja")
     parser.add_argument("-c", "--config", action="append", default=[])
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
     parser.add_argument("--out", default=".compare")
@@ -98,10 +98,10 @@ def main() -> int:
             [*config, "-ap", "-p", str(args.jobs)],
         )
         vsg["files"].extend(part["files"])
-    ours = run_json([args.vsg_rs], files, config)
+    ours = run_json([args.speja], files, config)
 
     theirs_set, ours_set = findings(vsg), findings(ours)
-    layout = layout_rules(args.vsg_rs)
+    layout = layout_rules(args.speja)
     format_lines = {(f, line) for f, line, rule in ours_set if rule == "format"}
 
     rules = sorted({r for _, _, r in theirs_set | ours_set})
@@ -113,7 +113,7 @@ def main() -> int:
         rows.append((rule, len(t & o), len(t - o), len(o - t), covered))
 
     width = max((len(r[0]) for r in rows), default=10)
-    print(f"{'rule':{width}}  {'both':>6} {'vsg':>6} {'vsg-rs':>6} {'format':>6}")
+    print(f"{'rule':{width}}  {'both':>6} {'vsg':>6} {'speja':>6} {'format':>6}")
     for rule, both, only_t, only_o, covered in rows:
         if only_t or only_o:
             print(f"{rule:{width}}  {both:6} {only_t:6} {only_o:6} {covered:6}")
@@ -124,8 +124,8 @@ def main() -> int:
         kind = "layout" if rule in layout else "rule"
         total[f"{kind}: both"] += both
         total[f"{kind}: VSG only"] += only_t
-        total[f"{kind}: vsg-rs only"] += only_o
-        total[f"{kind}: VSG only, on a vsg-rs format line"] += covered
+        total[f"{kind}: speja only"] += only_o
+        total[f"{kind}: VSG only, on a speja format line"] += covered
     print()
     for k in sorted(total):
         print(f"{k}: {total[k]}")
@@ -135,7 +135,7 @@ def main() -> int:
         both, only_t, only_o = (
             total[f"{kind}: both"],
             total[f"{kind}: VSG only"],
-            total[f"{kind}: vsg-rs only"],
+            total[f"{kind}: speja only"],
         )
         seen = both + only_t + only_o
         agreement[kind] = 100.0 * both / seen if seen else 100.0
@@ -145,27 +145,27 @@ def main() -> int:
             "",
             f"{len(files)} files.",
             "",
-            "| Findings | Both | VSG only | vsg-rs only | Agreement |",
+            "| Findings | Both | VSG only | speja only | Agreement |",
             "|---|---|---|---|---|",
         ]
         for kind in ("rule", "layout"):
             lines.append(
                 f"| {kind} | {total[f'{kind}: both']} | {total[f'{kind}: VSG only']} "
-                f"| {total[f'{kind}: vsg-rs only']} | {agreement[kind]:.1f}% |"
+                f"| {total[f'{kind}: speja only']} | {agreement[kind]:.1f}% |"
             )
         worst = sorted(rows, key=lambda r: -(r[2] + r[3]))[:15]
-        lines += ["", "Rules that differ most:", "", "| Rule | Both | VSG only | vsg-rs only |", "|---|---|---|---|"]
+        lines += ["", "Rules that differ most:", "", "| Rule | Both | VSG only | speja only |", "|---|---|---|---|"]
         lines += [f"| `{r[0]}` | {r[1]} | {r[2]} | {r[3]} |" for r in worst if r[2] or r[3]]
         Path(args.markdown).write_text("\n".join(lines) + "\n")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "vsg.json").write_text(json.dumps(vsg, indent=1))
-    (out / "vsg-rs.json").write_text(json.dumps(ours, indent=1))
+    (out / "speja.json").write_text(json.dumps(ours, indent=1))
     details = {
         rule: {
             "vsg_only": sorted([f, n] for f, n, r in theirs_set - ours_set if r == rule),
-            "vsg_rs_only": sorted([f, n] for f, n, r in ours_set - theirs_set if r == rule),
+            "speja_only": sorted([f, n] for f, n, r in ours_set - theirs_set if r == rule),
         }
         for rule in rules
     }

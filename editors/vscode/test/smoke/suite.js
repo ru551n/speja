@@ -126,7 +126,7 @@ exports.run = async function run() {
     // nothing to add. Spelling the library out would need a clause the file does not have.
     await openLineBefore("  u_fifo");
     const before = doc.getText();
-    await limit(vscode.commands.executeCommand("vsg-rs.instantiateEntity"), 30000, "instantiateEntity");
+    await limit(vscode.commands.executeCommand("speja.instantiateEntity"), 30000, "instantiateEntity");
     const after = doc.getText();
     check(
       /i_fifo : entity work\.fifo/.test(after) &&
@@ -160,7 +160,7 @@ exports.run = async function run() {
     await until(async () => (await instancesIn(top)).length === 2, 30000, "the server to see the edit");
     const inside = doc.positionAt(doc.getText().indexOf("i_fifo") + 3);
     editor.selection = new vscode.Selection(inside, inside);
-    await limit(vscode.commands.executeCommand("vsg-rs.declareSignals"), 30000, "declareSignals");
+    await limit(vscode.commands.executeCommand("speja.declareSignals"), 30000, "declareSignals");
     const declared = doc.getText();
     const names = ["din", "dout", "empty"].filter((n) => new RegExp(`signal\\s+${n}\\s*:`).test(declared));
     check(names.length === 3, "declare signals for a port map", `declared: ${names.join(",")}`);
@@ -173,7 +173,7 @@ exports.run = async function run() {
     // 4. An entity from ANOTHER library is only visible after a library clause.
     pick = "leaf";
     await openLineBefore("end architecture");
-    await limit(vscode.commands.executeCommand("vsg-rs.instantiateEntity"), 30000, "instantiateEntity (leaf)");
+    await limit(vscode.commands.executeCommand("speja.instantiateEntity"), 30000, "instantiateEntity (leaf)");
     const crossed = doc.getText();
     check(/i_leaf : entity other\.leaf/.test(crossed), "an entity from another library is named by it");
     check(/^library other;$/m.test(crossed), "and the library clause it needs is added");
@@ -210,7 +210,7 @@ exports.run = async function run() {
     if (children.length) {
       check(tree.getTreeItem(children[0]).command.command === "vscode.open", "a tree item opens its source");
     }
-    await vscode.commands.executeCommand("vsg-rs.hierarchy.focus");
+    await vscode.commands.executeCommand("speja.hierarchy.focus");
     check(true, "the view can be focused");
 
     // 7. Quick fixes: the one that maps missing ports, and the wiring of the extract commands.
@@ -232,8 +232,8 @@ exports.run = async function run() {
     const refactors = await vscode.commands.executeCommand("vscode.executeCodeActionProvider", top, selected);
     const extract = refactors.find((a) => a.title === "Extract to constant");
     check(
-      !!extract && extract.command.command === "vsg-rs.extractObject" && extract.command.arguments[0].fsPath === top.fsPath,
-      "the extract action carries its document, under the vsg-rs command name",
+      !!extract && extract.command.command === "speja.extractObject" && extract.command.arguments[0].fsPath === top.fsPath,
+      "the extract action carries its document, under the speja command name",
     );
 
     // Extract with ANOTHER document focused. The action names its document, so the edit must
@@ -242,7 +242,7 @@ exports.run = async function run() {
     await vscode.window.showTextDocument(fifo);
     const fifoBefore = fifo.getText();
     await limit(
-      vscode.commands.executeCommand("vsg-rs.extractObject", top, selected, "constant"),
+      vscode.commands.executeCommand("speja.extractObject", top, selected, "constant"),
       20000,
       "extractObject",
     );
@@ -279,7 +279,7 @@ exports.run = async function run() {
       const line = document.getText().split("\n").findIndex((l) => l.includes("type state_t"));
       cursorAt(shown, new vscode.Position(line, document.lineAt(line).text.indexOf("state_t") + 2));
       pick = "Synchronous reset";
-      await limit(vscode.commands.executeCommand("vsg-rs.fsmFromEnum"), 30000, "fsmFromEnum");
+      await limit(vscode.commands.executeCommand("speja.fsmFromEnum"), 30000, "fsmFromEnum");
       const text = document.getText();
       check(
         /signal state : state_t := idle;/.test(text) && /case state is/.test(text) && /when finish =>/.test(text),
@@ -307,7 +307,7 @@ exports.run = async function run() {
       await until(async () => (await documentSymbols(uri)).length > 0, 30000, "clauses.vhd to be analysed");
       cursorAt(shown, new vscode.Position(0, 0));
       offeredLabels = [];
-      await limit(vscode.commands.executeCommand("vsg-rs.removeUnusedUseClauses"), 120000, "removeUnusedUseClauses");
+      await limit(vscode.commands.executeCommand("speja.removeUnusedUseClauses"), 120000, "removeUnusedUseClauses");
       const text = document.getText();
       check(
         offeredLabels.length === 1 && /math_real/i.test(offeredLabels[0]),
@@ -330,7 +330,7 @@ exports.run = async function run() {
 
       cursorAt(shown, at0);
       pick = "ieee.NUMERIC_STD";
-      await limit(vscode.commands.executeCommand("vsg-rs.addUseClause"), 30000, "addUseClause");
+      await limit(vscode.commands.executeCommand("speja.addUseClause"), 30000, "addUseClause");
       const text = document.getText();
       // The clause goes above the design unit the name is used in, which is the architecture, so
       // a library clause that is already above its entity is repeated. That is legal, and is
@@ -347,7 +347,7 @@ exports.run = async function run() {
       await shown.edit((edit) => edit.insert(new vscode.Position(declLine, 0), "  \n"));
       cursorAt(shown, new vscode.Position(declLine, 2));
       pick = "fifo";
-      await limit(vscode.commands.executeCommand("vsg-rs.componentDeclaration"), 30000, "componentDeclaration");
+      await limit(vscode.commands.executeCommand("speja.componentDeclaration"), 30000, "componentDeclaration");
       const withComponent = document.getText();
       check(/component fifo is/.test(withComponent) && /end component/.test(withComponent) && /generic \(/.test(withComponent),
         "an entity is declared as a component");

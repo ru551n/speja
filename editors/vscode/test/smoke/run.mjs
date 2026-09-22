@@ -33,7 +33,7 @@ if (!existsSync(join(root, "out", "editing.js"))) {
   process.exit(2);
 }
 
-const scratch = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "vsg-rs-smoke-"));
+const scratch = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "speja-smoke-"));
 const workspace = join(scratch, "ws");
 const extension = join(scratch, "ext");
 const userData = join(scratch, "profile");

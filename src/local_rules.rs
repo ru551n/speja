@@ -1,6 +1,6 @@
 //! VSG local rules (`-lr DIR` or `local_rules: DIR`): Python plugins for VSG's own rule engine,
-//! which only VSG can run. vsg-rs runs the installed VSG (`vsg` on the path, or the command in
-//! `VSG_RS_VSG`) with the same configuration files plus one that disables every built-in rule,
+//! which only VSG can run. speja runs the installed VSG (`vsg` on the path, or the command in
+//! `SPEJA_VSG`) with the same configuration files plus one that disables every built-in rule,
 //! so that only the local rules report or fix, and reads VSG's `syntastic` report.
 
 use std::io;
@@ -9,7 +9,7 @@ use std::process::Command;
 
 /// Environment variable with the command that runs VSG, for example
 /// `uvx --from vsg==3.35.0 vsg`.
-const VSG_ENV: &str = "VSG_RS_VSG";
+const VSG_ENV: &str = "SPEJA_VSG";
 
 /// A violation reported by a local rule.
 pub(crate) struct Finding {
@@ -49,7 +49,7 @@ impl LocalRules {
             .filter(|c: &Vec<String>| !c.is_empty())
             .unwrap_or_else(|| vec!["vsg".to_owned()]);
         let scratch = tempfile::tempdir().map_err(|e| e.to_string())?;
-        let rules: serde_json::Map<String, serde_json::Value> = vsg_rs::vsg_defaults::rule_ids()
+        let rules: serde_json::Map<String, serde_json::Value> = speja::vsg_defaults::rule_ids()
             .filter(|id| *id != "global")
             .map(|id| (id.to_owned(), serde_json::json!({ "disable": true })))
             .collect();

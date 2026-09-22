@@ -994,7 +994,7 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
           vscode.CodeActionKind.RefactorExtract,
         );
         action.command = {
-          command: "vsg-rs.extractObject",
+          command: "speja.extractObject",
           title: `Extract to ${kind}`,
           arguments: [document.uri, range, kind],
         };
@@ -1177,21 +1177,21 @@ export function registerEditingFeatures(context: vscode.ExtensionContext): void 
   vscode.workspace
     .findFiles("**/*.{vhd,vhdl}", "**/node_modules/**", 1)
     .then((found) =>
-      vscode.commands.executeCommand("setContext", "vsg-rs.hasVhdl", found.length > 0),
+      vscode.commands.executeCommand("setContext", "speja.hasVhdl", found.length > 0),
     );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("vsg-rs.instantiateEntity", instantiateEntity),
-    vscode.commands.registerCommand("vsg-rs.declareSignals", declareSignals),
-    vscode.commands.registerCommand("vsg-rs.fsmFromEnum", fsmFromEnum),
-    vscode.commands.registerCommand("vsg-rs.addUseClause", addUseClause),
-    vscode.commands.registerCommand("vsg-rs.componentDeclaration", componentDeclaration),
-    vscode.commands.registerCommand("vsg-rs.extractObject", extractObject),
+    vscode.commands.registerCommand("speja.instantiateEntity", instantiateEntity),
+    vscode.commands.registerCommand("speja.declareSignals", declareSignals),
+    vscode.commands.registerCommand("speja.fsmFromEnum", fsmFromEnum),
+    vscode.commands.registerCommand("speja.addUseClause", addUseClause),
+    vscode.commands.registerCommand("speja.componentDeclaration", componentDeclaration),
+    vscode.commands.registerCommand("speja.extractObject", extractObject),
     vscode.commands.registerCommand(
-      "vsg-rs.removeUnusedUseClauses",
+      "speja.removeUnusedUseClauses",
       removeUnusedUseClauses,
     ),
-    vscode.commands.registerCommand("vsg-rs.refreshHierarchy", () => hierarchy.refresh()),
+    vscode.commands.registerCommand("speja.refreshHierarchy", () => hierarchy.refresh()),
 
     vscode.languages.registerCompletionItemProvider("vhdl", vhdlCompletions),
     vscode.languages.registerInlayHintsProvider("vhdl", portMapHints),
@@ -1203,7 +1203,7 @@ export function registerEditingFeatures(context: vscode.ExtensionContext): void 
     }),
     vscode.languages.registerCodeLensProvider("vhdl", entityLenses),
     vscode.languages.registerSignatureHelpProvider("vhdl", portMapSignatures, "(", ","),
-    vscode.window.registerTreeDataProvider("vsg-rs.hierarchy", hierarchy),
+    vscode.window.registerTreeDataProvider("speja.hierarchy", hierarchy),
   );
 }
 

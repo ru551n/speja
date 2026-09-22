@@ -1,6 +1,6 @@
 """A stand-in for VSG in the local-rules test: one "local rule", fake_001, reports and fixes TODO.
 
-Checks that vsg-rs passes the local rules directory and a last configuration file that disables
+Checks that speja passes the local rules directory and a last configuration file that disables
 the built-in rules.
 """
 

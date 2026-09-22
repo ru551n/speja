@@ -1,10 +1,10 @@
-// The vsg-rs VS Code client.
+// The speja VS Code client.
 //
-// This extension launches `vsg-rs lsp` and speaks LSP to it. That is all it does: there is no
+// This extension launches `speja lsp` and speaks LSP to it. That is all it does: there is no
 // VHDL parsing here, no formatter, no rules and no configuration of them. Everything a user sees
-// is decided by vsg-rs itself, so an editor and the command line cannot disagree.
+// is decided by speja itself, so an editor and the command line cannot disagree.
 //
-// Rules and formatting are configured in the project's own `vsg-rs.yaml`, not in VS Code
+// Rules and formatting are configured in the project's own `speja.yaml`, not in VS Code
 // settings. The settings here are only about which executable to run.
 
 import { existsSync } from "node:fs";
@@ -34,14 +34,14 @@ let output: OutputChannel | undefined;
  * failing to spawn something that was never there.
  */
 function embeddedServer(context: ExtensionContext): string | undefined {
-  const name = process.platform === "win32" ? "vsg-rs.exe" : "vsg-rs";
+  const name = process.platform === "win32" ? "speja.exe" : "speja";
   const path = join(context.extensionPath, "server", name);
   return existsSync(path) ? path : undefined;
 }
 
 /** The executable to run, from the settings. */
 function serverPath(context: ExtensionContext): string | undefined {
-  const settings = workspace.getConfiguration("vsg-rs");
+  const settings = workspace.getConfiguration("speja");
   const mode = settings.get<string>("server.mode", "embedded");
   if (mode === "userPath") {
     const configured = settings.get<string>("server.path", "").trim();
@@ -49,18 +49,18 @@ function serverPath(context: ExtensionContext): string | undefined {
       return configured;
     }
     output?.appendLine(
-      "vsg-rs.server.mode is userPath but vsg-rs.server.path is empty; using PATH instead.",
+      "speja.server.mode is userPath but speja.server.path is empty; using PATH instead.",
     );
-    return "vsg-rs";
+    return "speja";
   }
   if (mode === "systemPath") {
-    return "vsg-rs";
+    return "speja";
   }
   const embedded = embeddedServer(context);
   if (embedded === undefined) {
     output?.appendLine(
       `No server is bundled for ${process.platform}-${process.arch}. ` +
-        "Install vsg-rs and set vsg-rs.server.mode to systemPath.",
+        "Install speja and set speja.server.mode to systemPath.",
     );
   }
   return embedded;
@@ -71,7 +71,7 @@ async function start(context: ExtensionContext): Promise<void> {
   if (command === undefined) {
     void window
       .showErrorMessage(
-        `vsg-rs: no server is bundled for ${process.platform}-${process.arch}.`,
+        `speja: no server is bundled for ${process.platform}-${process.arch}.`,
         "Show Output",
       )
       .then((choice) => {
@@ -83,7 +83,7 @@ async function start(context: ExtensionContext): Promise<void> {
   }
   // A VSIX does not always preserve the executable bit, so the bundled server may arrive
   // unrunnable. Setting it is cheap and does nothing when it is already right.
-  if (process.platform !== "win32" && command !== "vsg-rs") {
+  if (process.platform !== "win32" && command !== "speja") {
     await chmod(command, 0o755).catch(() => undefined);
   }
   const server: ServerOptions = {
@@ -91,7 +91,7 @@ async function start(context: ExtensionContext): Promise<void> {
     debug: { command, args: ["lsp"], transport: TransportKind.stdio },
   };
   const options: LanguageClientOptions = {
-    // Only VHDL, and only vsg-rs's own diagnostics: another server can serve the same files.
+    // Only VHDL, and only speja's own diagnostics: another server can serve the same files.
     documentSelector: [{ scheme: "file", language: "vhdl" }],
     outputChannel: output,
     // The project's own configuration file decides the rules; there is nothing to send.
@@ -99,10 +99,10 @@ async function start(context: ExtensionContext): Promise<void> {
     // What a waiver file is called. The server finds it by walking up from the source file and
     // creates one at the workspace root when a project has none.
     initializationOptions: {
-      waiverFile: workspace.getConfiguration("vsg-rs").get<string>("waiverFile"),
+      waiverFile: workspace.getConfiguration("speja").get<string>("waiverFile"),
     },
   };
-  client = new LanguageClient("vsg-rs", "vsg-rs", server, options);
+  client = new LanguageClient("speja", "speja", server, options);
   try {
     await client.start();
     output?.appendLine(`Started ${command}`);
@@ -112,7 +112,7 @@ async function start(context: ExtensionContext): Promise<void> {
     output?.appendLine(`Could not start ${command}: ${message}`);
     void window
       .showErrorMessage(
-        `vsg-rs: could not start "${command}". Install vsg-rs, or set vsg-rs.server.path.`,
+        `speja: could not start "${command}". Install speja, or set speja.server.path.`,
         "Show Output",
       )
       .then((choice) => {
@@ -153,11 +153,11 @@ async function waive(argument: {
     return;
   }
   if (!client) {
-    void window.showErrorMessage("vsg-rs: the server is not running.");
+    void window.showErrorMessage("speja: the server is not running.");
     return;
   }
   await client.sendRequest(ExecuteCommandRequest.type, {
-    command: "vsg-rs.applyWaiver",
+    command: "speja.applyWaiver",
     arguments: [{ ...argument, reason: reason.trim() }],
   });
 }
@@ -165,7 +165,7 @@ async function waive(argument: {
 /** What the extension is, and what the server it just launched reports itself to be. */
 async function showVersion(context: ExtensionContext): Promise<void> {
   const extension = context.extension.packageJSON.version as string;
-  const command = serverPath(context) ?? "vsg-rs";
+  const command = serverPath(context) ?? "speja";
   let server = "not found";
   try {
     const { stdout } = await promisify(execFile)(command, ["--version"]);
@@ -186,22 +186,22 @@ async function stop(): Promise<void> {
 }
 
 export async function activate(context: ExtensionContext): Promise<void> {
-  output = window.createOutputChannel("vsg-rs");
+  output = window.createOutputChannel("speja");
   context.subscriptions.push(output);
   context.subscriptions.push(
-    commands.registerCommand("vsg-rs.restartServer", async () => {
+    commands.registerCommand("speja.restartServer", async () => {
       await stop();
       await start(context);
     }),
-    commands.registerCommand("vsg-rs.showOutput", () => output?.show()),
-    commands.registerCommand("vsg-rs.showVersion", () => showVersion(context)),
+    commands.registerCommand("speja.showOutput", () => output?.show()),
+    commands.registerCommand("speja.showVersion", () => showVersion(context)),
     // Offered by the server as a code action on each finding; it carries the details here.
-    commands.registerCommand("vsg-rs.waiveWithReason", waive),
+    commands.registerCommand("speja.waiveWithReason", waive),
     // Which executable to run is decided at startup, so a change to it needs a restart.
     workspace.onDidChangeConfiguration(async (event) => {
       if (
-        event.affectsConfiguration("vsg-rs.server") ||
-        event.affectsConfiguration("vsg-rs.waiverFile")
+        event.affectsConfiguration("speja.server") ||
+        event.affectsConfiguration("speja.waiverFile")
       ) {
         await stop();
         await start(context);
@@ -209,7 +209,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     }),
   );
   // The editing half: commands and providers built on whatever VHDL language server is
-  // running. It registers its own subscriptions and does not need the vsg-rs server.
+  // running. It registers its own subscriptions and does not need the speja server.
   registerEditingFeatures(context);
   await start(context);
 }

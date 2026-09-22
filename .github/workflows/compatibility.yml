@@ -1,8 +1,8 @@
-# How close vsg-rs is to VSG, measured rather than asserted: both tools run over the same corpus
+# How close speja is to VSG, measured rather than asserted: both tools run over the same corpus
 # and the findings are compared per rule (scripts/compare_vsg.py). Weekly, because it installs
 # VSG and takes minutes; the numbers land in the job summary.
 #
-# `compare` and `configured` pin the version vsg-rs targets, so their numbers are comparable from
+# `compare` and `configured` pin the version speja targets, so their numbers are comparable from
 # week to week. `latest` installs whatever VSG released most recently, which is how a new release
 # is noticed here rather than in someone's pipeline.
 name: Compatibility
@@ -52,7 +52,7 @@ jobs:
           # The third-party OSVVM copy under examples/ is not VUnit's own style.
           find corpus/vunit/vhdl corpus/examples/vhdl -name '*.vhd' \
             | grep -v osvvm | sort | head -n "$HOW_MANY" > files.txt
-          python3 scripts/compare_vsg.py --vsg vsg --vsg-rs target/release/vsg-rs \
+          python3 scripts/compare_vsg.py --vsg vsg --speja target/release/speja \
             --markdown "$GITHUB_STEP_SUMMARY" $(cat files.txt)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -96,7 +96,7 @@ jobs:
           # Their own exclusions: third-party sources and one incomplete documentation example.
           find configured/src configured/test -name '*.vhd' \
             | grep -v RbExample | sort | head -n "$HOW_MANY" > configured_files.txt
-          python3 scripts/compare_vsg.py --vsg vsg --vsg-rs target/release/vsg-rs \
+          python3 scripts/compare_vsg.py --vsg vsg --speja target/release/speja \
             -c configured_config.yml --out .compare-configured \
             --markdown "$GITHUB_STEP_SUMMARY" $(cat configured_files.txt)
 
@@ -130,7 +130,7 @@ jobs:
       - run: pip install --retries 10 --timeout 60 --upgrade vsg
       - run: cargo build --locked --release
 
-      - name: Which VSG, and which one vsg-rs targets
+      - name: Which VSG, and which one speja targets
         run: |
           {
             echo "## Latest VSG"
@@ -138,7 +138,7 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| Released | $(vsg --version | head -n1) |"
-            echo "| vsg-rs targets | $(target/release/vsg-rs --version) |"
+            echo "| speja targets | $(target/release/speja --version) |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Compare
@@ -147,7 +147,7 @@ jobs:
         run: |
           find corpus/vunit/vhdl corpus/examples/vhdl -name '*.vhd' \
             | grep -v osvvm | sort | head -n "$HOW_MANY" > files.txt
-          python3 scripts/compare_vsg.py --vsg vsg --vsg-rs target/release/vsg-rs \
+          python3 scripts/compare_vsg.py --vsg vsg --speja target/release/speja \
             --out .compare-latest --markdown "$GITHUB_STEP_SUMMARY" $(cat files.txt)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -156,7 +156,7 @@ jobs:
           name: compatibility-latest
           path: .compare-latest
 
-  # What vsg-rs's own rules report over the whole of both corpora, against what they reported
+  # What speja's own rules report over the whole of both corpora, against what they reported
   # last time. The layer's claim is that a finding is proven, and three rules were once found
   # reporting false positives on code they had never been run over: each had been validated
   # against a subset of a corpus rather than all of it. A count that moves has to be explained.
@@ -185,6 +185,6 @@ jobs:
       - name: Compare with what these rules reported last time
         run: |
           python3 scripts/corpus_findings.py --check \
-            --binary target/release/vsg-rs \
+            --binary target/release/speja \
             --summary "$GITHUB_STEP_SUMMARY" \
             corpora/vunit corpora/open-logic

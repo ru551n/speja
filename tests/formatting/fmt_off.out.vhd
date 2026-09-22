@@ -3,7 +3,7 @@ architecture rtl of fmt_off is
 begin
 
   a <= b and c;
-  -- vsg-rs: fmt off
+  -- speja: fmt off
   table_driven : process (all) begin
     case  sel  is   -- hand aligned
       when "00"  => y <= a;
@@ -11,7 +11,7 @@ begin
     end case;
   end process;
   x<=y;
-  -- vsg-rs: fmt on
+  -- speja: fmt on
   d <= e or f;
 
 end architecture rtl;

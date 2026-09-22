@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "vsg-rs": {
-      "command": "vsg-rs",
+    "speja": {
+      "command": "speja",
       "args": ["mcp"]
     }
   }

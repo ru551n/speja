@@ -1,4 +1,4 @@
-//! vsg-rs: a VHDL formatter and style checker with VSG-compatible rules and configuration.
+//! speja: a VHDL formatter and style checker with VSG-compatible rules and configuration.
 //!
 //! The pipeline for one source snapshot is: parse once ([`Parsed::new`]), then format and/or
 //! lint the same tree. Formatting output is verified by re-parsing it and comparing the token
@@ -519,7 +519,7 @@ pub fn format_range(
     }))
 }
 
-/// [`format_range`] for `vsg-rs fix`: fixes and formatting, limited to the lines in `range`.
+/// [`format_range`] for `speja fix`: fixes and formatting, limited to the lines in `range`.
 pub fn fix_range(
     parsed: &Parsed,
     config: &Config,

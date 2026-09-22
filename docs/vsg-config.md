@@ -1,13 +1,13 @@
 # VSG configuration model (3.35.0)
 
-How VSG itself is configured and invoked, written in our own words. vsg-rs reads the same
+How VSG itself is configured and invoked, written in our own words. speja reads the same
 configuration, so this is the model behind
 [VSG's configuration documentation](https://vhdl-style-guide.readthedocs.io/en/latest/configuring.html)
-as vsg-rs implements it. Compiled from
+as speja implements it. Compiled from
 `configuring_overview.rst`, `configuring_length_rules.rst`, a JSON dump of
 every rule's live configuration (`all_rules_config.yaml`, produced by
 `vsg -oc`), and black-box verification against the real `vsg==3.35.0`
-binary via `uvx` (no vsg-rs source touched, no Rust built). No VSG prose or
+binary via `uvx` (no speja source touched, no Rust built). No VSG prose or
 example code was copied verbatim; the example configs and VHDL below are
 written from scratch for this note.
 
@@ -226,7 +226,7 @@ note below):
 So the exit code is a simple "clean vs. not-clean-or-broken" boolean, not a
 graded signal — a caller cannot distinguish "1 style warning" from "internal
 crash" from "bad arguments" by exit code alone; only the printed output
-distinguishes them. Worth deciding deliberately for vsg-rs whether to keep
+distinguishes them. Worth deciding deliberately for speja whether to keep
 this or add distinct exit codes (e.g. 0 clean / 1 violations found / 2 usage
 error / 3 internal error), which is a strictly more useful contract for
 CI/tooling and costs nothing architecturally.
@@ -240,8 +240,8 @@ CI/tooling and costs nothing architecturally.
 - The only way a config is read is an explicit `-c`/`--configuration` path
   on the command line, and the only way a *style preset* is loaded is the
   explicit `--style {indent_only,jcl}` flag.
-- This is a real, easy usability upgrade opportunity for vsg-rs: adopting a
-  conventional discovery order (e.g. `--config` flag > `.vsg-rs.toml` in cwd
+- This is a real, easy usability upgrade opportunity for speja: adopting a
+  conventional discovery order (e.g. `--config` flag > `.speja.toml` in cwd
   > walk up to repo root) costs little and removes a real point of friction
   every current VSG user has to solve themselves (wrapper scripts, Makefile
   targets, pre-commit hook args, etc., all just to pass `-c` every time).

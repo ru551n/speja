@@ -3,8 +3,8 @@
 # Rule reference
 
 Every rule of the lint layer, grouped by how sure it is that what it reports is wrong.
-Only the first group runs unless you ask for more; `vsg-rs --list_rules` says the same
-about every rule, and `vsg-rs --explain <rule>` prints the description again.
+Only the first group runs unless you ask for more; `speja --list_rules` says the same
+about every rule, and `speja --explain <rule>` prints the description again.
 
 ## Definite errors
 

@@ -2,7 +2,7 @@
 
 Most of the lint layer resolves names across files: to know that a signal is never read, the
 analyser has to find every place the name could be read, which means knowing what each file
-declares and which library it belongs to. That information is not in the source, so vsg-rs has to
+declares and which library it belongs to. That information is not in the source, so speja has to
 be told.
 
 !!! warning "Without a library map, most rules do not run"
@@ -24,7 +24,7 @@ them.
 
 ## The library map
 
-vsg-rs reads `vhdl_ls.toml` from the working directory — the same file
+speja reads `vhdl_ls.toml` from the working directory — the same file
 [VHDL-LS](https://github.com/VHDL-LS/rust_hdl) uses, so a project with editor support usually has
 one already:
 
@@ -35,7 +35,7 @@ osvvm.files = ['osvvm/**/*.vhd']
 ```
 
 Each entry names a VHDL library and the files compiled into it. Globs are relative to the file's
-own directory. vsg-rs only reads this file; it never writes one.
+own directory. speja only reads this file; it never writes one.
 
 `ieee` and `std` are built in — they ship inside the binary, so nothing needs installing and no
 entry is needed for them.
@@ -50,7 +50,7 @@ is the behaviour that keeps the report trustworthy.
 ## What each file can see
 
 Analysis covers the files the map lists, not only the files named on the command line. That is
-what makes cross-file rules possible: `vsg-rs lint src/one.vhd` can still report that a name in
+what makes cross-file rules possible: `speja lint src/one.vhd` can still report that a name in
 `one.vhd` refers to a declaration in `two.vhd`.
 
 Files outside the map are analysed on their own. They get only the rules that need no resolution,
@@ -59,13 +59,13 @@ and are reported as unanalysed rather than silently passing.
 ## Telling RTL from testbenches
 
 A testbench is written to different rules than hardware: an unused signal in a stimulus process
-is normal, a latch in one is not interesting. vsg-rs classifies files and applies a separate rule
+is normal, a latch in one is not interesting. speja classifies files and applies a separate rule
 block to each kind.
 
 Classification is explicit first. In `vsg.yaml`:
 
 ```yaml
-vsg_rs:
+speja:
   testbench_files:
     - 'tb_*.vhd'
     - 'test/**'
@@ -85,7 +85,7 @@ vsg_rs:
 
 !!! note "Automatic classification is a heuristic"
 
-    With neither setting, vsg-rs still guesses from the source — an entity with no ports, or one
+    With neither setting, speja still guesses from the source — an entity with no ports, or one
     instantiating a design under test, is treated as a testbench. It is right on the corpora it
     was measured against, but it is inference, and it changes which rules apply.
 
@@ -97,7 +97,7 @@ vsg_rs:
 `--stdin` analyses the bytes it is given, not whatever is on disk under that name:
 
 ```sh
-vsg-rs --stdin --stdin_filename src/top.vhd --check lint < buffer.vhd
+speja --stdin --stdin_filename src/top.vhd --check lint < buffer.vhd
 ```
 
 `--stdin_filename` is what decides the file's library and what findings are labelled with, so an
@@ -107,7 +107,7 @@ buffer changes the findings; the file itself is never read or written.
 ## Checking what ran
 
 ```sh
-vsg-rs lint --recursive src --debug
+speja lint --recursive src --debug
 ```
 
 `--debug` reports the files treated as testbenches. `--statistics` reports how often each rule

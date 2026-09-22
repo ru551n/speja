@@ -3,18 +3,18 @@
 ## Install
 
 ```sh
-pip install vsg-rs        # Linux, Windows and macOS wheels, Python 3.10+
-uv tool install vsg-rs    # or
+pip install speja        # Linux, Windows and macOS wheels, Python 3.10+
+uv tool install speja    # or
 cargo install --path .    # from source, Rust 1.95 or newer
 ```
 
 Standalone binaries for Linux, Windows and macOS are attached to each
-[release](https://github.com/ru551n/vsg-rs/releases), with a `SHA256SUMS` file.
+[release](https://github.com/ru551n/speja/releases), with a `SHA256SUMS` file.
 
 ## Check one file
 
 ```sh
-vsg-rs -f src/top.vhd
+speja -f src/top.vhd
 ```
 
 Violations are listed with their rule, severity and line. The exit code is 1 when anything of
@@ -23,8 +23,8 @@ error severity was reported, 0 otherwise.
 ## Format
 
 ```sh
-vsg-rs -f src/top.vhd --fix          # rewrite the file
-vsg-rs -f src/top.vhd --fix --diff   # show what would change instead
+speja -f src/top.vhd --fix          # rewrite the file
+speja -f src/top.vhd --fix --diff   # show what would change instead
 ```
 
 Formatting is idempotent: a second run changes nothing. The result is re-parsed before being
@@ -34,8 +34,8 @@ changed in a way that alters what it means.
 ## A whole tree
 
 ```sh
-vsg-rs --recursive src            # check every .vhd and .vhdl below src/
-vsg-rs --recursive src --fix      # format them
+speja --recursive src            # check every .vhd and .vhdl below src/
+speja --recursive src --fix      # format them
 ```
 
 ## Configure
@@ -50,15 +50,15 @@ rule:
     disable: true
 ```
 
-Pass it with `-c vsg.yaml`, or name it `vsg-rs.yaml` and it is found automatically from the
+Pass it with `-c vsg.yaml`, or name it `speja.yaml` and it is found automatically from the
 file's directory upwards. The rules and their options are
-[VSG's](https://vhdl-style-guide.readthedocs.io/en/latest/configuring.html); vsg-rs adds a few
-keys of its own under a `vsg_rs:` block.
+[VSG's](https://vhdl-style-guide.readthedocs.io/en/latest/configuring.html); speja adds a few
+keys of its own under a `speja:` block.
 
 ## Find bugs, not layout
 
 ```sh
-vsg-rs lint --recursive src
+speja lint --recursive src
 ```
 
 ```
@@ -73,13 +73,13 @@ lint_601 -- Signal 'result' is assigned by 2 concurrent statements (lines 34, 38
     across files and are skipped. The run warns when this happens. See
     [Project setup](project-setup.md).
 
-Run both layers together with `vsg-rs --recursive src --check style,lint`.
+Run both layers together with `speja --recursive src --check style,lint`.
 
 ## In CI
 
 ```sh
-vsg-rs --recursive src --sarif vsg-rs.sarif     # GitHub code scanning
-vsg-rs --recursive src -j junit.xml             # any CI test tab
+speja --recursive src --sarif speja.sarif     # GitHub code scanning
+speja --recursive src -j junit.xml             # any CI test tab
 ```
 
 There is a [GitHub Action](github-action.md) and a [GitLab](gitlab-ci.md) recipe; see

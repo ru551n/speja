@@ -4,8 +4,8 @@
 //!
 //! `cargo run --release --example layout_keys -- FILE...`
 
-use vsg_rs::layout::{layout_changes, rule_for};
-use vsg_rs::{Config, Parsed};
+use speja::layout::{layout_changes, rule_for};
+use speja::{Config, Parsed};
 
 fn main() {
     let config = Config::default();
@@ -14,7 +14,7 @@ fn main() {
             continue;
         };
         let before = Parsed::new(source);
-        let Ok(formatted) = vsg_rs::format_parsed(&before, &config.format) else {
+        let Ok(formatted) = speja::format_parsed(&before, &config.format) else {
             continue;
         };
         let after = Parsed::new(formatted);

@@ -1,4 +1,4 @@
-//! `vsg-rs`: VSG's command line (see `vsg_cli`).
+//! `speja`: VSG's command line (see `vsg_cli`).
 
 use std::process::ExitCode;
 

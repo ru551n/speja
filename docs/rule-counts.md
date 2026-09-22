@@ -11,4 +11,4 @@ Quoted by other pages through a snippet, so no page states a number of its own.
 | — of those, run by default (definite errors) | 60 |
 | — of those, available on request | 21 |
 | — of those, resolved-semantic (need a library map) | 56 |
-| — of those, native to vsg-rs | 25 |
+| — of those, native to speja | 25 |

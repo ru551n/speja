@@ -1,4 +1,4 @@
-# vsg-rs
+# speja
 
 **Catch it earlier. Earlier than simulation.**
 
@@ -6,7 +6,7 @@ A VHDL formatter and static-analysis tool written in Rust, with the rule set, co
 configuration of the [VHDL Style Guide](https://vhdl-style-guide.readthedocs.io/) (VSG).
 
 A bug costs more the longer it takes to find: a moment in your editor, a coffee in CI, an
-afternoon in a waveform viewer, a respin on silicon. Some of what vsg-rs reports a simulator
+afternoon in a waveform viewer, a respin on silicon. Some of what speja reports a simulator
 would have told you eventually: an index outside its array, a value outside its subtype, a
 process that can never suspend. But only once the testbench exists, the design elaborates and
 the run reaches that line. Some of it no simulator will ever tell you, because the design works
@@ -16,7 +16,7 @@ Source is parsed once into a lossless syntax tree and printed in one canonical l
 formatting is decided rather than negotiated. On top of that sits a lint layer that resolves names
 across files and reports what a per-file style checker cannot see. VSG compatibility means an
 existing project keeps its configuration and its CI; the formatter and the lint layer are why you
-would choose vsg-rs on a project that has never used VSG.
+would choose speja on a project that has never used VSG.
 
 ## What it does
 
@@ -35,12 +35,12 @@ codes are VSG's, so existing scripts keep working.
 ## Try it
 
 ```sh
-pip install vsg-rs
+pip install speja
 
-vsg-rs -f src/top.vhd                      # report style violations
-vsg-rs --recursive src --fix               # format in place
-vsg-rs lint --recursive src                # the lint layer
-vsg-rs --recursive src --check style,lint  # both
+speja -f src/top.vhd                      # report style violations
+speja --recursive src --fix               # format in place
+speja lint --recursive src                # the lint layer
+speja --recursive src --check style,lint  # both
 ```
 
 ## Where to go next
@@ -60,7 +60,7 @@ vsg-rs --recursive src --check style,lint  # both
 
 ## What it is not
 
-vsg-rs is not a compiler, simulator, synthesis tool, timing analyser or formal verification tool,
+speja is not a compiler, simulator, synthesis tool, timing analyser or formal verification tool,
 and it does not elaborate a design. The lint layer reasons about source: names, types, control
 flow, dataflow and the connections between design units. Where the source does not say something
 outright, it generally prefers to report nothing over guessing — see
@@ -70,7 +70,7 @@ outright, it generally prefers to report nothing over guessing — see
 
 Beta. The style layer implements VSG 3.35's rule set and is tested against more than 11,000
 real-world files; layout may still change before 1.0. The lint layer is newer and its rule set is
-growing. Each release states the VSG version it targets, and `vsg-rs --version` prints it.
+growing. Each release states the VSG version it targets, and `speja --version` prints it.
 
-vsg-rs is an independent implementation. It contains no VSG code, and is not affiliated with or
+speja is an independent implementation. It contains no VSG code, and is not affiliated with or
 endorsed by the VHDL Style Guide project.

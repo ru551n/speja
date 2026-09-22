@@ -1,5 +1,5 @@
 [package]
-name = "vsg-rs-fuzz"
+name = "speja-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-vsg-rs = { path = ".." }
+speja = { path = ".." }
 
 [[bin]]
 name = "format"
@@ -29,5 +29,5 @@ bench = false
 debug = true
 
 # A crate of its own, so that the nightly toolchain cargo-fuzz needs stays out of the build of
-# vsg-rs itself.
+# speja itself.
 [workspace]

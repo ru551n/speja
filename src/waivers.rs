@@ -93,7 +93,7 @@ impl Waivers {
         self.0.iter().find(|w| {
             (w.rule == rule || w.rule == "*")
                 && w.files.as_ref().is_none_or(|pattern| {
-                    vsg_rs::config::glob(pattern.as_bytes(), file.as_bytes())
+                    speja::config::glob(pattern.as_bytes(), file.as_bytes())
                         // A bare file name in the waiver also matches that file reported with a
                         // longer path, which is what someone writing one by hand expects.
                         || Path::new(&file).ends_with(pattern)
@@ -113,7 +113,7 @@ pub(crate) fn generate(findings: &[(String, String, usize)]) -> String {
             .push(*line);
     }
     let mut out = String::from(
-        "# Written by `vsg-rs --generate_waivers`. Each entry accepts the violations that exist\n\
+        "# Written by `speja --generate_waivers`. Each entry accepts the violations that exist\n\
          # today; delete `lines:` to waive the rule in the whole file, and replace the reason\n\
          # with why the code is allowed to stay this way.\nwaivers:\n",
     );

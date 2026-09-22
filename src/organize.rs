@@ -1,6 +1,6 @@
 //! Sorting the context clauses: `library` and `use`, in a settled order.
 //!
-//! VSG has no rule about the order of a context clause and neither does vsg-rs, because there is
+//! VSG has no rule about the order of a context clause and neither does speja, because there is
 //! no order the language prefers: every one of them analyses. It is a convention, and a
 //! convention every file in a project follows is worth something even though no file that breaks
 //! it is wrong. That makes this an editor action rather than a rule, the same shape as "organize

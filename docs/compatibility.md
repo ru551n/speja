@@ -1,19 +1,19 @@
 # Compatibility with VSG
 
-vsg-rs reads VSG configuration files and uses VSG rule identifiers, but it is an independent
+speja reads VSG configuration files and uses VSG rule identifiers, but it is an independent
 implementation with a different architecture. This page lists what carries over, what does not,
-and where vsg-rs deliberately differs. The VSG behaviour described here is based on VSG 3.35.0
+and where speja deliberately differs. The VSG behaviour described here is based on VSG 3.35.0
 documentation and black-box runs (see `vsg-config.md`).
 
 ## Configuration files
 
-vsg-rs accepts VSG configuration documents in YAML or JSON.
+speja accepts VSG configuration documents in YAML or JSON.
 
-| VSG key | vsg-rs |
+| VSG key | speja |
 |---|---|
 | `rule.global`, `rule.group.<name>`, `rule.<id>` | supported, with the same precedence: global < group < rule |
 | `disable`, `severity`, `fixable` | supported for implemented rules |
-| `phase` | accepted and ignored (vsg-rs has no phases) |
+| `phase` | accepted and ignored (speja has no phases) |
 | `user_error_message` | accepted and ignored |
 | `rule.length_001.length` | sets the formatter's target width and the `length_001` limit |
 | `rule.global.indent_size` | sets the formatter's indentation |
@@ -31,24 +31,24 @@ vsg-rs accepts VSG configuration documents in YAML or JSON.
 | `pragma.patterns` | supported (`open`, `close` regular expressions) |
 | `indent.tokens` | supported for construct-level indentation (see `formatting.md`); other settings are reported |
 | `local_rules` | supported by running VSG (see below); settings of local rules are passed to VSG |
-| `rule.length_001.error_length` | vsg-rs extension: lines longer than this are reported with severity `error` (formatting still uses `length`) |
+| `rule.length_001.error_length` | speja extension: lines longer than this are reported with severity `error` (formatting still uses `length`) |
 | unknown rule ids | warning; the settings are ignored |
 
-Settings of formatter-owned rules that vsg-rs does not map individually (for example most
+Settings of formatter-owned rules that speja does not map individually (for example most
 whitespace and indentation rules) are accepted without warnings. Their behaviour comes from the
 formatter's policy.
 
 ### Discovery
 
-VSG only reads configuration passed with `-c`. vsg-rs also accepts `-c/--config` (repeatable;
-later files override earlier ones). Without it, vsg-rs looks for `vsg-rs.yaml`, `.vsg-rs.yaml`,
-`vsg-rs.json` or `.vsg-rs.json` in the file's directory and its parents, which is how editor
+VSG only reads configuration passed with `-c`. speja also accepts `-c/--config` (repeatable;
+later files override earlier ones). Without it, speja looks for `speja.yaml`, `.speja.yaml`,
+`speja.json` or `.speja.json` in the file's directory and its parents, which is how editor
 integrations work without extra arguments. An existing VSG configuration can be used by passing it
 with `-c` or by copying it to one of these names.
 
 ## Command line
 
-`vsg-rs` accepts VSG 3.35's arguments with the same meaning: `-f`, positional file names, `-c`,
+`speja` accepts VSG 3.35's arguments with the same meaning: `-f`, positional file names, `-c`,
 `--fix`, `-fp`, `-j`, `-js`, `-of {vsg,syntastic,summary}`, `-b`, `-oc`, `-rc`, `--style
 {indent_only,jcl}`, `-v`, `-ap`, `--fix_only`, `--stdin`, `--force_fix`, `--quality_report`,
 `-p` and `--debug`. The console report, JSON, JUnit and GitLab code-quality files have VSG's
@@ -60,11 +60,11 @@ layout.
 | `-lr` | runs the local rules with an installed VSG (see below); `local_rules` in the configuration wins, as in VSG |
 | `--force_fix` | accepted, no effect: files with syntax errors are never changed |
 | `--stdin --fix` | prints the fixed source on stdout and the report on stderr (VSG 3.35 fails); exit code 0 when code is printed |
-| `-v` | prints vsg-rs's version |
+| `-v` | prints speja's version |
 | directories | reported as `source_file_001` (as in VSG); with `--recursive`, their VHDL files are checked |
 
-vsg-rs additions: `--unsafe_fixes`, `--diff`, `--range START:END`, `--stdin_filename PATH`,
-`--sarif FILE`, `--list_rules`, `--statistics`, `--recursive`, and configuration discovery (`vsg-rs.yaml` / `.vsg-rs.yaml` /
+speja additions: `--unsafe_fixes`, `--diff`, `--range START:END`, `--stdin_filename PATH`,
+`--sarif FILE`, `--list_rules`, `--statistics`, `--recursive`, and configuration discovery (`speja.yaml` / `.speja.yaml` /
 `.json` next to the input) when `-c` is not given.
 
 ### Exit codes
@@ -75,7 +75,7 @@ could not be processed, missing files and invalid arguments).
 ## Intentional differences
 
 * **One phase.** VSG stops reporting at the first phase with violations and fixes phase by phase,
-  sometimes needing several `--fix` runs. vsg-rs reports all violations at once. `--fix`
+  sometimes needing several `--fix` runs. speja reports all violations at once. `--fix`
   applies the fixes of a snapshot in one transaction; fixes that overlap an applied one are
   resolved again on the new text (a bounded number of rounds), and the result is formatted once.
   Running it again changes nothing.
@@ -84,8 +84,8 @@ could not be processed, missing files and invalid arguments).
   formatter would make is reported under the VSG rule that reports that kind of change
   (keyword case exactly; the others through a table learned from VSG's reports on real code,
   `src/layout_rules.json`). Changes without a known rule are reported as `format`, and where the
-  default layouts of VSG and vsg-rs differ, the reports differ too.
-* **`length_001` is fixable.** VSG never shortens lines. vsg-rs folds them. `length_001` reports only
+  default layouts of VSG and speja differ, the reports differ too.
+* **`length_001` is fixable.** VSG never shortens lines. speja folds them. `length_001` reports only
   what remains, and says whether `--fix` would fold it.
 * **Which fixes `--fix` applies.** The same as VSG: the fixes of rules VSG fixes by default
   (its per-rule `fixable` default, or `fixable` from the configuration). Fixes of rules VSG does
@@ -97,8 +97,8 @@ could not be processed, missing files and invalid arguments).
   `spelling: declaration` on a consistency rule to compare with the declaration as written, as
   VSG does.
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
-  vsg-rs reports the line of the construct.
-* **Syntax errors.** VSG may try to fix files it cannot fully parse. vsg-rs leaves such files
+  speja reports the line of the construct.
+* **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files
   untouched and reports the first syntax error.
 * **Output verification.** Every fixed or formatted file is re-parsed and compared token by token
   (and comment by comment) with the input before it is written.
@@ -107,19 +107,19 @@ could not be processed, missing files and invalid arguments).
   practice.
 * **`-- vsg_off [rules]` / `-- vsg_on [rules]`** suppress the listed rules (all rules without a
   list) between the comments, as in VSG. A bare `-- vsg_off` also switches formatting off (see
-  `formatting.md`); `-- vsg-rs: fmt off` switches off only formatting.
+  `formatting.md`); `-- speja: fmt off` switches off only formatting.
 * **Line width** is measured in characters (Unicode scalar values for UTF-8 files), not bytes.
 
 ## Local rules
 
-VSG's local rules are Python classes for VSG's own rule engine, so vsg-rs cannot run them
-itself. With `-lr DIR` or `local_rules: DIR`, vsg-rs runs the installed VSG: `vsg` on the path,
-or the command in the environment variable `VSG_RS_VSG` (split at spaces, for example
-`VSG_RS_VSG="uvx --from vsg==3.35.0 vsg"`). VSG gets the same configuration files plus one that
+VSG's local rules are Python classes for VSG's own rule engine, so speja cannot run them
+itself. With `-lr DIR` or `local_rules: DIR`, speja runs the installed VSG: `vsg` on the path,
+or the command in the environment variable `SPEJA_VSG` (split at spaces, for example
+`SPEJA_VSG="uvx --from vsg==3.35.0 vsg"`). VSG gets the same configuration files plus one that
 disables every built-in rule, so that only the local rules run.
 
 * Without `--fix`, VSG checks the inputs and its findings are added to the report.
-* With `--fix`, VSG first fixes copies of the inputs with the local rules; vsg-rs then fixes
+* With `--fix`, VSG first fixes copies of the inputs with the local rules; speja then fixes
   and formats the copies' contents and writes the originals (or prints the diff). VSG then
   checks the result, and what the local rules still report is added. The copies have other
   paths than the originals, so `file_rules` patterns in the configuration do not match them in
@@ -129,8 +129,8 @@ disables every built-in rule, so that only the local rules run.
 
 ## Measuring compatibility
 
-`scripts/compare_vsg.py FILE...` runs VSG 3.35 and vsg-rs on the same files and prints the
-findings per rule that both, only VSG, or only vsg-rs report.
+`scripts/compare_vsg.py FILE...` runs VSG 3.35 and speja on the same files and prints the
+findings per rule that both, only VSG, or only speja report.
 
 ## Language coverage
 
@@ -158,7 +158,7 @@ The two layers do not agree about PSL, because they do not share a parser.
 * **PSL written as code** — `default clock is`, `property p is`, `assert always (a -> b)` — is
   not parsed by `vhdl_syntax`, so the **style layer** reports the file and leaves it exactly as
   it was. The **lint layer** reads it perfectly well, because `vhdl_lang` is a separate parser:
-  `vsg-rs lint`, or `--check lint`, analyses such a file like any other.
+  `speja lint`, or `--check lint`, analyses such a file like any other.
 
 A file the formatter cannot parse now says so in those terms, rather than naming the token it
 stopped at — which for `default clock` was `Unexpected(Token(Keyword(Default)))`, and helped
@@ -182,11 +182,11 @@ configuration migrated to 3.35. Two findings are worth recording:
   merged (`generic_017`, `ieee_500` and `port_018` all became `type_mark_500`, and so on).
   `scripts/migrate_vsg_config.py` rewrites those names, and is useful to any project upgrading.
   Once migrated, **VSG 3.35 itself reports 1,986 violations** on code that VSG 3.27 passes, so
-  the version step is a real event independent of vsg-rs.
-* **vsg-rs reported more than VSG did**, and the difference was almost entirely configuration
-  that vsg-rs did not yet honour rather than disagreement about the code.
+  the version step is a real event independent of speja.
+* **speja reported more than VSG did**, and the difference was almost entirely configuration
+  that speja did not yet honour rather than disagreement about the code.
 
-What still differs, in order: indentation (`indent.tokens` settings vsg-rs does not implement),
+What still differs, in order: indentation (`indent.tokens` settings speja does not implement),
 `port_map_300` and `generic_map_300`, `procedure_509`, `whitespace_008` and `block_comment_003`.
 
 The weekly job publishes the current numbers; they are deliberately not repeated here, because a

@@ -1,12 +1,12 @@
 # Third-party licenses
 
-vsg-rs itself is licensed under MIT OR Apache-2.0. It links the following crates (runtime
+speja itself is licensed under MIT OR Apache-2.0. It links the following crates (runtime
 dependencies, generated with `cargo metadata`). Their license texts are distributed with each
 crate. No third-party source is copied into this repository.
 
 Notable: `vhdl_syntax` (the VHDL parser from the VHDL-LS/rust_hdl project) is MPL-2.0. It is used
 unmodified as a Cargo dependency; MPL-2.0 is file-level copyleft, so modifications to its files
-would have to be published under MPL-2.0, while vsg-rs code is unaffected.
+would have to be published under MPL-2.0, while speja code is unaffected.
 
 | Crate | Version | License |
 |---|---|---|
@@ -111,7 +111,7 @@ from it.
 | Luna VHDL | [WTFox/luna.nvim](https://github.com/WTFox/luna.nvim) at `727c19334528` | MIT | A. Fox |
 
 Only colour values are used: no theme source, grammar or code is copied from these or any other
-project, and the themes are otherwise vsg-rs's own, under MIT OR Apache-2.0. Unokai and Blue Moon
+project, and the themes are otherwise speja's own, under MIT OR Apache-2.0. Unokai and Blue Moon
 come from repositories that state no licence; they are credited to their authors, and only their
 colour values are used. Where a scheme computes a colour (a blend or a shade of its base colours),
 the theme carries the computed value.

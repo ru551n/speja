@@ -3,15 +3,15 @@
 //! A latch or a second driver means nothing in a testbench: it drives a signal from two places
 //! on purpose and holds values between `wait`s by design. Rules about *code* — unused
 //! declarations, sensitivity lists, types — still apply. Rather than guess which is which,
-//! vsg-rs classifies the file and applies the `rtl:` or `testbench:` rule block from the
+//! speja classifies the file and applies the `rtl:` or `testbench:` rule block from the
 //! configuration; what those blocks contain is the project's decision.
 //!
 //! Three ways to decide, most authoritative first:
 //!
-//! 1. `vsg_rs: testbench_files` — globs naming the testbenches.
-//! 2. `vsg_rs: testbench_libraries` — library names from the project's `vhdl_ls.toml`, for
+//! 1. `speja: testbench_files` — globs naming the testbenches.
+//! 2. `speja: testbench_libraries` — library names from the project's `vhdl_ls.toml`, for
 //!    projects that already say which library each file belongs to.
-//! 3. `-- vsg-rs: testbench` near the top of a file, for the one file no glob covers.
+//! 3. `-- speja: testbench` near the top of a file, for the one file no glob covers.
 //! 4. Otherwise the shape of the code. Measured over three corpora: 0 of 18 real RTL files were
 //!    classified as testbench, and 16 of 16 testbenches were.
 
@@ -70,9 +70,9 @@ fn has_an_entity_without_ports(root: &SyntaxNode) -> bool {
 
 /// What the run knows about which files are testbenches.
 pub struct Kinds<'a> {
-    /// `vsg_rs: testbench_files`.
+    /// `speja: testbench_files`.
     pub patterns: &'a [String],
-    /// `vsg_rs: testbench_libraries`, lowercased.
+    /// `speja: testbench_libraries`, lowercased.
     pub libraries: &'a [String],
     /// The libraries each file belongs to, from `vhdl_ls.toml`.
     pub of_file: &'a std::collections::BTreeMap<std::path::PathBuf, Vec<String>>,
@@ -83,7 +83,7 @@ pub fn classify(parsed: &Parsed, path: &Path, kinds: &Kinds<'_>) -> Option<&'sta
     let name = path.to_string_lossy().replace('\\', "/");
     let name = name.trim_start_matches("./").to_owned();
     if kinds.patterns.iter().any(|pattern| matches(pattern, &name)) {
-        return Some("listed in `vsg_rs: testbench_files`");
+        return Some("listed in `speja: testbench_files`");
     }
     if !kinds.libraries.is_empty() {
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -96,14 +96,14 @@ pub fn classify(parsed: &Parsed, path: &Path, kinds: &Kinds<'_>) -> Option<&'sta
                 .iter()
                 .any(|library| kinds.libraries.iter().any(|test| test == library))
         }) {
-            return Some("in a library listed in `vsg_rs: testbench_libraries`");
+            return Some("in a library listed in `speja: testbench_libraries`");
         }
     }
     // The directive, near the top of the file rather than buried in the middle of it.
     let head = &parsed.source()[..parsed.source().len().min(2000)];
     let head = String::from_utf8_lossy(head).to_ascii_lowercase();
-    if head.contains("vsg-rs: testbench") {
-        return Some("marked with `-- vsg-rs: testbench`");
+    if head.contains("speja: testbench") {
+        return Some("marked with `-- speja: testbench`");
     }
     // A verification framework in the context clause, or VUnit's own generic. Comments are not
     // tokens, so a comment mentioning OSVVM does not turn a design file into a testbench.
@@ -155,7 +155,7 @@ mod tests {
         };
         assert_eq!(
             classify(&parsed, path, &kinds),
-            Some("in a library listed in `vsg_rs: testbench_libraries`")
+            Some("in a library listed in `speja: testbench_libraries`")
         );
         let kinds = Kinds {
             patterns: &[],
@@ -216,16 +216,16 @@ mod tests {
     fn configuration_wins() {
         assert_eq!(
             classified(RTL, "verify/adder.vhd", &["verify/**"]),
-            Some("listed in `vsg_rs: testbench_files`")
+            Some("listed in `speja: testbench_files`")
         );
     }
 
     #[test]
     fn the_directive_marks_one_file() {
-        let source = format!("-- vsg-rs: testbench\n{RTL}");
+        let source = format!("-- speja: testbench\n{RTL}");
         assert_eq!(
             classified(&source, "src/adder.vhd", &[]),
-            Some("marked with `-- vsg-rs: testbench`")
+            Some("marked with `-- speja: testbench`")
         );
     }
 }

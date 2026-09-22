@@ -1,6 +1,6 @@
 //! Regression tests for bugs and limitations reported against VSG (see
 //! `docs/upstream-bugs.md`). The reproducers in `tests/regressions/` were written
-//! independently for vsg-rs.
+//! independently for speja.
 //!
 //! Every reproducer must be handled without a panic. Valid ones must format and fix
 //! idempotently; invalid ones must be refused with a syntax error and left untouched.
@@ -9,14 +9,14 @@ use std::fmt::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use vsg_rs::{Config, FormatConfig, FormatError, Parsed};
+use speja::{Config, FormatConfig, FormatError, Parsed};
 
 fn format(src: &[u8]) -> Result<Vec<u8>, FormatError> {
-    vsg_rs::format(src.to_vec(), &FormatConfig::default())
+    speja::format(src.to_vec(), &FormatConfig::default())
 }
 
 fn fix(src: &[u8]) -> Result<Vec<u8>, FormatError> {
-    vsg_rs::fix(&Parsed::new(src.to_vec()), &Config::default()).map(|o| o.output)
+    speja::fix(&Parsed::new(src.to_vec()), &Config::default()).map(|o| o.output)
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn reproducers_are_handled_safely() {
         let name = file.display().to_string();
         let src = std::fs::read(&file).expect("read reproducer");
         let parsed = Parsed::new(src.clone());
-        let _ = vsg_rs::rules::check(&parsed, &Config::default());
+        let _ = speja::rules::check(&parsed, &Config::default());
         if parsed.syntax_errors().is_empty() {
             let once = format(&src).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(
@@ -118,7 +118,7 @@ fn long_lines_are_folded() {
     let out = String::from_utf8(format(src).unwrap()).unwrap();
     assert!(out.lines().all(|l| l.len() <= 120), "{out}");
     let cfg = Config::parse("rule: {length_001: {length: 60}}").unwrap();
-    let out = vsg_rs::fix(&Parsed::new(src.to_vec()), &cfg).unwrap();
+    let out = speja::fix(&Parsed::new(src.to_vec()), &cfg).unwrap();
     let text = String::from_utf8(out.output).unwrap();
     assert!(text.lines().all(|l| l.len() <= 60), "{text}");
     assert!(out.remaining.iter().all(|v| v.rule != "length_001"));

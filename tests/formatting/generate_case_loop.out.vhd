@@ -1,4 +1,4 @@
--- vsg-rs-test: width=70
+-- speja-test: width=70
 architecture rtl of gen is
 
 begin

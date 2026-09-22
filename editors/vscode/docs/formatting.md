@@ -2,14 +2,14 @@
 
 What the extension changes in a file, when it changes it, and how to tell VS Code to use it.
 
-## Make vsg-rs the VHDL formatter
+## Make speja the VHDL formatter
 
-The extension identifier is **`ru551n.vsg-rs`** (publisher `ru551n`, extension name `vsg-rs`).
+The extension identifier is **`ru551n.speja`** (publisher `ru551n`, extension name `speja`).
 Name it for VHDL files, in user or workspace `settings.json`:
 
 ```jsonc
 "[vhdl]": {
-    "editor.defaultFormatter": "ru551n.vsg-rs",
+    "editor.defaultFormatter": "ru551n.speja",
     "editor.formatOnSave": true
 }
 ```
@@ -18,7 +18,7 @@ Set it inside the `[vhdl]` block rather than globally, so it decides VHDL only a
 formatter of every other language alone.
 
 The same thing without editing JSON: open a `.vhd` file, run **Format Document With…** from the
-command palette, then **Configure Default Formatter…**, and choose vsg-rs.
+command palette, then **Configure Default Formatter…**, and choose speja.
 
 ### When another VHDL extension also formats
 
@@ -37,17 +37,17 @@ only its formatter stops being used for VHDL.
 
 ## Format on save
 
-Formatting goes through the same entry point as `vsg-rs --fix`, not through a separate
+Formatting goes through the same entry point as `speja --fix`, not through a separate
 editor-only formatter. Saving therefore applies **both**:
 
 * every **safe rule fix**: each fix a rule carries, apart from the unsafe ones below; the same
-  set `vsg-rs --fix` applies on the command line;
-* the **layout**, which vsg-rs decides for the whole file at once: whitespace, indentation, line
+  set `speja --fix` applies on the command line;
+* the **layout**, which speja decides for the whole file at once: whitespace, indentation, line
   structure, folding and alignment. See
-  [formatting](https://vsg-rs.readthedocs.io/en/latest/formatting/).
+  [formatting](https://speja.readthedocs.io/en/latest/formatting/).
 
-This is deliberate: layout alone would leave the safe fixes unapplied, and CI running `vsg-rs`
-would then disagree with what the editor just wrote. After a save, `vsg-rs --fix` has nothing
+This is deliberate: layout alone would leave the safe fixes unapplied, and CI running `speja`
+would then disagree with what the editor just wrote. After a save, `speja --fix` has nothing
 left to change in that file.
 
 What it never does:
@@ -57,7 +57,7 @@ What it never does:
 * **Touch a file that does not parse.** A file with a syntax error gets its syntax errors as
   diagnostics and no edits at all: the buffer is left exactly as you wrote it.
 
-The rules and the layout come from the project's own `vsg-rs.yaml`, found from the file's
+The rules and the layout come from the project's own `speja.yaml`, found from the file's
 directory upwards. There is no VS Code setting for any of it; see the
 [extension README](../README.md#configuring-the-rules).
 
@@ -67,7 +67,7 @@ A finding that carries a fix offers it as a **Quick Fix**: the lightbulb on the 
 with the cursor on the finding, or the quick-fix entry on the row in the **Problems** panel. The
 edit is what `--fix` would do to that one violation.
 
-**Fix all vsg-rs findings** is a source action over the whole document, equal to what `--fix`
+**Fix all speja findings** is a source action over the whole document, equal to what `--fix`
 would write to the file. It appears in the code-actions menu, and can be run on save:
 
 ```jsonc
@@ -76,7 +76,7 @@ would write to the file. It appears in the code-actions menu, and can be run on 
 }
 ```
 
-Only fixes vsg-rs would apply itself are offered, in either form; an `--unsafe_fixes` fix is
+Only fixes speja would apply itself are offered, in either form; an `--unsafe_fixes` fix is
 never among them.
 
 Fix-all and format-on-save produce the same file, so enabling both is harmless but redundant:
@@ -85,42 +85,42 @@ action of every other extension that provides one.
 
 ## Running alongside VHDL-LS
 
-vsg-rs is not a VHDL language server and does not advertise itself as one. It deliberately does
+speja is not a VHDL language server and does not advertise itself as one. It deliberately does
 not offer completion, hover, go to definition, declaration, type definition, implementation,
 references, rename, document symbols, workspace symbols, semantic tokens, signature help or
 inlay hints, so VS Code never asks it for an answer it has no business giving.
 
 | | |
 |---|---|
-| [VHDL-LS](https://marketplace.visualstudio.com/items?itemName=hbohlin.vhdl-ls) | completion, hover, go to definition, references, rename, symbols, and what the [editing actions](https://vsg-rs.readthedocs.io/en/latest/vscode-editing/) are built on |
-| vsg-rs | diagnostics with related locations, quick fixes, formatting |
+| [VHDL-LS](https://marketplace.visualstudio.com/items?itemName=hbohlin.vhdl-ls) | completion, hover, go to definition, references, rename, symbols, and what the [editing actions](https://speja.readthedocs.io/en/latest/vscode-editing/) are built on |
+| speja | diagnostics with related locations, quick fixes, formatting |
 
 The two are independent, neither requires the other, and installing both gives you the union.
-To keep VHDL-LS for language intelligence and have vsg-rs format:
+To keep VHDL-LS for language intelligence and have speja format:
 
 1. Install both extensions.
-2. Set `editor.defaultFormatter` for `[vhdl]` to `ru551n.vsg-rs`, as above. VHDL-LS keeps
+2. Set `editor.defaultFormatter` for `[vhdl]` to `ru551n.speja`, as above. VHDL-LS keeps
    answering everything else.
 
 Diagnostics from both appear in the Problems panel; each row shows the source that produced it,
-and vsg-rs's rows carry the rule id as the code. They share the project's `vhdl_ls.toml`: it is
-the same library map, so nothing extra is needed for vsg-rs's cross-file rules once VHDL-LS is
+and speja's rows carry the rule id as the code. They share the project's `vhdl_ls.toml`: it is
+the same library map, so nothing extra is needed for speja's cross-file rules once VHDL-LS is
 set up.
 
 For the full division of labour, see
-[language server](https://vsg-rs.readthedocs.io/en/latest/lsp/).
+[language server](https://speja.readthedocs.io/en/latest/lsp/).
 
 ## Troubleshooting
 
-**The output channel** is where the server's own messages go: **vsg-rs: Show Output** from the
-command palette. For the LSP traffic as well, set `"vsg-rs.trace.server": "messages"` (or
-`"verbose"`). **vsg-rs: Restart Server** restarts it without reloading the window.
+**The output channel** is where the server's own messages go: **speja: Show Output** from the
+command palette. For the LSP traffic as well, set `"speja.trace.server": "messages"` (or
+`"verbose"`). **speja: Restart Server** restarts it without reloading the window.
 
 **The server will not start.** The extension says so and names the executable it tried.
-**vsg-rs: Show Server Version** prints which one that was, what the extension is, and what the
+**speja: Show Server Version** prints which one that was, what the extension is, and what the
 server reports itself to be. The extension ships a server for the common platforms and uses it by
-default, so this usually means either the platform has no bundled build (install vsg-rs and set
-`vsg-rs.server.mode` to `systemPath`) or `vsg-rs.server.path` points at something that is not
+default, so this usually means either the platform has no bundled build (install speja and set
+`speja.server.mode` to `systemPath`) or `speja.server.path` points at something that is not
 there. See [choosing a server](server-selection.md).
 
 **No diagnostics at all.** Check that VS Code recognises the file as VHDL; the extension
@@ -130,7 +130,7 @@ syntax errors are all you get: no rule runs on a tree that does not represent th
 **Style findings but few lint findings.** The usual cause is a missing `vhdl_ls.toml`. Most of
 the lint rules have to resolve names across files, which needs the library map; without one they
 are skipped, exactly as on the command line. See
-[project setup](https://vsg-rs.readthedocs.io/en/latest/project-setup/). vsg-rs looks for the
+[project setup](https://speja.readthedocs.io/en/latest/project-setup/). speja looks for the
 file in the server's working directory, so open the folder that holds it rather than a
 subdirectory or a single file.
 

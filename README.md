@@ -1,15 +1,22 @@
-# vsg-rs
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ru551n/speja/main/docs/assets/speja-logo-dark.png">
+    <img src="https://raw.githubusercontent.com/ru551n/speja/main/docs/assets/speja-logo.png" alt="" width="128">
+  </picture>
+</p>
 
-[![CI](https://github.com/ru551n/vsg-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/ru551n/vsg-rs/actions/workflows/ci.yml)
-[![Documentation](https://readthedocs.org/projects/vsg-rs/badge/?version=latest)](https://vsg-rs.readthedocs.io/)
-[![PyPI](https://img.shields.io/pypi/v/vsg-rs)](https://pypi.org/project/vsg-rs/)
+# speja
+
+[![CI](https://github.com/ru551n/speja/actions/workflows/ci.yml/badge.svg)](https://github.com/ru551n/speja/actions/workflows/ci.yml)
+[![Documentation](https://readthedocs.org/projects/speja/badge/?version=latest)](https://speja.readthedocs.io/)
+[![PyPI](https://img.shields.io/pypi/v/speja)](https://pypi.org/project/speja/)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#licence)
 
 **Catch it earlier. Earlier than simulation.**
 
 A VHDL formatter and linter in Rust. Every bug has a price that goes up the longer it takes to
 find: a moment in your editor, a coffee in CI, an afternoon in a waveform viewer, a respin on
-silicon. vsg-rs moves what it can to the cheap end of that scale: the moment you save the file.
+silicon. speja moves what it can to the cheap end of that scale: the moment you save the file.
 
 Some of what it reports a simulator would have told you eventually: an index outside its array,
 a value outside its subtype, a process that can never suspend. *Eventually* means after you have
@@ -25,34 +32,34 @@ A default lint run reports **definite errors only**: things that cannot work, ra
 worth a look. Everything that depends on what you meant is one line of configuration away.
 
 **Status: beta.** The style layer implements VSG 3.35's rule set and is tested against more than
-11,000 real-world files; expect layout changes before 1.0. The lint layer (`vsg-rs lint`) is
+11,000 real-world files; expect layout changes before 1.0. The lint layer (`speja lint`) is
 newer and its rule set is still growing.
 
 ## Install
 
 ```sh
-pip install vsg-rs            # Linux, Windows and macOS wheels, Python 3.10+
-uv tool install vsg-rs        # or
+pip install speja            # Linux, Windows and macOS wheels, Python 3.10+
+uv tool install speja        # or
 cargo install --path .        # from source (Rust 1.95 or newer)
 ```
 
 Standalone binaries for Linux (static, x86_64 and aarch64), Windows (x64 and arm64) and macOS
 (arm64 and x86_64) are attached to each
-[release](https://github.com/ru551n/vsg-rs/releases), with a `SHA256SUMS` file.
+[release](https://github.com/ru551n/speja/releases), with a `SHA256SUMS` file.
 
 ## Everything VSG accepts, unchanged
 
 ```sh
-vsg-rs -f src/*.vhd -c vsg.yaml --fix
+speja -f src/*.vhd -c vsg.yaml --fix
 ```
 
 The arguments, the configuration file, the reports and the exit codes are VSG's, and
 [VSG documents them](https://vhdl-style-guide.readthedocs.io/en/latest/usage.html). Existing
-scripts and CI jobs keep working, so this README covers only what vsg-rs adds on top.
+scripts and CI jobs keep working, so this README covers only what speja adds on top.
 Differences are listed in
-[compatibility](https://vsg-rs.readthedocs.io/en/latest/compatibility/).
+[compatibility](https://speja.readthedocs.io/en/latest/compatibility/).
 
-## What vsg-rs adds
+## What speja adds
 
 **A real formatter.** Source is parsed once into a lossless syntax tree and printed in one
 canonical layout, like rustfmt or Black. Every layout rule is fixed rather than reported, long
@@ -67,13 +74,13 @@ files with syntax errors are never changed. Fixes VSG does not apply by default 
 **Speed.** Real-world VHDL is checked at about 3.4 MB/s on one core, in parallel worker
 processes.
 
-### Beyond style: `vsg-rs lint`
+### Beyond style: `speja lint`
 
 Rules that need names resolved, which a per-file style checker cannot do:
 
 ```sh
-vsg-rs lint --recursive src                  # the lint layer
-vsg-rs --recursive src --check style,lint    # both in one run
+speja lint --recursive src                  # the lint layer
+speja --recursive src --check style,lint    # both in one run
 ```
 
 ```
@@ -90,20 +97,20 @@ is missing.
 
 Most of these resolve names across files, which needs a library map. Without one they are
 skipped, and the run says so. See
-[static analysis](https://vsg-rs.readthedocs.io/en/latest/lint/) and
-[project setup](https://vsg-rs.readthedocs.io/en/latest/project-setup/).
+[static analysis](https://speja.readthedocs.io/en/latest/lint/) and
+[project setup](https://speja.readthedocs.io/en/latest/project-setup/).
 
 ### Adopting a rule set on existing code
 
 ```sh
-vsg-rs --recursive src --generate_waivers waivers.yaml   # accept what exists today
-vsg-rs --recursive src --waivers waivers.yaml            # from now on, only new violations
+speja --recursive src --generate_waivers waivers.yaml   # accept what exists today
+speja --recursive src --waivers waivers.yaml            # from now on, only new violations
 ```
 
-[Waivers](https://vsg-rs.readthedocs.io/en/latest/waivers/) record a rule, a file glob, lines and
+[Waivers](https://speja.readthedocs.io/en/latest/waivers/) record a rule, a file glob, lines and
 a reason, and never affect the exit code.
 
-### Options vsg-rs adds
+### Options speja adds
 
 | Option | Meaning |
 |---|---|
@@ -119,7 +126,7 @@ a reason, and never affect the exit code.
 | `--recursive` | check the VHDL files in directories and their subdirectories |
 | `--list_rules`, `--statistics` | what each rule is, and how often each fired |
 
-Configuration keys vsg-rs adds live under a `vsg_rs:` block: `reflow_comments`,
+Configuration keys speja adds live under a `speja:` block: `reflow_comments`,
 `testbench_files`, `testbench_libraries`, `synchronizers`, and a `rule:` block per kind of
 file.
 
@@ -129,26 +136,26 @@ Two servers over stdio, both the same engine as the command line, so everything 
 thing about the same file under the same configuration.
 
 ```sh
-vsg-rs lsp                        # a language server: diagnostics, formatting, quick fixes
-vsg-rs mcp                        # an MCP server, for a coding agent
+speja lsp                        # a language server: diagnostics, formatting, quick fixes
+speja mcp                        # an MCP server, for a coding agent
 ```
 
-The [language server](https://vsg-rs.readthedocs.io/en/latest/lsp/) is meant to run beside
-`vhdl_ls` rather than instead of it, and advertises only what vsg-rs is: it answers no
+The [language server](https://speja.readthedocs.io/en/latest/lsp/) is meant to run beside
+`vhdl_ls` rather than instead of it, and advertises only what speja is: it answers no
 completion, hover or definition request. A [VS Code extension](editors/vscode/README.md) ships
-it, and adds [editing actions](https://vsg-rs.readthedocs.io/en/latest/vscode-editing/) built on
+it, and adds [editing actions](https://speja.readthedocs.io/en/latest/vscode-editing/) built on
 VHDL-LS, such as instantiating an entity and declaring a port map's signals. Those need VHDL-LS
 running; lint and format do not.
 
-The [MCP server](https://vsg-rs.readthedocs.io/en/latest/mcp/) gives a coding agent three tools,
+The [MCP server](https://speja.readthedocs.io/en/latest/mcp/) gives a coding agent three tools,
 `lint`, `format` and `explain_rule`:
 
 ```sh
-claude mcp add vsg-rs -- vsg-rs mcp
+claude mcp add speja -- speja mcp
 ```
 
 ```json
-{ "mcpServers": { "vsg-rs": { "command": "vsg-rs", "args": ["mcp"] } } }
+{ "mcpServers": { "speja": { "command": "speja", "args": ["mcp"] } } }
 ```
 
 `lint` and `format` take a file path or a buffer. A buffer is how an agent checks what it is
@@ -158,46 +165,46 @@ file in place without moving it through the conversation.
 For Claude Code there is a plugin, which installs a `vsg` skill and registers the MCP server:
 
 ```text
-/plugin marketplace add ru551n/vsg-rs
-/plugin install vsg-rs@vsg-rs
+/plugin marketplace add ru551n/speja
+/plugin install speja@speja
 ```
 
 The skill tells an agent to format and check VHDL before committing it, how to read a finding's
-class, and not to treat a run that skipped the library map as a clean file. `vsg-rs` itself still
+class, and not to treat a run that skipped the library map as a clean file. `speja` itself still
 has to be on `PATH`.
 
 ### CI
 
-A [GitHub Action](https://vsg-rs.readthedocs.io/en/latest/github-action/) posts annotations and
-suggested changes; [GitLab CI](https://vsg-rs.readthedocs.io/en/latest/gitlab-ci/) gets the
+A [GitHub Action](https://speja.readthedocs.io/en/latest/github-action/) posts annotations and
+suggested changes; [GitLab CI](https://speja.readthedocs.io/en/latest/gitlab-ci/) gets the
 code-quality report, and SonarQube the generic issue JSON. Jenkins reads the SARIF file through
-Warnings-NG. Every [report format](https://vsg-rs.readthedocs.io/en/latest/reports/) works
+Warnings-NG. Every [report format](https://speja.readthedocs.io/en/latest/reports/) works
 anywhere.
 
 ```yaml
-- uses: ru551n/vsg-rs@v0.11.0
+- uses: ru551n/speja@v0.13.0
   with:
     args: --recursive src
 ```
 
 ## Documentation
 
-**[vsg-rs.readthedocs.io](https://vsg-rs.readthedocs.io/)**: what vsg-rs adds on top of VSG. The
+**[speja.readthedocs.io](https://speja.readthedocs.io/)**: what speja adds on top of VSG. The
 rules, their options and the configuration file are VSG's own and are linked to rather than
 repeated.
 
-* [Quick start](https://vsg-rs.readthedocs.io/en/latest/quick-start/)
-* [Static analysis](https://vsg-rs.readthedocs.io/en/latest/lint/) and
-  [project setup](https://vsg-rs.readthedocs.io/en/latest/project-setup/)
-* [Rule reference](https://vsg-rs.readthedocs.io/en/latest/rule-reference/)
-* [Running in an airgap](https://vsg-rs.readthedocs.io/en/latest/airgapped/): what it needs, what
+* [Quick start](https://speja.readthedocs.io/en/latest/quick-start/)
+* [Static analysis](https://speja.readthedocs.io/en/latest/lint/) and
+  [project setup](https://speja.readthedocs.io/en/latest/project-setup/)
+* [Rule reference](https://speja.readthedocs.io/en/latest/rule-reference/)
+* [Running in an airgap](https://speja.readthedocs.io/en/latest/airgapped/): what it needs, what
   it cannot reach, and how to check both yourself
-* [Language server](https://vsg-rs.readthedocs.io/en/latest/lsp/),
-  [MCP server](https://vsg-rs.readthedocs.io/en/latest/mcp/) and
-  [Claude Code plugin](https://vsg-rs.readthedocs.io/en/latest/claude-code/)
-* [Waivers](https://vsg-rs.readthedocs.io/en/latest/waivers/)
-* [Migrating from VSG](https://vsg-rs.readthedocs.io/en/latest/migrating-from-vsg/)
-* [Compatibility with VSG](https://vsg-rs.readthedocs.io/en/latest/compatibility/), measured
+* [Language server](https://speja.readthedocs.io/en/latest/lsp/),
+  [MCP server](https://speja.readthedocs.io/en/latest/mcp/) and
+  [Claude Code plugin](https://speja.readthedocs.io/en/latest/claude-code/)
+* [Waivers](https://speja.readthedocs.io/en/latest/waivers/)
+* [Migrating from VSG](https://speja.readthedocs.io/en/latest/migrating-from-vsg/)
+* [Compatibility with VSG](https://speja.readthedocs.io/en/latest/compatibility/), measured
   weekly against two corpora
 
 ## Disclosure: this code was written by an LLM
@@ -210,7 +217,7 @@ None of it depends on the code having been written well.
 is an HTTP or TLS client, the binary imports no symbol that can reach a host, everything runs
 inside an empty network namespace, and `strace` records zero network syscalls. You can run those
 same checks against the binary you downloaded in about five minutes:
-[running in an airgap](https://vsg-rs.readthedocs.io/en/latest/airgapped/).
+[running in an airgap](https://speja.readthedocs.io/en/latest/airgapped/).
 
 **It cannot quietly mangle your files.** Formatted output is re-parsed and must contain exactly
 the same tokens and comments, in the same order, before anything is written. A mismatch is an
@@ -227,30 +234,30 @@ the VSG on your `PATH`, because only VSG can run VSG's Python plugins.
 output over a corpus of real VHDL, weekly. Every lint rule must report nothing on three real
 projects unless a person has confirmed each finding is a genuine defect, and those counts are a
 CI gate. Fuzzing runs nightly. Agreement is
-[published per rule](https://vsg-rs.readthedocs.io/en/latest/compatibility/) rather than claimed.
+[published per rule](https://speja.readthedocs.io/en/latest/compatibility/) rather than claimed.
 
 **Known limits, stated rather than buried.** A dependency (`vhdl_lang`) can stack-overflow on
 pathological input, which aborts the process before anything is written. A file you made
 read-only is still replaced, because atomic writes need permission on the directory rather than
 on the file. Both are in the
-[airgap page](https://vsg-rs.readthedocs.io/en/latest/airgapped/).
+[airgap page](https://speja.readthedocs.io/en/latest/airgapped/).
 
 Cautious first run? `--fix --diff` changes nothing and prints what it would do, `--backup` keeps
 a copy beside each file, and a run without `--fix` never writes anything at all.
 
 ## Relationship to VSG
 
-> **vsg-rs is an independent Rust implementation of a VHDL formatter and style checker that aims
+> **speja is an independent Rust implementation of a VHDL formatter and style checker that aims
 > for compatibility with the rules and configuration of the VHDL Style Guide (VSG). It is not
 > affiliated with, endorsed by, or maintained by the VHDL Style Guide project or its
 > maintainers.**
 >
-> vsg-rs was inspired by the
+> speja was inspired by the
 > [VHDL Style Guide (VSG)](https://github.com/jeremiah-c-leary/vhdl-style-guide) project by
-> Jeremiah Leary and contributors. vsg-rs contains no VSG code; VSG is used only as a behavioural
+> Jeremiah Leary and contributors. speja contains no VSG code; VSG is used only as a behavioural
 > reference.
 
-Every release states the VSG version it targets, and `vsg-rs --version` prints it.
+Every release states the VSG version it targets, and `speja --version` prints it.
 
 ## Contributing
 
@@ -265,5 +272,5 @@ Third-party dependencies are listed in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LIC
 used as an unmodified dependency.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
-vsg-rs, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
+speja, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.

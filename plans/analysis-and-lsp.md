@@ -108,10 +108,10 @@ same binary, so `lsp` must be on by default.
 |---|---|
 | Binary targets released today? | Six, already: `x86_64`/`aarch64-unknown-linux-musl`, `x86_64`/`aarch64-pc-windows-msvc`, `x86_64`/`aarch64-apple-darwin` (`release.yml:138-143`) |
 | Existing workflows? | `ci`, `release`, `compatibility`, `fuzz`, `action` |
-| Asset names | `vsg-rs-$TAG-$TARGET.tar.gz` (`.zip` on Windows), plus `SHA256SUMS`, plus build attestations (`release.yml:166-176,298,302`) |
+| Asset names | `speja-$TAG-$TARGET.tar.gz` (`.zip` on Windows), plus `SHA256SUMS`, plus build attestations (`release.yml:166-176,298,302`) |
 | How should packaging consume them? | Download by exact tag + target at VSIX build time, verify against `SHA256SUMS`. **No binaries committed to the extension repo.** |
 | Server modes initially | `embedded` (default), `systemPath`, `userPath`. **No Docker** — the reference extension has it; the brief and the lack of demand say skip it. |
-| Local development | `vsg-rs.server.mode = "userPath"`, `vsg-rs.server.path = "…/target/debug/vsg-rs"` |
+| Local development | `speja.server.mode = "userPath"`, `speja.server.path = "…/target/debug/speja"` |
 | Version compatibility | Extension declares the exact server version it bundles; `Show Server Version` reports both. Independent version lines, documented. |
 
 **Recommendation that differs from the reference extension**: publish **platform-specific VSIXs**
@@ -125,7 +125,7 @@ release pipeline already builds it.
 ## 5. Target architecture — the smallest change that works
 
 ```text
-                       vsg_rs (library)
+                       speja (library)
    ┌───────────────┬──────────────┴─────────────┬──────────────┐
    ▼               ▼                            ▼              ▼
  Parsed        Formatter                   Analysis        Diagnostic
@@ -136,7 +136,7 @@ release pipeline already builds it.
                                   ▼
                     ┌─────────────┴─────────────┐
                     ▼                           ▼
-                   CLI                     vsg-rs lsp
+                   CLI                     speja lsp
 ```
 
 Two new library concepts only:
@@ -162,7 +162,7 @@ Everything else is moving code between crates, not designing new abstractions.
 
 ## 6. Ordered PR plan
 
-Repository is `vsg-rs` unless stated.
+Repository is `speja` unless stated.
 
 ### PR 0 — Stop doing work nobody asked for
 **Goal** skip the style layer when `--check lint` is given alone, and share one parse between
@@ -188,7 +188,7 @@ construction site).
 
 ### PR 3 — Move the analysis layer into the library
 **Goal** `design`, `elaborate`, `fsm`, `combinational`, `clockdomain`, `width`, `lint`, `testbench`
-move from binary modules to `vsg_rs::analysis::*`; the binary keeps CLI concerns only.
+move from binary modules to `speja::analysis::*`; the binary keeps CLI concerns only.
 **Motivation** the LSP cannot exist otherwise. **Behaviour** none — pure move plus visibility
 changes. **Tests** existing suite must pass unchanged; add a library-level test that runs analysis
 without the binary. **Size** large (mechanical). **Risk** medium. **Note** `semver-checks` will
@@ -201,7 +201,7 @@ unsaved editor buffers. **Risk** low — spiked (§10.6): `Source::inline` + `Pr
 overlay path and needs no temporary file. **Tests** lint findings from stdin match findings from the same
 bytes on disk. **Size** medium.
 
-### PR 5 — `vsg-rs lsp`: minimal server
+### PR 5 — `speja lsp`: minimal server
 **Goal** `tower-lsp-server`; `initialize`/`shutdown`, `didOpen`/`didChange`/`didClose`,
 diagnostics with related information, `textDocument/formatting` (whole-document edit).
 **Explicitly advertises no** completion/hover/definition/references/rename/symbols/semantic tokens.
@@ -210,7 +210,7 @@ the unsupported list is absent, and `LSP formatting == core formatter` for the s
 **Docs** `docs/lsp.md`, `docs/editors.md`. **Size** medium. **Risk** medium.
 
 ### PR 6 — LSP code actions and fix-all
-**Goal** map `Fix`/`Edit` to `CodeAction`/`WorkspaceEdit`; `source.fixAll.vsg-rs` applying
+**Goal** map `Fix`/`Edit` to `CodeAction`/`WorkspaceEdit`; `source.fixAll.speja` applying
 `FixSafety::Safe` only. **Depends on** PR 5. **Size** small. **Risk** low — the safety
 classification already exists and is shared, so CLI/quick-fix/fix-all parity is structural.
 
@@ -285,7 +285,7 @@ itself finds 1871 candidates in VUnit and 3397 in cnn_accel, nearly all of them 
 resolution (`to_slv` calling a different `to_slv`) rather than recursion. Telling those apart is
 exactly what the resolved call graph is for.
 
-### Extension repository `vsg-rs-vscode`
+### Extension repository `speja-vscode`
 
 **VS 1 — skeleton.** Manifest, VHDL activation, `LanguageClient`, `systemPath`/`userPath` only,
 development instructions. Proves protocol integration with no bundling. **Small.**
@@ -337,7 +337,7 @@ Rationale: PR 1 is the only change every downstream consumer needs and is the on
 the longer it waits, because each new rule adds another construction site. PR 3 and PR 4 are the
 two reasons an LSP cannot be built today, and neither changes behaviour, so they are cheap to
 review and safe to land. PR 5 then becomes a thin adapter rather than a feature. The VS Code
-extension starts only once `vsg-rs lsp` speaks the protocol, so that VS 1 can be validated against
+extension starts only once `speja lsp` speaks the protocol, so that VS 1 can be validated against
 a real server.
 
 PR 4's unknown has been resolved by the spike (§10.6): the overlay API exists and is the one
@@ -409,7 +409,7 @@ that table.
 
 ### 10.6 Spike result: what `vhdl_lang` 0.88 actually exposes
 
-Investigated against the vendored source. **The information is reachable; vsg-rs discards the
+Investigated against the vendored source. **The information is reachable; speja discards the
 `Project` value, not the data.** `Project` keeps the analysed root alive and exposes a semantic
 query API on it.
 

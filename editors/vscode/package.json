@@ -1,13 +1,14 @@
 {
-  "name": "vsg-rs",
-  "displayName": "vsg-rs: VHDL formatter and static analysis",
-  "description": "VHDL for VS Code: formatting and static analysis from the vsg-rs language server, plus syntax highlighting and editing actions such as instantiating an entity, declaring port map signals and generating a state machine.",
-  "version": "0.12.0",
+  "name": "speja",
+  "displayName": "Speja: VHDL formatter and static analysis",
+  "description": "VHDL for VS Code: formatting and static analysis from the speja language server, plus syntax highlighting and editing actions such as instantiating an entity, declaring port map signals and generating a state machine.",
+  "version": "0.13.0",
   "publisher": "ru551n",
+  "icon": "icon.png",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ru551n/vsg-rs.git",
+    "url": "https://github.com/ru551n/speja.git",
     "directory": "editors/vscode"
   },
   "categories": [
@@ -30,7 +31,7 @@
   },
   "activationEvents": [
     "onLanguage:vhdl",
-    "onView:vsg-rs.hierarchy"
+    "onView:speja.hierarchy"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -50,9 +51,9 @@
       }
     ],
     "configuration": {
-      "title": "vsg-rs",
+      "title": "speja",
       "properties": {
-        "vsg-rs.server.mode": {
+        "speja.server.mode": {
           "type": "string",
           "enum": [
             "embedded",
@@ -61,18 +62,18 @@
           ],
           "enumDescriptions": [
             "Use the server bundled with this extension.",
-            "Run `vsg-rs` from PATH.",
-            "Run the executable named by vsg-rs.server.path."
+            "Run `speja` from PATH.",
+            "Run the executable named by speja.server.path."
           ],
           "default": "embedded",
-          "description": "Which vsg-rs executable to run."
+          "description": "Which speja executable to run."
         },
-        "vsg-rs.server.path": {
+        "speja.server.path": {
           "type": "string",
           "default": "",
-          "description": "Path to a vsg-rs executable, used when vsg-rs.server.mode is userPath. Point this at target/debug/vsg-rs to test a local build."
+          "description": "Path to a speja executable, used when speja.server.mode is userPath. Point this at target/debug/speja to test a local build."
         },
-        "vsg-rs.trace.server": {
+        "speja.trace.server": {
           "type": "string",
           "enum": [
             "off",
@@ -80,75 +81,75 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Log the traffic between the editor and the server to the vsg-rs output channel."
+          "description": "Log the traffic between the editor and the server to the speja output channel."
         },
-        "vsg-rs.waiverFile": {
+        "speja.waiverFile": {
           "type": "string",
-          "default": "vsg-rs-waivers.yaml",
+          "default": "speja-waivers.yaml",
           "markdownDescription": "What a waiver file is called. The server looks for one beside the file being checked and in each directory above it, and creates one at the workspace root when the project has none. Pass the same file to the command line with `--waivers` so the editor and CI agree about what has been accepted."
         }
       }
     },
     "commands": [
       {
-        "command": "vsg-rs.restartServer",
+        "command": "speja.restartServer",
         "title": "Restart Server",
-        "category": "vsg-rs"
+        "category": "speja"
       },
       {
-        "command": "vsg-rs.showOutput",
+        "command": "speja.showOutput",
         "title": "Show Output",
-        "category": "vsg-rs"
+        "category": "speja"
       },
       {
-        "command": "vsg-rs.showVersion",
+        "command": "speja.showVersion",
         "title": "Show Server Version",
-        "category": "vsg-rs"
+        "category": "speja"
       },
       {
-        "command": "vsg-rs.waiveWithReason",
+        "command": "speja.waiveWithReason",
         "title": "Waive a Finding...",
-        "category": "vsg-rs",
+        "category": "speja",
         "enablement": "false"
       },
       {
-        "command": "vsg-rs.instantiateEntity",
+        "command": "speja.instantiateEntity",
         "title": "VHDL: Instantiate Entity",
         "category": "VHDL"
       },
       {
-        "command": "vsg-rs.declareSignals",
+        "command": "speja.declareSignals",
         "title": "VHDL: Declare Signals for Port Map",
         "category": "VHDL"
       },
       {
-        "command": "vsg-rs.fsmFromEnum",
+        "command": "speja.fsmFromEnum",
         "title": "VHDL: Create State Machine from Enum Type",
         "category": "VHDL"
       },
       {
-        "command": "vsg-rs.addUseClause",
+        "command": "speja.addUseClause",
         "title": "VHDL: Add Library and Use Clause for Symbol",
         "category": "VHDL"
       },
       {
-        "command": "vsg-rs.componentDeclaration",
+        "command": "speja.componentDeclaration",
         "title": "VHDL: Declare Entity as Component",
         "category": "VHDL"
       },
       {
-        "command": "vsg-rs.removeUnusedUseClauses",
+        "command": "speja.removeUnusedUseClauses",
         "title": "VHDL: Remove Unused Use Clauses",
         "category": "VHDL"
       },
       {
-        "command": "vsg-rs.refreshHierarchy",
+        "command": "speja.refreshHierarchy",
         "title": "Refresh",
         "category": "VHDL",
         "icon": "$(refresh)"
       },
       {
-        "command": "vsg-rs.extractObject",
+        "command": "speja.extractObject",
         "title": "VHDL: Extract Selection to Constant or Signal",
         "category": "VHDL"
       }
@@ -157,40 +158,40 @@
       "editor/context": [
         {
           "when": "editorLangId == vhdl",
-          "command": "vsg-rs.instantiateEntity",
+          "command": "speja.instantiateEntity",
           "group": "1_modification@1"
         },
         {
           "when": "editorLangId == vhdl",
-          "command": "vsg-rs.declareSignals",
+          "command": "speja.declareSignals",
           "group": "1_modification@2"
         },
         {
           "when": "editorLangId == vhdl",
-          "command": "vsg-rs.fsmFromEnum",
+          "command": "speja.fsmFromEnum",
           "group": "1_modification@3"
         },
         {
           "when": "editorLangId == vhdl",
-          "command": "vsg-rs.addUseClause",
+          "command": "speja.addUseClause",
           "group": "1_modification@4"
         },
         {
           "when": "editorLangId == vhdl",
-          "command": "vsg-rs.componentDeclaration",
+          "command": "speja.componentDeclaration",
           "group": "1_modification@5"
         }
       ],
       "view/title": [
         {
-          "command": "vsg-rs.refreshHierarchy",
-          "when": "view == vsg-rs.hierarchy",
+          "command": "speja.refreshHierarchy",
+          "when": "view == speja.hierarchy",
           "group": "navigation"
         }
       ],
       "commandPalette": [
         {
-          "command": "vsg-rs.refreshHierarchy",
+          "command": "speja.refreshHierarchy",
           "when": "false"
         }
       ]
@@ -422,9 +423,9 @@
     "views": {
       "explorer": [
         {
-          "id": "vsg-rs.hierarchy",
+          "id": "speja.hierarchy",
           "name": "VHDL Design",
-          "when": "vsg-rs.hasVhdl"
+          "when": "speja.hasVhdl"
         }
       ]
     }

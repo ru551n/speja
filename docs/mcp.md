@@ -1,7 +1,7 @@
 # MCP server
 
 ```sh
-vsg-rs mcp
+speja mcp
 ```
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server over stdin and stdout, so a
@@ -60,7 +60,7 @@ report quietly missing it looks exactly like a clean one.
 Claude Code:
 
 ```sh
-claude mcp add vsg-rs -- vsg-rs mcp
+claude mcp add speja -- speja mcp
 ```
 
 Anything else that starts a server as a subprocess:
@@ -68,7 +68,7 @@ Anything else that starts a server as a subprocess:
 ```json
 {
   "mcpServers": {
-    "vsg-rs": { "command": "vsg-rs", "args": ["mcp"] }
+    "speja": { "command": "speja", "args": ["mcp"] }
   }
 }
 ```
@@ -84,5 +84,5 @@ stdout that is not an MCP message. Diagnostics go to stderr.
 
 ## A file called `mcp`
 
-As with `lsp`, a file or directory named `mcp` in the working directory wins, and `vsg-rs mcp`
+As with `lsp`, a file or directory named `mcp` in the working directory wins, and `speja mcp`
 checks it. No VSG command line changes meaning.

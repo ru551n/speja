@@ -1,4 +1,4 @@
--- vsg-rs-test: width=80
+-- speja-test: width=80
 architecture rtl of top is
 
   component fifo is

@@ -1,4 +1,4 @@
-//! End-to-end tests of the `vsg-rs` command line.
+//! End-to-end tests of the `speja` command line.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -19,14 +19,14 @@ fn vsg(args: &[&str], stdin: &str) -> Output {
 /// The same, from a given directory. The library map is found next to the working directory, as
 /// `vhdl_ls` finds it, so a test about a project has to stand in one.
 fn vsg_in(dir: &Path, args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_vsg-rs"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_speja"))
         .current_dir(dir)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn vsg-rs");
+        .expect("spawn speja");
     child
         .stdin
         .take()
@@ -83,7 +83,7 @@ fn psl_written_as_code_is_named_rather_than_puzzled_over() {
     let out = vsg(&["-f", psl.to_str().unwrap(), "--fix"], "");
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("written in PSL"), "{err}");
-    assert!(err.contains("vsg-rs lint"), "{err}");
+    assert!(err.contains("speja lint"), "{err}");
     assert!(!err.contains("Unexpected"), "{err}");
 
     // PSL in a comment is a comment: the file formats like any other.
@@ -206,7 +206,7 @@ fn unsafe_fixes_are_opt_in() {
 // ------------------------------------------------------------------ VSG command line
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("vsg-rs-cli-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("speja-cli-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create dir");
     dir
 }
@@ -482,7 +482,7 @@ fn sonarqube_report_carries_the_layer_as_the_issue_type() {
     let issues = doc["issues"].as_array().expect("an issues array");
     assert!(!issues.is_empty());
     for issue in issues {
-        assert_eq!(issue["engineId"], "vsg-rs");
+        assert_eq!(issue["engineId"], "speja");
         let rule = issue["ruleId"].as_str().unwrap_or_default();
         // What the rule can prove decides the type, not which layer it came from: only a
         // definite error is a bug. Every rule in this run is either a style rule or lint_600,
@@ -626,7 +626,7 @@ fn configuration_is_discovered_next_to_the_input() {
     let dir = tempfile::tempdir().expect("tempdir");
     write(
         dir.path(),
-        "vsg-rs.yaml",
+        "speja.yaml",
         "rule:\n  entity_015:\n    disable: true\n",
     );
     let file = write(dir.path(), "a.vhd", "entity e is\nend e;\n");
@@ -740,12 +740,12 @@ fn local_rules_run_through_vsg() {
     let python = if cfg!(windows) { "python" } else { "python3" };
     let fake = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_vsg.py");
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_vsg-rs"))
+        Command::new(env!("CARGO_BIN_EXE_speja"))
             .args(args)
-            .env("VSG_RS_VSG", format!("{python} {}", fake.display()))
+            .env("SPEJA_VSG", format!("{python} {}", fake.display()))
             .current_dir(dir.path())
             .output()
-            .expect("run vsg-rs")
+            .expect("run speja")
     };
     let check = run(&["-lr", "rules", "-of", "syntastic", "-f", "a.vhd"]);
     assert_eq!(check.status.code(), Some(1), "{check:?}");

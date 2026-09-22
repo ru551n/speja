@@ -8,7 +8,7 @@ use std::fmt::Write;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use vsg_rs::{Config, Parsed};
+use speja::{Config, Parsed};
 
 fn time<T>(runs: u32, mut f: impl FnMut() -> T) -> Duration {
     let mut best = Duration::MAX;
@@ -106,10 +106,10 @@ fn main() {
             "{name}: generated input must parse"
         );
         let format = time(runs, || {
-            vsg_rs::format_parsed(&parsed, &config.format).unwrap()
+            speja::format_parsed(&parsed, &config.format).unwrap()
         });
-        let lint = time(runs, || vsg_rs::rules::check(&parsed, &config));
-        let fix = time(runs, || vsg_rs::fix(&parsed, &config).unwrap());
+        let lint = time(runs, || speja::rules::check(&parsed, &config));
+        let fix = time(runs, || speja::fix(&parsed, &config).unwrap());
         println!(
             "{name:26} {:>9} {parse:>10.2?} {format:>10.2?} {lint:>10.2?} {fix:>10.2?}",
             bytes.len()

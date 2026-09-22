@@ -758,6 +758,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
 
 [[package]]
+name = "speja"
+version = "0.13.0"
+dependencies = [
+ "clap",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+ "similar",
+ "tempfile",
+ "tokio",
+ "tower-lsp-server",
+ "vhdl_lang",
+ "vhdl_syntax",
+ "yaml_serde",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1065,24 +1083,6 @@ source = "git+https://github.com/VHDL-LS/rust_hdl?rev=419ec78#419ec7884aa43e9712
 dependencies = [
  "nonzero_ext",
  "rustc-hash",
-]
-
-[[package]]
-name = "vsg-rs"
-version = "0.12.0"
-dependencies = [
- "clap",
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "similar",
- "tempfile",
- "tokio",
- "tower-lsp-server",
- "vhdl_lang",
- "vhdl_syntax",
- "yaml_serde",
 ]
 
 [[package]]

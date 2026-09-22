@@ -1,18 +1,18 @@
 # Rule status
 
-`vsg-rs --list_rules` prints the status of every VSG rule and `vsg-rs -rc RULE` its
+`speja --list_rules` prints the status of every VSG rule and `speja -rc RULE` its
 configuration. This page summarizes them.
 
 VSG 3.35.0 has 972 rules:
 
 | Status | Rules | Meaning |
 |---|---|---|
-| implemented | 192 | reported by `vsg-rs`, with the fix class listed below |
-| formatter | 779 | layout policy applied by `vsg-rs --fix` (whitespace, indentation, blank lines, alignment, keyword case, line structure); configured through the VSG rule options described in `formatting.md` |
+| implemented | 192 | reported by `speja`, with the fix class listed below |
+| formatter | 779 | layout policy applied by `speja --fix` (whitespace, indentation, blank lines, alignment, keyword case, line structure); configured through the VSG rule options described in `formatting.md` |
 | command line | 1 | `source_file_001`: a missing input file is an error (exit code 1) |
 
 Formatter-owned rules are not reported one by one: unformatted lines are reported as `format`
-violations, and `vsg-rs --fix --diff` shows the change.
+violations, and `speja --fix --diff` shows the change.
 
 ## Fix classes
 
@@ -23,7 +23,7 @@ violations, and `vsg-rs --fix --diff` shows the change.
 `--fix` applies the fixes VSG applies: a rule whose VSG default is `fixable: false` (for
 example `port_023`) is fixed only with `--unsafe_fixes`, unless the configuration sets
 `fixable: true` for it. The table shows the fix itself; `fixable: false` rules are marked in
-VSG's configuration (`vsg-rs -rc RULE`).
+VSG's configuration (`speja -rc RULE`).
 
 Identifier case fixes are always safe, because VHDL identifiers (other than extended
 identifiers, which are never changed) are case-insensitive. The consistency rules
@@ -236,7 +236,7 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 * The settings in VSG's `indent.tokens` block that do not change a construct's indentation —
   continuation-line offsets, for example. The rest of the block is replayed; see
   [formatting](formatting.md#indentation-indenttokens).
-* VSG's `local_rules` (Python rule plugins) are not run by vsg-rs itself but by an installed VSG
+* VSG's `local_rules` (Python rule plugins) are not run by speja itself but by an installed VSG
   (see `compatibility.md`).
 * Several `case::keyword` rules name the same keyword in different constructs (for example
-  `end`); vsg-rs applies one case per keyword and warns when the configured cases conflict.
+  `end`); speja applies one case per keyword and warns when the configured cases conflict.

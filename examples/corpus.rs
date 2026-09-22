@@ -2,13 +2,13 @@
 //! internal errors (output not equivalent), non-idempotent output and remaining long code lines.
 //!
 //! `cargo run --release --example corpus -- [--width N] DIR...` (set `SHOW_LONG=1` to list
-//! long lines, `FIX=1` to run `vsg_rs::fix` instead of formatting, `FIX=unsafe` to also apply
+//! long lines, `FIX=1` to run `speja::fix` instead of formatting, `FIX=unsafe` to also apply
 //! unsafe fixes).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use vsg_rs::{Config, FormatError, Parsed};
+use speja::{Config, FormatError, Parsed};
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -60,13 +60,13 @@ fn main() {
     let run = |src: Vec<u8>| -> Result<Vec<u8>, FormatError> {
         let parsed = Parsed::new(src);
         if let Some(mode) = &fix {
-            let options = vsg_rs::FixOptions {
+            let options = speja::FixOptions {
                 unsafe_fixes: mode == "unsafe",
                 ..Default::default()
             };
-            vsg_rs::fix_with(&parsed, &config, &options).map(|o| o.output)
+            speja::fix_with(&parsed, &config, &options).map(|o| o.output)
         } else {
-            vsg_rs::format_parsed(&parsed, &cfg)
+            speja::format_parsed(&parsed, &cfg)
         }
     };
     let show_long = std::env::var_os("SHOW_LONG").is_some();
@@ -125,7 +125,7 @@ fn main() {
             let text = String::from_utf8_lossy(line);
             // Only code counts: trailing comments are never folded.
             let code = text.split("--").next().unwrap_or("").trim_end();
-            if vsg_rs::display_width(code.as_bytes(), utf8, 0) > cfg.width {
+            if speja::display_width(code.as_bytes(), utf8, 0) > cfg.width {
                 long += 1;
                 if show_long {
                     println!("LONG {}:{} {}", f.display(), i + 1, text.trim());

@@ -6,10 +6,10 @@ running the rules over real code and looking at everything they say. Three separ
 found reporting false positives on code they had never been run over, because each had been
 validated against a subset of a corpus rather than the whole of it.
 
-    python scripts/corpus_findings.py --binary target/release/vsg-rs CORPUS...
+    python scripts/corpus_findings.py --binary target/release/speja CORPUS...
     python scripts/corpus_findings.py --check ...   # fail if the counts moved
 
-Only vsg-rs's own rules are counted (`lint_6xx` and `lint_7xx`). The front end's rules are not:
+Only speja's own rules are counted (`lint_6xx` and `lint_7xx`). The front end's rules are not:
 they depend on a library map the corpora do not all carry, and they are not ours to judge.
 
 Expectations live in `tests/corpus-findings.txt`. A count that goes up is a regression. A count
@@ -27,7 +27,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXPECTED = ROOT / "tests" / "corpus-findings.txt"
-# vsg-rs's own rules. The front end's (lint_0xx to lint_5xx) are a different question.
+# speja's own rules. The front end's (lint_0xx to lint_5xx) are a different question.
 NATIVE = re.compile(r"\blint_([67]\d\d)\b")
 
 
@@ -59,7 +59,7 @@ def findings(binary: pathlib.Path, corpus: pathlib.Path, config: pathlib.Path) -
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("corpora", nargs="+", type=pathlib.Path)
-    parser.add_argument("--binary", type=pathlib.Path, default=ROOT / "target/release/vsg-rs")
+    parser.add_argument("--binary", type=pathlib.Path, default=ROOT / "target/release/speja")
     parser.add_argument("--check", action="store_true", help="fail if the counts moved")
     parser.add_argument("--summary", type=pathlib.Path, help="write a table here as well")
     args = parser.parse_args()

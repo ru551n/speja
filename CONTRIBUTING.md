@@ -27,10 +27,10 @@ UPDATE_EXPECT=1 cargo test --test golden                          # re-bless gol
 
 ## Comparing against VSG
 
-vsg-rs's compatibility is measured, not asserted:
+speja's compatibility is measured, not asserted:
 
 ```sh
-python scripts/compare_vsg.py FILE...                  # findings per rule, vsg-rs vs VSG
+python scripts/compare_vsg.py FILE...                  # findings per rule, speja vs VSG
 python scripts/migrate_vsg_config.py old.yml > new.yml # a VSG 3.2x configuration, in 3.35's rule names
 python scripts/learn_layout_rules.py FILE...           # relearn src/layout_rules.json
 python scripts/gen_spacing_rules.py VSG_CHECKOUT/docs  # regenerate src/spacing_rules.json
@@ -38,11 +38,11 @@ python scripts/gen_rule_docs.py                        # regenerate the docs' ru
 ```
 
 ```sh
-python scripts/corpus_findings.py --binary target/release/vsg-rs CORPUS...   # record
-python scripts/corpus_findings.py --check --binary target/release/vsg-rs CORPUS...
+python scripts/corpus_findings.py --binary target/release/speja CORPUS...   # record
+python scripts/corpus_findings.py --check --binary target/release/speja CORPUS...
 ```
 
-The second is how the lint layer's claim is kept honest: it counts what vsg-rs's own rules report
+The second is how the lint layer's claim is kept honest: it counts what speja's own rules report
 over whole corpora and compares that with `tests/corpus-findings.txt`. A count that goes up is a
 rule saying something new, and it has to be looked at before it is accepted; a count that goes
 down is an improvement worth recording. Three rules were once found reporting false positives on
@@ -63,7 +63,7 @@ match the binary. The formatter is fuzzed nightly (`fuzz/fuzz_targets/`).
 
 ## Using the library
 
-`vsg_rs` can be used directly: `Parsed::new`, `format_parsed`, `fix_with`, `rules::check_with`
+`speja` can be used directly: `Parsed::new`, `format_parsed`, `fix_with`, `rules::check_with`
 and the range variants `format_range` / `fix_range`.
 
 ## Releasing

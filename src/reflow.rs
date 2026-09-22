@@ -1,4 +1,4 @@
-//! Re-wrapping comment paragraphs to the line length (`vsg_rs: reflow_comments`), an extension:
+//! Re-wrapping comment paragraphs to the line length (`speja: reflow_comments`), an extension:
 //! VSG has no such rule, so this is off unless the configuration asks for it.
 //!
 //! It runs on the formatted bytes, where the indentation is already decided, and only touches
@@ -13,7 +13,7 @@ use crate::doc::display_width;
 const DIRECTIVES: &[&str] = &[
     "vsg_off",
     "vsg_on",
-    "vsg-rs:",
+    "speja:",
     "pragma",
     "synthesis",
     "synopsys",
@@ -88,9 +88,9 @@ pub(crate) fn comments(source: Vec<u8>, cfg: &FormatConfig) -> Vec<u8> {
             .trim()
             .to_ascii_lowercase();
         let body = body.trim_start_matches('-').trim().to_owned();
-        if body == "vsg-rs: fmt off" || body == "vsg_off" {
+        if body == "speja: fmt off" || body == "vsg_off" {
             off = true;
-        } else if body == "vsg-rs: fmt on" || body == "vsg_on" {
+        } else if body == "speja: fmt on" || body == "vsg_on" {
             off = false;
         }
         if off {
@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn keeps_a_formatter_off_region() {
-        let source = "-- vsg-rs: fmt off\n-- one two three four five\n-- vsg-rs: fmt on\n";
+        let source = "-- speja: fmt off\n-- one two three four five\n-- speja: fmt on\n";
         assert_eq!(run(source, 12), source);
     }
 

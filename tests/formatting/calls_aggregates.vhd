@@ -1,4 +1,4 @@
--- vsg-rs-test: width=60
+-- speja-test: width=60
 architecture rtl of calls is
   constant init : record_type := (field_one => 1, field_two => x"FF", field_three => (others => '0'), field_four => true);
   constant table : int_array := (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);

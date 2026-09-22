@@ -1,5 +1,5 @@
-vsg-rs
-Copyright the vsg-rs authors
+speja
+Copyright the speja authors
 Licensed under MIT OR Apache-2.0.
 
 This product embeds third-party VHDL sources so that the lint layer (`--check lint`) can

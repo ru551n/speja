@@ -1,4 +1,4 @@
--- vsg-rs-test: width=30
+-- speja-test: width=30
 architecture a of b is
 
 begin

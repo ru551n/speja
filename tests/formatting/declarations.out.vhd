@@ -1,4 +1,4 @@
--- vsg-rs-test: width=60
+-- speja-test: width=60
 package decls is
 
   type state_t is (

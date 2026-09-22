@@ -116,7 +116,7 @@ pub(crate) fn comments(t: &SyntaxToken, has_prev: bool) -> (Vec<CommentInfo>, us
     (out, nl)
 }
 
-/// `-- vsg-rs: fmt off` / `-- vsg-rs: fmt on` (and VSG's `-- vsg_off` / `-- vsg_on`) comments,
+/// `-- speja: fmt off` / `-- speja: fmt on` (and VSG's `-- vsg_off` / `-- vsg_on`) comments,
 /// with the offset of the token that follows them, in source order.
 /// Whether formatting is switched off at `offset`, given [`directives`].
 pub(crate) fn disabled_at(directives: &[(usize, bool)], offset: usize) -> bool {
@@ -134,8 +134,8 @@ pub(crate) fn directives(parsed: &Parsed) -> Vec<(usize, bool)> {
             let text = String::from_utf8_lossy(c.as_bytes()).to_ascii_lowercase();
             let body = text.trim_start_matches('-').trim();
             match body {
-                "vsg-rs: fmt off" | "vsg_off" => out.push((t.text_offset(), false)),
-                "vsg-rs: fmt on" | "vsg_on" => out.push((t.text_offset(), true)),
+                "speja: fmt off" | "vsg_off" => out.push((t.text_offset(), false)),
+                "speja: fmt on" | "vsg_on" => out.push((t.text_offset(), true)),
                 _ => {}
             }
         }

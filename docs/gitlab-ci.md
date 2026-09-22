@@ -1,6 +1,6 @@
 # GitLab CI
 
-vsg-rs writes GitLab's code-quality report (`--quality_report`) and JUnit (`-j`), so violations
+speja writes GitLab's code-quality report (`--quality_report`) and JUnit (`-j`), so violations
 show up in the merge request widget and in the pipeline's test tab.
 
 ```yaml
@@ -8,9 +8,9 @@ vhdl-style:
   stage: test
   image: python:3.13-slim
   script:
-    - pip install --no-cache-dir vsg-rs==0.11.0
+    - pip install --no-cache-dir speja==0.13.0
     - >
-      vsg-rs -c vsg.yaml --recursive src
+      speja -c vsg.yaml --recursive src
       --quality_report gl-code-quality-report.json
       -j junit.xml
       --statistics
@@ -27,12 +27,12 @@ vhdl-style:
   rule visible over pipelines.
 * **Job log**: `--statistics` prints the violations per rule, so a failing job says what to fix
   first.
-* The job fails when vsg-rs exits with 1 (error-severity violations). Add
+* The job fails when speja exits with 1 (error-severity violations). Add
   `allow_failure: true` while adopting the style, and drop it once the code is clean.
 
 Fixing locally uses the same configuration:
 
 ```sh
-pip install vsg-rs
-vsg-rs -c vsg.yaml --recursive src --fix
+pip install speja
+speja -c vsg.yaml --recursive src --fix
 ```

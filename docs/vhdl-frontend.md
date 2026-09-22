@@ -1,6 +1,6 @@
 # VHDL frontend
 
-vsg-rs does not have its own VHDL parser. It uses the Rust VHDL ecosystem maintained in
+speja does not have its own VHDL parser. It uses the Rust VHDL ecosystem maintained in
 [VHDL-LS/rust_hdl](https://github.com/VHDL-LS/rust_hdl). This document records what was
 investigated (September 2026) and why the current choice was made.
 
@@ -31,7 +31,7 @@ investigated (September 2026) and why the current choice was made.
   generated too. Nodes are non-empty, so `first_token()` / `last_token()` return a token, not an
   `Option`.
 * **Error recovery**: the parser always produces a tree and returns a list of `SyntaxErr`s.
-  Recovered trees contain missing or extra tokens, so vsg-rs refuses to format a file with any
+  Recovered trees contain missing or extra tokens, so speja refuses to format a file with any
   syntax error.
 * **Standards**: `parse_with_standard(VHDLStandard, …)`. The crate documents that standards other
   than VHDL-2008 currently change little. VHDL-2019 constructs are partially supported; tool
@@ -40,7 +40,7 @@ investigated (September 2026) and why the current choice was made.
   import sorting and renaming). The formatter does not need it because it builds a layout
   document instead.
 * **Helpers**: `requires_separator(t1, t2, standard)` says whether two tokens need whitespace
-  between them to lex correctly (LRM §15.3). vsg-rs uses it as a safety net under its own
+  between them to lex correctly (LRM §15.3). speja uses it as a safety net under its own
   spacing rules.
 * **Formatting facilities**: `vhdl_syntax::fmt` only handles text encoding (Latin-1/UTF-8). It is
   not a pretty printer.
@@ -51,7 +51,7 @@ investigated (September 2026) and why the current choice was made.
 its token stream (the one `vhdl_ls` uses for LSP formatting). It keeps comments and existing
 newlines. It has no width model or group/fill layout, and it works on a different tree than
 `vhdl_syntax`. Its approach, keeping the user's newlines, conflicts with the canonical,
-width-driven layout vsg-rs needs. Reusing it would mean rewriting most of it, so vsg-rs has its
+width-driven layout speja needs. Reusing it would mean rewriting most of it, so speja has its
 own layout engine on top of `vhdl_syntax` (see `line-folding.md`). If the rust_hdl project wants
 a width-aware formatter later, that engine is a candidate to contribute.
 
@@ -61,7 +61,7 @@ a width-aware formatter later, that engine is a candidate to contribute.
   extensions. Across about 4,400 local real-world files (tsfpga, VUnit, nvc, the rust_hdl standard
   libraries, project code), the 2008 parser rejected about 3%, mostly nvc's VHDL-2019
   regression tests.
-* Tool directives (`` `if `` and similar) are tokens without structure. vsg-rs refuses to format
+* Tool directives (`` `if `` and similar) are tokens without structure. speja refuses to format
   files containing them for now.
 * The published 0.2.0 is missing master fixes that matter to a formatter, for example an
   infinite recursion for `postponed` statements (fixed 2026-09-16).
@@ -78,7 +78,7 @@ a width-aware formatter later, that engine is a candidate to contribute.
 ## Fallback strategy
 
 * Files the parser rejects are reported and left untouched. There is no guessing.
-* Generic parser bugs found by vsg-rs (for example a construct parsed into the wrong node) are
+* Generic parser bugs found by speja (for example a construct parsed into the wrong node) are
   reported upstream with a minimal reproducer, not worked around in a fork.
 * A construct that parses correctly but has no dedicated layout rule falls back to the generic
   layout. The output check still guarantees the token stream and comments are unchanged.

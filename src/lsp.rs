@@ -1,6 +1,6 @@
-//! `vsg-rs lsp`: a deliberately narrow language server.
+//! `speja lsp`: a deliberately narrow language server.
 //!
-//! It offers what vsg-rs is: diagnostics, and formatting. It does **not** offer completion,
+//! It offers what speja is: diagnostics, and formatting. It does **not** offer completion,
 //! hover, definition, references, rename, symbols or semantic tokens, and it does not advertise
 //! them — those belong to a VHDL language server such as `vhdl_ls`, which this is meant to run
 //! beside rather than replace.
@@ -28,8 +28,8 @@ use tower_lsp_server::ls_types::{
     TextDocumentSyncKind, TextEdit, Uri, WorkspaceEdit,
 };
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
-use vsg_rs::Config;
-use vsg_rs::analysis;
+use speja::Config;
+use speja::analysis;
 
 /// One open document, as the editor currently has it.
 struct Document {
@@ -68,7 +68,7 @@ pub(crate) struct Backend {
 }
 
 /// What a waiver file is called when the client does not say.
-const WAIVERS: &str = "vsg-rs-waivers.yaml";
+const WAIVERS: &str = "speja-waivers.yaml";
 
 /// The waiver file governing a path: the nearest one in its directory or an ancestor.
 ///
@@ -93,12 +93,12 @@ fn waivers_for(path: &Path, name: &str) -> crate::waivers::Waivers {
 }
 
 /// The command an editor runs to record a waiver. The client collects the reason and calls it.
-const WAIVE_COMMAND: &str = "vsg-rs.applyWaiver";
+const WAIVE_COMMAND: &str = "speja.applyWaiver";
 
 /// The command a code action asks the *client* to run, which prompts for a reason before
 /// calling [`WAIVE_COMMAND`]. A client that has not registered it does nothing, which is why
 /// the reason is never invented here.
-const WAIVE_PROMPT: &str = "vsg-rs.waiveWithReason";
+const WAIVE_PROMPT: &str = "speja.waiveWithReason";
 
 /// How much of the code a waiver covers.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -193,7 +193,7 @@ fn waiver_edit(
             true,
             Position::new(0, 0),
             format!(
-                "# Waivers accepted from the editor. Each entry says why a violation is allowed\n                 # to stay; `vsg-rs --waivers <this file>` then stops reporting it.\nwaivers:\n{entry}"
+                "# Waivers accepted from the editor. Each entry says why a violation is allowed\n                 # to stay; `speja --waivers <this file>` then stops reporting it.\nwaivers:\n{entry}"
             ),
         ));
     };
@@ -211,9 +211,9 @@ fn waiver_edit(
 }
 
 /// The configuration that applies to a file, found the way the command line finds it: the
-/// nearest `vsg-rs.yaml` (or `.json`) in its directory or an ancestor.
+/// nearest `speja.yaml` (or `.json`) in its directory or an ancestor.
 fn config_for(path: &Path) -> std::result::Result<Config, String> {
-    let Some(file) = path.parent().and_then(vsg_rs::config::discover) else {
+    let Some(file) = path.parent().and_then(speja::config::discover) else {
         return Ok(Config::default().for_path(path).into_owned());
     };
     // Not `.ok()`: a configuration that does not load is not the default configuration. Treating
@@ -347,7 +347,7 @@ impl Backend {
     }
 }
 
-/// Everything vsg-rs reports about one buffer: the style rules and the lint layer, from the same
+/// Everything speja reports about one buffer: the style rules and the lint layer, from the same
 /// entry points the command line calls.
 fn diagnose(
     path: &Path,
@@ -365,9 +365,9 @@ fn diagnose(
             out.push(Diagnostic {
                 range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                 severity: Some(DiagnosticSeverity::ERROR),
-                source: Some("vsg-rs".to_owned()),
+                source: Some("speja".to_owned()),
                 message: format!(
-                    "vsg-rs is not running on this file: its configuration could not be read. \
+                    "speja is not running on this file: its configuration could not be read. \
                      {message}"
                 ),
                 ..Diagnostic::default()
@@ -375,7 +375,7 @@ fn diagnose(
             return out;
         }
     };
-    let parsed = vsg_rs::Parsed::new(text.as_bytes().to_vec());
+    let parsed = speja::Parsed::new(text.as_bytes().to_vec());
 
     // A file that does not parse gets its syntax errors and nothing else: every rule below would
     // be reasoning about a tree that does not represent the source.
@@ -387,7 +387,7 @@ fn diagnose(
                     position_of(text, error.offset),
                 ),
                 severity: Some(DiagnosticSeverity::ERROR),
-                source: Some("vsg-rs".to_owned()),
+                source: Some("speja".to_owned()),
                 message: error.message.clone(),
                 ..Diagnostic::default()
             });
@@ -395,7 +395,7 @@ fn diagnose(
         return out;
     }
 
-    for violation in vsg_rs::rules::check_with(&parsed, &cfg, None) {
+    for violation in speja::rules::check_with(&parsed, &cfg, None) {
         out.push(Diagnostic {
             range: Range::new(
                 position_of(text, violation.start),
@@ -407,7 +407,7 @@ fn diagnose(
                 DiagnosticSeverity::ERROR
             }),
             code: Some(NumberOrString::String(violation.rule.to_owned())),
-            source: Some("vsg-rs".to_owned()),
+            source: Some("speja".to_owned()),
             message: violation.message.clone(),
             ..Diagnostic::default()
         });
@@ -468,7 +468,7 @@ fn diagnose(
         out.push(Diagnostic {
             range: Range::new(Position::new(0, 0), Position::new(0, 0)),
             severity: Some(DiagnosticSeverity::WARNING),
-            source: Some("vsg-rs".to_owned()),
+            source: Some("speja".to_owned()),
             message: format!(
                 "The rules that resolve names across files are not running: the project's \
                  library map could not be read. {message}"
@@ -527,7 +527,7 @@ fn diagnose(
             range: Range::new(at, at),
             severity: Some(DiagnosticSeverity::ERROR),
             code: Some(NumberOrString::String(finding.rule.to_owned())),
-            source: Some("vsg-rs".to_owned()),
+            source: Some("speja".to_owned()),
             message: finding.message.clone(),
             related_information: (!related.is_empty()).then_some(related),
             ..Diagnostic::default()
@@ -551,7 +551,7 @@ fn waived(path: &Path, name: &str, diagnostics: Vec<Diagnostic>) -> Vec<Diagnost
         .into_iter()
         .filter(|d| {
             let Some(NumberOrString::String(rule)) = &d.code else {
-                // A diagnostic with no rule id is vsg-rs speaking about itself, such as a
+                // A diagnostic with no rule id is speja speaking about itself, such as a
                 // configuration that would not load. Nothing waives that.
                 return true;
             };
@@ -573,10 +573,10 @@ fn overlaps(a: &Range, b: &Range) -> bool {
 /// `--fix` applies edits in (start, rank, end) order and two of them can insert at one offset, so
 /// the order is settled here and same-offset insertions are merged. An editor applies a
 /// `WorkspaceEdit`'s edits as a set, and would otherwise be free to reverse them.
-fn edits_of(text: &str, fix: &vsg_rs::rules::Fix) -> Vec<TextEdit> {
-    let mut edits: Vec<&vsg_rs::rules::Edit> = fix.edits.iter().collect();
+fn edits_of(text: &str, fix: &speja::rules::Fix) -> Vec<TextEdit> {
+    let mut edits: Vec<&speja::rules::Edit> = fix.edits.iter().collect();
     edits.sort_by_key(|e| (e.start, e.rank, e.end));
-    let mut merged: Vec<vsg_rs::rules::Edit> = Vec::new();
+    let mut merged: Vec<speja::rules::Edit> = Vec::new();
     for edit in edits {
         match merged.last_mut() {
             Some(last) if last.start == edit.start && last.end == edit.end => {
@@ -624,7 +624,7 @@ impl LanguageServer for Backend {
             .map(|folder| path_of(&folder.uri));
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
-                name: "vsg-rs".to_owned(),
+                name: "speja".to_owned(),
                 version: Some(env!("CARGO_PKG_VERSION").to_owned()),
             }),
             offset_encoding: None,
@@ -649,9 +649,9 @@ impl LanguageServer for Backend {
                         ..CodeActionOptions::default()
                     },
                 )),
-                // Everything else is deliberately absent. vsg-rs is not a VHDL language server:
+                // Everything else is deliberately absent. speja is not a VHDL language server:
                 // completion, hover, definition, references, rename and symbols belong to one,
-                // and advertising them would make editors ask vsg-rs instead of asking it.
+                // and advertising them would make editors ask speja instead of asking it.
                 ..ServerCapabilities::default()
             },
         })
@@ -659,7 +659,7 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "vsg-rs: diagnostics and formatting")
+            .log_message(MessageType::INFO, "speja: diagnostics and formatting")
             .await;
     }
 
@@ -788,7 +788,7 @@ impl LanguageServer for Backend {
             self.client
                 .log_message(
                     MessageType::ERROR,
-                    "vsg-rs: the waiver could not be written",
+                    "speja: the waiver could not be written",
                 )
                 .await;
             return Ok(None);
@@ -835,18 +835,18 @@ impl LanguageServer for Backend {
                 let Ok(cfg) = config_for(&path) else {
                     return Vec::new();
                 };
-                let parsed = vsg_rs::Parsed::new(text.as_bytes().to_vec());
+                let parsed = speja::Parsed::new(text.as_bytes().to_vec());
                 let mut actions: Vec<CodeActionOrCommand> = Vec::new();
 
                 // One action per violation the cursor is on, from the fix it already carries.
-                // Only a fix vsg-rs would apply itself is offered: the same test `--fix` uses, so
+                // Only a fix speja would apply itself is offered: the same test `--fix` uses, so
                 // an editor never offers something the command line would refuse.
                 if allows(&CodeActionKind::QUICKFIX) {
-                    for violation in vsg_rs::rules::check_with(&parsed, &cfg, None) {
+                    for violation in speja::rules::check_with(&parsed, &cfg, None) {
                         let Some(fix) = violation
                             .fix
                             .as_ref()
-                            .filter(|f| f.safety == vsg_rs::rules::FixSafety::Safe)
+                            .filter(|f| f.safety == speja::rules::FixSafety::Safe)
                         else {
                             continue;
                         };
@@ -900,7 +900,7 @@ impl LanguageServer for Backend {
                 // editor offers the same thing for other languages, and run on save by anyone
                 // who adds `source.organizeImports` to `editor.codeActionsOnSave`.
                 if allows(&CodeActionKind::SOURCE_ORGANIZE_IMPORTS)
-                    && let Some(organized) = vsg_rs::organize::sort_context_clauses(&parsed)
+                    && let Some(organized) = speja::organize::sort_context_clauses(&parsed)
                 {
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                         title: "Sort library and use clauses".to_owned(),
@@ -922,14 +922,14 @@ impl LanguageServer for Backend {
                 // Fix all: the whole document as `--fix` would write it, which applies the safe
                 // fixes and formats. Unsafe fixes are not part of it, here or there.
                 if allows(&CodeActionKind::SOURCE_FIX_ALL) {
-                    let fixed = vsg_rs::fix_with(&parsed, &cfg, &vsg_rs::FixOptions::default())
+                    let fixed = speja::fix_with(&parsed, &cfg, &speja::FixOptions::default())
                         .ok()
                         .map(|out| out.output)
                         .and_then(|out| String::from_utf8(out).ok());
                     if let Some(fixed) = fixed.filter(|fixed| *fixed != text) {
                         let whole = Range::new(Position::new(0, 0), position_of(&text, text.len()));
                         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                            title: "Fix all vsg-rs findings".to_owned(),
+                            title: "Fix all speja findings".to_owned(),
                             kind: Some(CodeActionKind::SOURCE_FIX_ALL),
                             edit: Some(workspace_edit(
                                 &uri,
@@ -969,9 +969,9 @@ impl LanguageServer for Backend {
             let source = text.as_bytes().to_vec();
             move || {
                 let cfg = config_for(&path)?;
-                let parsed = vsg_rs::Parsed::new(source);
+                let parsed = speja::Parsed::new(source);
                 Ok(
-                    vsg_rs::fix_with(&parsed, &cfg, &vsg_rs::FixOptions::default())
+                    speja::fix_with(&parsed, &cfg, &speja::FixOptions::default())
                         .ok()
                         .map(|out| out.output),
                 )
@@ -984,7 +984,7 @@ impl LanguageServer for Backend {
         // what the command line does to the same file.
         let formatted = formatted.map_err(|message: String| jsonrpc::Error {
             code: jsonrpc::ErrorCode::InvalidParams,
-            message: format!("vsg-rs did not format this file: {message}").into(),
+            message: format!("speja did not format this file: {message}").into(),
             data: None,
         })?;
         // A file that does not parse is left alone, as `--fix` leaves it alone.

@@ -1,17 +1,17 @@
 # Claude Code plugin
 
 ```text
-/plugin marketplace add ru551n/vsg-rs
-/plugin install vsg-rs@vsg-rs
+/plugin marketplace add ru551n/speja
+/plugin install speja@speja
 ```
 
 One install gives a coding agent both halves of what this tool is for: a **skill** that says when
 and how to use it, and the [MCP server](mcp.md), registered and ready.
 
-`vsg-rs` itself is not installed by the plugin. It has to be on `PATH`:
+`speja` itself is not installed by the plugin. It has to be on `PATH`:
 
 ```sh
-pip install vsg-rs        # or: uv tool install vsg-rs
+pip install speja        # or: uv tool install speja
 ```
 
 ## The `vsg` skill
@@ -20,7 +20,7 @@ Claude loads it when a request is about formatting VHDL, checking its style, or 
 ready to commit. What it carries:
 
 * **Before committing**, the two commands, over the changed files rather than the whole tree:
-  `vsg-rs --fix` then `vsg-rs --check style,lint`. Exit code 0 means nothing of error severity.
+  `speja --fix` then `speja --check style,lint`. Exit code 0 means nothing of error severity.
 * **How to read a finding.** Anything a default run reports is a definite error, because that is
   the only class on by default. Advisory and experimental rules depend on what you meant, so they
   are read rather than obeyed. `--explain` answers what a rule id means, instead of guessing from
@@ -45,5 +45,5 @@ The skill is only advice; every part of it works from the command line, and the 
 registered on its own:
 
 ```sh
-claude mcp add vsg-rs -- vsg-rs mcp
+claude mcp add speja -- speja mcp
 ```

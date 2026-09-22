@@ -1,11 +1,11 @@
 //! `length_001`: lines longer than the configured width.
 //!
 //! The formatter folds long lines, so this rule mainly reports what formatting cannot fix. Each
-//! violation says whether `vsg-rs fmt` folds the line: the tokens of the long line are looked up
+//! violation says whether `speja fmt` folds the line: the tokens of the long line are looked up
 //! (by index, the token streams are identical) in the formatted snapshot, and the line counts as
 //! foldable when none of them ends up on a line that is still too long.
 //!
-//! `length` is the formatting width and the warning limit. The vsg-rs option `error_length`
+//! `length` is the formatting width and the warning limit. The speja option `error_length`
 //! reports lines longer than it with severity `error` (for "prefer 120, never more than 160"
 //! policies); it does not change formatting.
 
@@ -81,7 +81,7 @@ fn check(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
             .as_ref()
             .is_some_and(|still| first < last && !(first..last).any(|i| still.contains(&i)));
         let hint = if foldable {
-            "`vsg-rs fmt` folds it"
+            "`speja fmt` folds it"
         } else if first == last {
             "only a comment is too long; comments are not wrapped"
         } else {

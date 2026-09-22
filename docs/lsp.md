@@ -1,10 +1,10 @@
 # Language server
 
 ```sh
-vsg-rs lsp
+speja lsp
 ```
 
-A language server that speaks over stdin and stdout, offering what vsg-rs is: **diagnostics and
+A language server that speaks over stdin and stdout, offering what speja is: **diagnostics and
 formatting**. It is not a VHDL language server, and it does not pretend to be one.
 
 ## It is meant to run beside `vhdl_ls`, not instead of it
@@ -12,10 +12,10 @@ formatting**. It is not a VHDL language server, and it does not pretend to be on
 | | |
 |---|---|
 | [`vhdl_ls`](https://github.com/VHDL-LS/rust_hdl) | completion, hover, go to definition, references, rename, symbols |
-| `vsg-rs lsp` | diagnostics, related locations, formatting |
+| `speja lsp` | diagnostics, related locations, formatting |
 
 The two are independent: neither requires the other, and running both gives an editor the union.
-vsg-rs **does not advertise** completion, hover, definition, declaration, type definition,
+speja **does not advertise** completion, hover, definition, declaration, type definition,
 implementation, references, rename, document symbols, workspace symbols, semantic tokens,
 signature help or inlay hints, so an editor never asks it for an answer it has no business
 giving. A test asserts each of those is absent.
@@ -29,7 +29,7 @@ giving. A test asserts each of those is absent.
 | `textDocument/publishDiagnostics` | the style rules and the lint layer, with `relatedInformation` |
 | `textDocument/formatting` | one edit for the whole document |
 | `textDocument/codeAction` | a quick fix per fixable finding, `source.fixAll`, a waiver for each finding, and `source.organizeImports` |
-| `workspace/executeCommand` | `vsg-rs.applyWaiver`, which writes a waiver the client has collected a reason for |
+| `workspace/executeCommand` | `speja.applyWaiver`, which writes a waiver the client has collected a reason for |
 
 ## Quick fixes and fix-all
 
@@ -37,7 +37,7 @@ A quick fix comes from the fix the finding already carries, so what an editor of
 `--fix` would do to that one violation. **Fix-all** (`source.fixAll`) is the whole document as
 `--fix` would write it.
 
-Only fixes vsg-rs would apply itself are offered, in either form. A fix VSG does not apply by
+Only fixes speja would apply itself are offered, in either form. A fix VSG does not apply by
 default (the ones `--unsafe_fixes` exists for) is never offered as a quick fix and never
 included in fix-all, because it may change what the design does. One safety rule governs the
 command line, quick fixes and fix-all alike; a test asserts fix-all leaves an unsafe fix alone.
@@ -53,7 +53,7 @@ The server also *reads* that file. A finding the project has already accepted is
 because the command line does not count it either, and an editor that kept showing it would be the
 one place still arguing about a decision that has been made.
 
-The waiver file is the nearest `vsg-rs-waivers.yaml` in the file's directory or an ancestor, and
+The waiver file is the nearest `speja-waivers.yaml` in the file's directory or an ancestor, and
 a project that has none gets one at the workspace root. A client can name it differently with the
 initialization option `waiverFile`. The entry goes through `workspace/applyEdit`, so the client
 applies it: it can be undone, and a waiver file that is open in the editor is edited rather than
@@ -97,7 +97,7 @@ and configuration. There is no editor-specific implementation of anything:
 * **Formatting** goes through the entry point `--fix` uses, so formatting on save leaves a file
   the command line then reports nothing about. A test asserts the edit equals what `--fix` writes.
 * **Diagnostics** are the rules of `--check style,lint`.
-* **Configuration** is discovered as the command line discovers it: the nearest `vsg-rs.yaml` (or
+* **Configuration** is discovered as the command line discovers it: the nearest `speja.yaml` (or
   `.json`) in the file's directory or an ancestor. There is no editor-only configuration of rules
   or formatting, so an editor and CI cannot disagree.
 
@@ -106,12 +106,12 @@ A file that does not parse reports its syntax errors and nothing else, and is ne
 ## Editors
 
 Any client that can launch a command works. On VS Code there is an
-[extension](https://github.com/ru551n/vsg-rs/tree/main/editors/vscode) that launches it for you,
+[extension](https://github.com/ru551n/speja/tree/main/editors/vscode) that launches it for you,
 and that also carries [editing actions](vscode-editing.md) such as instantiating an entity. Those
 work through VHDL-LS, not through this server, which still answers no request about what a name
-means. Everywhere else, launch `vsg-rs lsp` directly. See [editors](editors.md).
+means. Everywhere else, launch `speja lsp` directly. See [editors](editors.md).
 
 ```jsonc
 // Neovim, with nvim-lspconfig's generic interface
-vim.lsp.start({ name = "vsg-rs", cmd = { "vsg-rs", "lsp" }, filetypes = { "vhdl" } })
+vim.lsp.start({ name = "speja", cmd = { "speja", "lsp" }, filetypes = { "vhdl" } })
 ```

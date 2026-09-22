@@ -234,7 +234,7 @@ pub fn is_not_combinational(process: &SyntaxNode) -> bool {
 /// The generics a file's entities declare.
 ///
 /// A branch guarded by a generic is decided when the design elaborates, not while it runs, and
-/// vsg-rs does not evaluate generics. Treating such a branch as a path that leaves a signal
+/// speja does not evaluate generics. Treating such a branch as a path that leaves a signal
 /// unassigned accuses code of a latch that only exists for a value nobody has chosen yet.
 fn generic_names(root: &SyntaxNode) -> BTreeSet<String> {
     find(root, NodeKind::GenericClause)
@@ -858,7 +858,7 @@ mod tests {
 
     #[test]
     fn a_branch_a_generic_decides_is_not_a_latch() {
-        // `if Implement_g then` picks a branch when the design elaborates. vsg-rs does not
+        // `if Implement_g then` picks a branch when the design elaborates. speja does not
         // evaluate generics, so the path where the branch is absent is not one it can claim
         // leaves a signal unassigned.
         let source = "entity dut is\n  generic (\n    implement_g : boolean := true\n  );\n  \

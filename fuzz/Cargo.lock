@@ -522,7 +522,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vsg-rs"
+name = "speja"
 version = "0.10.0"
 dependencies = [
  "clap",
@@ -537,11 +537,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "vsg-rs-fuzz"
+name = "speja-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
- "vsg-rs",
+ "speja",
 ]
 
 [[package]]

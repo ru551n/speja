@@ -1,20 +1,20 @@
 # Formatting
 
-`vsg-rs --fix` formats every file it fixes into one canonical layout for a given source and
+`speja --fix` formats every file it fixes into one canonical layout for a given source and
 configuration. The layout is chosen to be close to VSG's default style, so existing VSG users see
 little churn.
 
 ## Usage
 
 ```sh
-vsg-rs -f foo.vhd                      # report violations, including unformatted lines
-vsg-rs -f foo.vhd --fix                # fix and format in place
-vsg-rs -f foo.vhd --fix --diff         # print a unified diff instead
-vsg-rs --stdin --fix < foo.vhd         # stdin -> stdout
+speja -f foo.vhd                      # report violations, including unformatted lines
+speja -f foo.vhd --fix                # fix and format in place
+speja -f foo.vhd --fix --diff         # print a unified diff instead
+speja --stdin --fix < foo.vhd         # stdin -> stdout
 ```
 
 Layout problems are reported as `format` violations, one per changed range of lines. VSG
-reports them under its individual whitespace, indentation and alignment rules; vsg-rs's
+reports them under its individual whitespace, indentation and alignment rules; speja's
 formatter decides the whole layout at once and does not attribute changes to those rules.
 
 Exit codes follow VSG: `0` no errors, `1` errors were found (or a file could not be processed).
@@ -136,7 +136,7 @@ See `compatibility.md` for the VSG configuration mapping. Formatter settings: wi
 VSG has no rule that re-wraps comments, so this is off unless the configuration asks for it:
 
 ```yaml
-vsg_rs:
+speja:
   reflow_comments: true
 ```
 
@@ -150,13 +150,13 @@ header comment of a file too, so try it with `--diff` before turning it on for a
 ## Formatter-off regions
 
 ```vhdl
--- vsg-rs: fmt off
+-- speja: fmt off
 constant table : lut_t := (x"00", x"01",
                            x"02", x"03");
--- vsg-rs: fmt on
+-- speja: fmt on
 ```
 
-* A line comment `-- vsg-rs: fmt off` switches formatting off until `-- vsg-rs: fmt on` or the end
+* A line comment `-- speja: fmt off` switches formatting off until `-- speja: fmt on` or the end
   of the file. VSG's `-- vsg_off` / `-- vsg_on`, without rule names, work the same way (and
   also suppress all rules, as in VSG).
 * The unit is the *item*: a design unit, context item, declaration, statement, list element
@@ -179,7 +179,7 @@ Identifier and label case are lint rules whose fixes rename tokens, not formatte
 ## Indentation (`indent.tokens`)
 
 VSG configures indentation per token (`token`: the token's own indent, `after`: the indent of
-what follows, absolute or relative). vsg-rs replays these settings for each construct and
+what follows, absolute or relative). speja replays these settings for each construct and
 indents the parts accordingly:
 
 * design units (`architecture_body`, `entity_declaration`, `package_declaration`,

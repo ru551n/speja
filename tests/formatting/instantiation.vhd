@@ -1,4 +1,4 @@
--- vsg-rs-test: width=80
+-- speja-test: width=80
 architecture rtl of top is
   component fifo is generic (width : positive := 8); port (clk : in std_logic; data : out std_logic_vector(width - 1 downto 0)); end component;
 begin

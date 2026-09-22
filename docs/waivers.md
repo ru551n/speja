@@ -8,9 +8,9 @@ yet. Waived violations are counted, never reported, and never affect the exit co
 ## Adopting a rule set on existing code
 
 ```sh
-vsg-rs --recursive src --fix                           # first fix what can be fixed
-vsg-rs --recursive src --generate_waivers waivers.yaml # then accept what is left
-vsg-rs --recursive src --waivers waivers.yaml          # from now on: only new violations
+speja --recursive src --fix                           # first fix what can be fixed
+speja --recursive src --generate_waivers waivers.yaml # then accept what is left
+speja --recursive src --waivers waivers.yaml          # from now on: only new violations
 ```
 
 Fix before generating. Layout and style rules are almost all fixable, and a waiver file that
@@ -54,5 +54,5 @@ passed together.
 ## From the editor
 
 In an editor that runs the [language server](lsp.md), a finding offers to be waived on its line, in
-its file or everywhere, asks why, and writes the entry to `vsg-rs-waivers.yaml`. Pass that file to
+its file or everywhere, asks why, and writes the entry to `speja-waivers.yaml`. Pass that file to
 `--waivers` in CI and the editor and the command line agree about what has been accepted.

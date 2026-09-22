@@ -1,4 +1,4 @@
--- vsg-rs-test: width=60
+-- speja-test: width=60
 package decls is
   type state_t is (idle, waiting_for_request, processing_request, sending_response, error_recovery);
   type word_array_t is array (natural range <>) of std_logic_vector(31 downto 0);

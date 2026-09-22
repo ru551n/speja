@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Report vsg-rs findings in the GitHub Action (`action.yml`).
+"""Report speja findings in the GitHub Action (`action.yml`).
 
     github_action_report.py --sarif FILE --workdir DIR --annotations {true,false,changed}
         --layout {suggestions,alerts} --pr-comment {true,false} [--diff FILE] [--command TEXT]
 
-* Makes the SARIF file paths relative to the repository root (vsg-rs runs in DIR).
+* Makes the SARIF file paths relative to the repository root (speja runs in DIR).
 * With `--layout suggestions`, removes the layout results (`format`) from the SARIF file and,
-  on pull requests, posts the changes `vsg-rs --fix` would make (`--diff FILE`) as suggested
+  on pull requests, posts the changes `speja --fix` would make (`--diff FILE`) as suggested
   changes in one review, for the lines the pull request touches.
 * Prints annotations: all findings, or on pull requests with `changed` only those on lines the
   pull request adds or changes.
@@ -28,8 +28,8 @@ import sys
 import urllib.error
 import urllib.request
 
-SUMMARY_MARKER = "<!-- vsg-rs summary -->"
-SUGGESTION_MARKER = "<!-- vsg-rs suggestion -->"
+SUMMARY_MARKER = "<!-- speja summary -->"
+SUGGESTION_MARKER = "<!-- speja suggestion -->"
 MAX_SUGGESTIONS = 50
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
@@ -59,7 +59,7 @@ def paginate(path: str) -> list:
 
 
 def warn(message: str) -> None:
-    print(f"::warning title=vsg-rs::{message}")
+    print(f"::warning title=speja::{message}")
 
 
 def pull_request() -> dict | None:
@@ -156,7 +156,7 @@ query($owner: String!, $name: String!, $number: Int!, $after: String) {
 
 
 def sync_threads(repo: str, number: int, current: set) -> set:
-    """Resolve the action's suggestion threads that vsg-rs no longer makes, reopen the ones it
+    """Resolve the action's suggestion threads that speja no longer makes, reopen the ones it
     makes again, and return the (path, line, body) of all the action's threads."""
     owner, name = repo.split("/", 1)
     threads = []
@@ -204,11 +204,11 @@ def suggestions(repo: str, pr: dict, diff_text: str, prefix: str, visible: dict)
                 continue
             first, old, new = anchor, [lines[anchor]], [lines[anchor], *new]
         last = first + len(old) - 1
-        # Only lines shown in the pull request, and only if they still read as vsg-rs saw them.
+        # Only lines shown in the pull request, and only if they still read as speja saw them.
         if any(lines.get(n) != text for n, text in zip(range(first, last + 1), old)):
             continue
         body = "\n".join(
-            [SUGGESTION_MARKER, "vsg-rs would format this as:", "```suggestion", *new, "```"]
+            [SUGGESTION_MARKER, "speja would format this as:", "```suggestion", *new, "```"]
         )
         comment = {"path": path, "line": last, "side": "RIGHT", "body": body}
         if last > first:
@@ -221,9 +221,9 @@ def suggestions(repo: str, pr: dict, diff_text: str, prefix: str, visible: dict)
     comments = comments[:MAX_SUGGESTIONS]
     if not comments:
         return 0
-    body = f"vsg-rs: {len(comments)} formatting suggestion(s)."
+    body = f"speja: {len(comments)} formatting suggestion(s)."
     if skipped:
-        body += f" {skipped} more are not shown; run vsg-rs with --fix."
+        body += f" {skipped} more are not shown; run speja with --fix."
     api(
         "POST",
         f"/repos/{repo}/pulls/{pr['number']}/reviews",
@@ -242,7 +242,7 @@ def summary_markdown(results: list, command: str, posted: int | None) -> str:
         (r["ruleId"], r["level"]) for r in results
     )
     files = {r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] for r in results}
-    lines = ["## vsg-rs", ""]
+    lines = ["## speja", ""]
     if not results:
         lines.append("No violations.")
         return "\n".join(lines) + "\n"
@@ -254,7 +254,7 @@ def summary_markdown(results: list, command: str, posted: int | None) -> str:
     if posted:
         lines += ["", f"{posted} formatting suggestion(s) were added to the review."]
     if command:
-        lines += ["", "Fix locally with:", "", "```sh", f"vsg-rs {command} --fix", "```"]
+        lines += ["", "Fix locally with:", "", "```sh", f"speja {command} --fix", "```"]
     return "\n".join(lines) + "\n"
 
 

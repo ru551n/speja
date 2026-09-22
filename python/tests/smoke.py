@@ -1,6 +1,6 @@
-"""Smoke test for an installed vsg-rs wheel: ``python python/tests/smoke.py``.
+"""Smoke test for an installed speja wheel: ``python python/tests/smoke.py``.
 
-Checks the console script, ``python -m vsg_rs`` and ``vsg_rs.find_vsg_rs_bin`` on the current
+Checks the console script, ``python -m speja`` and ``speja.find_speja_bin`` on the current
 interpreter.
 """
 
@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 
-import vsg_rs
+import speja
 
 UNFORMATTED = "entity e is port (a : in bit); end;\n"
 FIXED = "entity e is\n  port (\n    a : in    bit\n  );\nend entity e;\n"
@@ -24,14 +24,14 @@ def run(args: list[str], stdin: str = "") -> subprocess.CompletedProcess[bytes]:
 
 
 def main() -> None:
-    exe = vsg_rs.find_vsg_rs_bin()
+    exe = speja.find_speja_bin()
     assert os.path.isfile(exe), exe
-    assert shutil.which("vsg-rs") is not None, "vsg-rs is not on PATH"
+    assert shutil.which("speja") is not None, "speja is not on PATH"
 
-    for cmd in ([exe], [sys.executable, "-m", "vsg_rs"]):
+    for cmd in ([exe], [sys.executable, "-m", "speja"]):
         version = run([*cmd, "--version"])
         assert version.returncode == 0, version
-        assert version.stdout.decode().startswith("vsg-rs "), version.stdout
+        assert version.stdout.decode().startswith("speja "), version.stdout
 
         fixed = run([*cmd, "--stdin", "--fix"], UNFORMATTED)
         assert fixed.returncode == 0, fixed.stderr

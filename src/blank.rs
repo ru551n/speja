@@ -197,7 +197,7 @@ impl Anchors<'_> {
     }
 }
 
-/// All blank-line rules vsg-rs applies, sorted by id.
+/// All blank-line rules speja applies, sorted by id.
 #[allow(clippy::too_many_lines)]
 pub fn rules() -> &'static [BlankRule] {
     use N::*;

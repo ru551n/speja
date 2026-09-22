@@ -1,13 +1,13 @@
 //! The analysis layer, used as a library.
 //!
-//! This is the point of it living in `vsg_rs` rather than in the binary: a consumer that is not
+//! This is the point of it living in `speja` rather than in the binary: a consumer that is not
 //! the command line -- an editor server, another tool, a test -- can analyse source without
 //! spawning a process and reading its report.
 
 use std::path::Path;
 
-use vsg_rs::Parsed;
-use vsg_rs::analysis::{combinational, design, lint, width};
+use speja::Parsed;
+use speja::analysis::{combinational, design, lint, width};
 
 fn parse(source: &str) -> Parsed {
     let parsed = Parsed::new(source.as_bytes().to_vec());

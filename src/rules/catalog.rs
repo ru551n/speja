@@ -1,4 +1,4 @@
-//! The VSG rules that vsg-rs does not leave to the formatter.
+//! The VSG rules that speja does not leave to the formatter.
 //!
 //! The ids themselves come from `vsg_defaults.json` (VSG's own `-oc` dump). Rules that only
 //! decide where line breaks go ("on its own line", "code after", closing parenthesis

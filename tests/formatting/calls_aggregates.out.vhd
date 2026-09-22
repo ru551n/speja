@@ -1,4 +1,4 @@
--- vsg-rs-test: width=60
+-- speja-test: width=60
 architecture rtl of calls is
 
   constant init   : record_type := (

@@ -1,12 +1,12 @@
 {
-  "name": "vsg-rs",
+  "name": "speja",
   "description": "VHDL formatting and static analysis for Claude Code.",
   "owner": {
     "name": "Sebastian Hellgren"
   },
   "plugins": [
     {
-      "name": "vsg-rs",
+      "name": "speja",
       "source": "./",
       "description": "Format VHDL, fix what is fixable, and check it is clean before committing."
     }

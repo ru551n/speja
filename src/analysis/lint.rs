@@ -101,7 +101,7 @@ pub fn front_end_for(path: &Path, text: Vec<u8>) -> Result<Vec<Finding>, String>
 /// means). The code names come from `ErrorCode`'s `Debug` form, because the published crate does
 /// not export the enum itself.
 ///
-/// `SyntaxError` and `Internal` are not here: vsg-rs reports parse failures itself, and an
+/// `SyntaxError` and `Internal` are not here: speja reports parse failures itself, and an
 /// internal error of the analyser is not a finding about the code.
 pub static CODES: &[(&str, &str, &str, super::Certainty)] = &[
     // Advisory lints
@@ -481,7 +481,7 @@ fn libraries() -> Result<PathBuf, String> {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
         .unwrap_or_else(std::env::temp_dir);
     let root = base
-        .join("vsg-rs")
+        .join("speja")
         .join(format!("vhdl_libraries-{}", env!("CARGO_PKG_VERSION")));
     for (name, text) in VHDL_LIBRARIES {
         let path = root.join(name);
@@ -563,7 +563,7 @@ fn project_config() -> Option<PathBuf> {
 
 /// The library map governing `dir`: the nearest `vhdl_ls.toml` in it or an ancestor.
 ///
-/// The same search the style layer already does for `vsg-rs.yaml`, so a caller that is not
+/// The same search the style layer already does for `speja.yaml`, so a caller that is not
 /// standing in the project -- a language server, started once for several of them -- finds the
 /// map belonging to the file it was asked about rather than the one next to wherever it started.
 #[must_use]
@@ -574,7 +574,7 @@ pub fn project_config_for(dir: &Path) -> Option<PathBuf> {
 }
 
 /// Which libraries each file belongs to, from the project's `vhdl_ls.toml`. Empty when the
-/// project has no library map, which is also when `vsg_rs: testbench_libraries` cannot be used.
+/// project has no library map, which is also when `speja: testbench_libraries` cannot be used.
 pub fn libraries_of_files() -> BTreeMap<PathBuf, Vec<String>> {
     let mut out: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     let Some(path) = project_config() else {

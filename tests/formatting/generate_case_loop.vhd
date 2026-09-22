@@ -1,4 +1,4 @@
--- vsg-rs-test: width=70
+-- speja-test: width=70
 architecture rtl of gen is
 begin
   gen_lanes : for lane_index in 0 to number_of_lanes_in_the_design - 1 generate

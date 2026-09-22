@@ -1,6 +1,6 @@
 # Editing VHDL in VS Code
 
-The VS Code extension does two separate jobs. It runs the [vsg-rs language server](lsp.md) for
+The VS Code extension does two separate jobs. It runs the [speja language server](lsp.md) for
 diagnostics, quick fixes and formatting. And it adds **editing actions**: instantiating an entity,
 declaring the signals a port map needs, generating a state machine, adding a `use` clause, and the
 like. This page is about the second job, which works differently and has a requirement the first
@@ -10,7 +10,7 @@ does not.
 
 The editing actions need **[VHDL-LS](https://github.com/VHDL-LS/rust_hdl) (`rust_hdl`), running,
 with a `vhdl_ls.toml` for the workspace.** Every entity, port, type and library name they write
-comes from it. The vsg-rs server cannot stand in: it answers no request about what a name means,
+comes from it. The speja server cannot stand in: it answers no request about what a name means,
 by design (see [architecture](architecture.md#the-boundary-with-vhdl_ls)).
 
 Without it:
@@ -121,8 +121,8 @@ replaces the selection with its name. It edits the document the selection was ma
 architectures into the instances they contain, each resolved to the entity it instantiates. It
 appears once the workspace holds VHDL.
 
-Every command is in the command palette under **VHDL:** and is named `vsg-rs.<command>`, for
-example `vsg-rs.instantiateEntity`.
+Every command is in the command palette under **VHDL:** and is named `speja.<command>`, for
+example `speja.instantiateEntity`.
 
 ## Syntax colouring
 

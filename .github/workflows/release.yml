@@ -1,4 +1,4 @@
-# Builds and tests the `vsg-rs` Python package (a wheel that ships the `vsg-rs` binary) for Linux,
+# Builds and tests the `speja` Python package (a wheel that ships the `speja` binary) for Linux,
 # Windows and macOS, and publishes it on version tags. See docs/releasing.md.
 #
 # - push of a tag `vX.Y.Z`: build, test, publish to PyPI, create a GitHub release with the
@@ -163,9 +163,9 @@ jobs:
         env:
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
         run: |
-          name="vsg-rs-$TAG-${{ matrix.target }}"
+          name="speja-$TAG-${{ matrix.target }}"
           mkdir -p "dist/$name"
-          exe=target/${{ matrix.target }}/release/vsg-rs
+          exe=target/${{ matrix.target }}/release/speja
           if [ "$RUNNER_OS" = "Windows" ]; then exe="$exe.exe"; fi
           cp "$exe" README.md LICENSE-MIT LICENSE-APACHE THIRD_PARTY_LICENSES.md "dist/$name/"
           if [ "${{ matrix.run }}" = "true" ]; then "dist/$name/$(basename "$exe")" --version; fi
@@ -209,7 +209,7 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then bin=.venv/Scripts; else bin=.venv/bin; fi
           "$bin/python" -m pip install --upgrade pip
           # --only-binary: never fall back to building the sdist here.
-          "$bin/python" -m pip install --no-index --only-binary :all: --find-links dist vsg-rs
+          "$bin/python" -m pip install --no-index --only-binary :all: --find-links dist speja
           # GITHUB_PATH needs a native path on Windows.
           if [ "$RUNNER_OS" = "Windows" ]; then cygpath -w "$PWD/$bin"; else echo "$PWD/$bin"; fi >> "$GITHUB_PATH"
       - name: Smoke test
@@ -255,7 +255,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/vsg-rs/
+      url: https://pypi.org/project/speja/
     permissions:
       # PyPI trusted publishing and artifact attestations.
       id-token: write
@@ -307,7 +307,7 @@ jobs:
             [ -e "$archive" ] || continue
             unzip -q "$archive" -d servers
           done
-          find servers -type f -name 'vsg-rs*' -print
+          find servers -type f -name 'speja*' -print
       - run: npm ci
         working-directory: editors/vscode
       - run: npm run compile
@@ -345,7 +345,7 @@ jobs:
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         if: github.event.repository.visibility == 'public'
         with:
-          subject-path: dist/vsg-rs-*
+          subject-path: dist/speja-*
       - name: Release notes from CHANGELOG.md
         env:
           TAG: ${{ github.ref_name }}

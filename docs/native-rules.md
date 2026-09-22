@@ -1,10 +1,10 @@
 # Native rules in detail
 
-The twenty-two rules vsg-rs implements itself, as opposed to the resolved-semantic rules it gets from the
+The twenty-two rules speja implements itself, as opposed to the resolved-semantic rules it gets from the
 VHDL front end. Each entry says what evidence the analyser used, because that is what decides how
 far to trust a finding.
 
-Every example below is run against vsg-rs as part of preparing this page: the "reported" form
+Every example below is run against speja as part of preparing this page: the "reported" form
 produces exactly the diagnostic shown, and the "accepted" form produces none.
 
 The [rule reference](rule-reference.md) lists these alongside the front-end rules.
@@ -144,7 +144,7 @@ rule:
     disable: false
 ```
 
-It is experimental: clock inference is the one place vsg-rs guesses at design intent rather than
+It is experimental: clock inference is the one place speja guesses at design intent rather than
 deriving it, so it is not part of a default run.
 
 ```vhdl
@@ -168,10 +168,10 @@ Accepted — the crossing is captured before it is used:
       out_b  <= sync_b and d;
 ```
 
-Entities named in `vsg_rs: synchronizers` are also accepted, for projects with a CDC library:
+Entities named in `speja: synchronizers` are also accepted, for projects with a CDC library:
 
 ```yaml
-vsg_rs:
+speja:
   synchronizers: ['cdc_bit_sync', 'xpm_cdc_*']
 ```
 
@@ -403,7 +403,7 @@ lint_730 | Error | 10 | Signal 'enable' is read but nothing drives it
 ```
 
 **Limitations** nothing is assumed. An instance of an entity the run cannot see marks everything
-it touches as driven; a procedure call marks every name it mentions as driven, because vsg-rs
+it touches as driven; a procedure call marks every name it mentions as driven, because speja
 does not resolve subprogram signatures; and a signal with an initial value is treated as tied on
 purpose.
 
@@ -818,7 +818,7 @@ declared with.
 **Why it matters** the index is subject to the array's index range, so evaluating it raises an
 error. There is no reading under which the program carries on. Both simulators say so at
 analysis — GHDL *"static expression violates bounds"*, NVC *"array X index 8 outside of NATURAL
-range 7 downto 0"* — and the VHDL front end vsg-rs uses reports neither.
+range 7 downto 0"* — and the VHDL front end speja uses reports neither.
 
 **Evidence** the declared range and the index, both written as integer literals.
 
@@ -878,7 +878,7 @@ knows. `/=` is one token and is not a division.
 **Why it matters** the value has to belong to the subtype, so making the assignment raises an
 error. Both simulators say so at analysis — GHDL *"expression constraints don't match target
 ones"*, NVC *"value 20 outside of SMALL range 0 to 15 for variable V"* — and the VHDL front end
-vsg-rs uses reports neither.
+speja uses reports neither.
 
 **Evidence** the declared range and the assigned value, both written as integer literals. The
 range may be written on the object or on a subtype it names.

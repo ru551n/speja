@@ -2,7 +2,7 @@
 //!
 //! Every `tests/formatting/<name>.vhd` is formatted and compared with `<name>.out.vhd`. The
 //! expected output must itself be a fixed point of the formatter. The target width is taken
-//! from an optional first line `-- vsg-rs-test: width=N` (default 120); a `<name>.yaml` next to
+//! from an optional first line `-- speja-test: width=N` (default 120); a `<name>.yaml` next to
 //! a fixture is used as its configuration.
 //!
 //! Run with `UPDATE_EXPECT=1` to (re)write the expected files; review the diff before
@@ -10,13 +10,13 @@
 
 use std::path::Path;
 
-use vsg_rs::FormatConfig;
+use speja::FormatConfig;
 
 /// The configuration for a fixture: `<name>.yaml` next to it, if present.
 fn config_for(path: &Path, input: &str) -> FormatConfig {
     let yaml = path.with_extension("yaml");
     let mut cfg = if yaml.exists() {
-        let config = vsg_rs::Config::load(std::slice::from_ref(&yaml)).expect("fixture config");
+        let config = speja::Config::load(std::slice::from_ref(&yaml)).expect("fixture config");
         assert!(config.warnings.is_empty(), "{:?}", config.warnings);
         config.format
     } else {
@@ -25,7 +25,7 @@ fn config_for(path: &Path, input: &str) -> FormatConfig {
     if let Some(width) = input
         .lines()
         .next()
-        .and_then(|l| l.strip_prefix("-- vsg-rs-test: width="))
+        .and_then(|l| l.strip_prefix("-- speja-test: width="))
     {
         cfg.width = width.trim().parse().expect("width directive");
     }
@@ -33,7 +33,7 @@ fn config_for(path: &Path, input: &str) -> FormatConfig {
 }
 
 fn format(src: &str, cfg: &FormatConfig) -> String {
-    let out = vsg_rs::format(src.as_bytes().to_vec(), cfg).unwrap_or_else(|e| panic!("{e}"));
+    let out = speja::format(src.as_bytes().to_vec(), cfg).unwrap_or_else(|e| panic!("{e}"));
     String::from_utf8(out).expect("utf-8 output")
 }
 

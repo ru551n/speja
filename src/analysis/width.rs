@@ -7,7 +7,7 @@
 //!
 //! `lint_740` compares them in the source, and only where the answer is certain: both sides a
 //! plain name, both declared with a range of integer literals. A range mentioning a generic or a
-//! constant is left alone, because vsg-rs does not evaluate those and a guess here would be a
+//! constant is left alone, because speja does not evaluate those and a guess here would be a
 //! false accusation about correct code.
 
 use std::collections::BTreeMap;

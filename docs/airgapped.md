@@ -1,6 +1,6 @@
 # Running in an airgap
 
-vsg-rs is a formatter and a linter. It reads the files you give it and writes the files you ask
+speja is a formatter and a linter. It reads the files you give it and writes the files you ask
 it to fix. It does not fetch anything, phone anywhere, or execute the VHDL it reads.
 
 That is a claim, and a claim is worth what it can be checked against. Everything on this page is
@@ -18,7 +18,7 @@ There is no licence check, no update check, no telemetry and no crash reporter.
 
 It writes one thing you did not name. The lint layer resolves names through a library mapping
 that is file based, so on its first run it unpacks the embedded `ieee` and `std` sources into
-`$XDG_CACHE_HOME/vsg-rs/vhdl_libraries-<version>/` (or `$HOME/.cache/...`, or the temporary
+`$XDG_CACHE_HOME/speja/vhdl_libraries-<version>/` (or `$HOME/.cache/...`, or the temporary
 directory if neither is set): 39 files, about 2.3 MB, written once per version and skipped when
 they are already there. The style layer writes nothing at all. Deleting that directory costs one
 extra second on the next lint run and nothing else.
@@ -53,10 +53,10 @@ was available", but "it never asked for one".
 On the machine you are importing to, against the binary you received:
 
 ```sh
-nm -D ./vsg-rs | grep -E ' U (socket|connect|getaddrinfo)@'   # expect no output
-strace -f -qq -e trace=%network -o net.log ./vsg-rs --check style,lint file.vhd
+nm -D ./speja | grep -E ' U (socket|connect|getaddrinfo)@'   # expect no output
+strace -f -qq -e trace=%network -o net.log ./speja --check style,lint file.vhd
 grep -v socketpair net.log                                    # expect no output
-sudo unshare -n ./vsg-rs --check style,lint file.vhd          # expect it to work
+sudo unshare -n ./speja --check style,lint file.vhd          # expect it to work
 ```
 
 The static Linux builds have no dynamic symbols to list, so for those the `strace` and `unshare`
@@ -69,7 +69,7 @@ Two forms, both self-contained:
 * the **wheel**, installed with no index at all:
 
     ```sh
-    pip install --no-index --only-binary :all: --find-links . vsg-rs
+    pip install --no-index --only-binary :all: --find-links . speja
     ```
 
     This is how the release workflow installs and tests every wheel it builds, so the offline
@@ -87,7 +87,7 @@ Each release has a `SHA256SUMS` file, and every file carries a build provenance 
 
 ```sh
 sha256sum -c SHA256SUMS
-gh attestation verify vsg-rs-v0.11.0-x86_64-unknown-linux-musl.tar.gz --repo ru551n/vsg-rs
+gh attestation verify speja-v0.13.0-x86_64-unknown-linux-musl.tar.gz --repo ru551n/speja
 ```
 
 The attestation ties the artifact to the workflow run and the commit that produced it, so "this
@@ -103,10 +103,10 @@ recorded in `THIRD_PARTY_LICENSES.md`.
 
 Nothing, with one exception, stated plainly.
 
-The VHDL is parsed and analysed, never run. vsg-rs is not a simulator and has no evaluator.
+The VHDL is parsed and analysed, never run. speja is not a simulator and has no evaluator.
 
 The exception is `--local_rules` (or `local_rules:` in a configuration), which exists for VSG's
-Python rule plugins. Only VSG can run those, so vsg-rs runs the `vsg` on your `PATH` as a
+Python rule plugins. Only VSG can run those, so speja runs the `vsg` on your `PATH` as a
 subprocess. Without that option no subprocess is started. With it, you are running your own VSG
 install and your own plugins, and that is the one thing here that is exactly as trustworthy as
 whatever you put there.

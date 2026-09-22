@@ -1,6 +1,6 @@
 # Working on the extension
 
-The extension lives in the vsg-rs repository, at `editors/vscode`, next to the other ways vsg-rs
+The extension lives in the speja repository, at `editors/vscode`, next to the other ways speja
 is distributed (`python/` for the wheel, `action.yml` for the GitHub Action). It is packaged from
 the same release that produces the server binaries, so the two cannot drift apart.
 
@@ -16,8 +16,8 @@ opens a second window with the extension loaded.
 Point it at your own build rather than a released one:
 
 ```jsonc
-"vsg-rs.server.mode": "userPath",
-"vsg-rs.server.path": "${workspaceFolder}/target/debug/vsg-rs"
+"speja.server.mode": "userPath",
+"speja.server.path": "${workspaceFolder}/target/debug/speja"
 ```
 
 ## What belongs here, and what does not
@@ -35,7 +35,7 @@ design comes back from VHDL-LS through VS Code's provider commands, and the gene
 transform what it said. A regular expression that reads an entity's ports is a second VHDL parser
 that will disagree with the server, so add the missing provider call instead.
 
-Language intelligence itself, hover, navigation and rename, is out of scope for vsg-rs and stays
+Language intelligence itself, hover, navigation and rename, is out of scope for speja and stays
 with VHDL-LS; see `docs/lsp.md` in the repository root. Keep `src/generate.ts` free of VS Code
 imports so it stays checkable without an editor.
 

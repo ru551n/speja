@@ -332,7 +332,7 @@ pub fn undriven(parsed: &Parsed, file: &Path, entities: &Entities) -> Vec<Findin
         reads(&architecture, &mut named);
         read.extend(named.into_iter().map(|(name, _)| name));
 
-        // A procedure drives whatever it takes as an `out` or `inout` parameter, and vsg-rs
+        // A procedure drives whatever it takes as an `out` or `inout` parameter, and speja
         // cannot see subprogram signatures: every name a call mentions is treated as driven.
         // The same goes for a concurrent statement the parser could not tell apart from an
         // instantiation, which is how a concurrent procedure call reaches here.

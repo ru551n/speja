@@ -3,7 +3,7 @@ requires = ["maturin>=1.8,<2"]
 build-backend = "maturin"
 
 [project]
-name = "vsg-rs"
+name = "speja"
 dynamic = ["version"]
 description = "Catch VHDL bugs before simulation: a fast Rust formatter and linter with VSG-compatible rules and configuration."
 readme = "README.md"
@@ -31,13 +31,13 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/ru551n/vsg-rs"
-Documentation = "https://github.com/ru551n/vsg-rs/tree/main/docs"
+Repository = "https://github.com/ru551n/speja"
+Documentation = "https://github.com/ru551n/speja/tree/main/docs"
 
 [tool.maturin]
-# The wheel contains the `vsg-rs` executable (installed as a script) and a small Python
-# module that locates it (`python -m vsg_rs`).
+# The wheel contains the `speja` executable (installed as a script) and a small Python
+# module that locates it (`python -m speja`).
 bindings = "bin"
 python-source = "python"
-python-packages = ["vsg_rs"]
+python-packages = ["speja"]
 strip = true

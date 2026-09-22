@@ -1,4 +1,4 @@
--- vsg-rs-test: width=80
+-- speja-test: width=80
 library ieee;
   use ieee.std_logic_1164.all;
   use ieee.numeric_std.all;

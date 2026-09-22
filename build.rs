@@ -1,6 +1,6 @@
 //! Embeds the `ieee` and `std` VHDL sources (`vendor/vhdl_libraries`) in the binary.
 //!
-//! Semantic analysis cannot resolve `ieee.std_logic_1164` without them, and vsg-rs ships as one
+//! Semantic analysis cannot resolve `ieee.std_logic_1164` without them, and speja ships as one
 //! self-contained file, so the sources travel inside it and are written to a cache directory on
 //! first use (see `src/semantic.rs`).
 

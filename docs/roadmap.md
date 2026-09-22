@@ -9,7 +9,7 @@ For what exists today, see [static analysis](lint.md) and the
 
 ## Design reports
 
-Not planned for now. vsg-rs is a developer tool: it tells you what is wrong where you are
+Not planned for now. speja is a developer tool: it tells you what is wrong where you are
 working, and a design browser is a different product. The facts behind clock domain crossings,
 state machines, latches and combinational cycles are computed and could be presented, but
 presenting them is not what this tool is for.
@@ -48,7 +48,7 @@ here. The rule waits for the front end to keep what it already parses.
 
 ## Frontend completeness
 
-vsg-rs is limited by what its parser accepts. VHDL-2019 support and the
+speja is limited by what its parser accepts. VHDL-2019 support and the
 [remaining gaps](vhdl-frontend.md) are upstream work in `vhdl_syntax`; the roadmap item here is to
 track it and remove the workarounds as they become unnecessary.
 
@@ -60,6 +60,6 @@ Stating these saves everyone time:
 * a custom rule language. Local rules work through VSG's own plugin mechanism;
 * certification or compliance mappings;
 * editor plugins beyond the [documented ones](editors.md). Every editor with a language client
-  can run `vsg-rs lsp`, and every editor that pipes a buffer through a command can run
+  can run `speja lsp`, and every editor that pipes a buffer through a command can run
   `--stdin --fix`. Both contracts are generic, so a bespoke plugin per editor earns nothing;
 * heuristic rules that cannot reach zero findings on the validation corpora.

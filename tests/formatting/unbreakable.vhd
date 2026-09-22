@@ -1,4 +1,4 @@
--- vsg-rs-test: width=40
+-- speja-test: width=40
 use extremely_long_library_name.extremely_long_package_name.all;
 architecture rtl of unbreakable is
 begin

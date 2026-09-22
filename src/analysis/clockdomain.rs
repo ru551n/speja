@@ -7,7 +7,7 @@
 //! `lint_700` reports a crossing that feeds logic. A crossing that is only *captured* — a plain
 //! `flop <= other_domain_signal;` and nothing else in the statement — is the first stage of a
 //! synchroniser and is accepted, as is anything touching an entity named in
-//! `vsg_rs: synchronizers`. Between them those cover how a crossing is normally made safe, and
+//! `speja: synchronizers`. Between them those cover how a crossing is normally made safe, and
 //! leave the unsafe shape: a signal from another clock used in an expression.
 //!
 //! It is a deliberate under-report. A single-stage capture is accepted although two stages are

@@ -10,7 +10,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use vsg_rs::{Config, Parsed};
+use speja::{Config, Parsed};
 
 fn pick<'a>(byte: u8, options: &[&'a str]) -> &'a str {
     options[byte as usize % options.len()]
@@ -60,10 +60,10 @@ fuzz_target!(|data: &[u8]| {
     if !parsed.syntax_errors().is_empty() {
         return;
     }
-    let Ok(once) = vsg_rs::format_parsed(&parsed, &config.format) else {
+    let Ok(once) = speja::format_parsed(&parsed, &config.format) else {
         return;
     };
-    let again = vsg_rs::format_parsed(&Parsed::new(once.clone()), &config.format)
+    let again = speja::format_parsed(&Parsed::new(once.clone()), &config.format)
         .expect("formatting its own output must succeed");
     assert!(
         again == once,

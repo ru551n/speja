@@ -2,7 +2,7 @@
 """Learn which VSG layout rule reports each kind of formatting change.
 
 Runs VSG (all phases, JSON report) and `cargo run --example layout_keys` on the same files and
-counts, for each change key of vsg-rs, the VSG layout rules reported on the same line. A key
+counts, for each change key of speja, the VSG layout rules reported on the same line. A key
 maps to the rule that accompanies it most often, if that happens often enough. The table is
 written to src/layout_rules.json.
 

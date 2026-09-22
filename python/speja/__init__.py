@@ -1,6 +1,6 @@
-"""vsg-rs: a VHDL formatter and style checker with VSG-compatible rules and configuration.
+"""speja: a VHDL formatter and style checker with VSG-compatible rules and configuration.
 
-The package ships the ``vsg-rs`` executable. :func:`find_vsg_rs_bin` returns its path, for
+The package ships the ``speja`` executable. :func:`find_speja_bin` returns its path, for
 tools that want to run it without relying on ``PATH``.
 """
 
@@ -10,12 +10,12 @@ import os
 import sys
 import sysconfig
 
-__all__ = ["find_vsg_rs_bin"]
+__all__ = ["find_speja_bin"]
 
 
-def find_vsg_rs_bin() -> str:
-    """Return the path of the ``vsg-rs`` executable installed with this package."""
-    exe = "vsg-rs.exe" if sys.platform == "win32" else "vsg-rs"
+def find_speja_bin() -> str:
+    """Return the path of the ``speja`` executable installed with this package."""
+    exe = "speja.exe" if sys.platform == "win32" else "speja"
     candidates = [
         sysconfig.get_path("scripts"),
         sysconfig.get_path("scripts", scheme=sysconfig.get_preferred_scheme("user")),

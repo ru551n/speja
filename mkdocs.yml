@@ -1,15 +1,17 @@
-# The published documentation (Read the Docs). It covers what vsg-rs adds on top of VSG; the
+# The published documentation (Read the Docs). It covers what speja adds on top of VSG; the
 # VSG interface itself is documented by VSG and linked to from the home page, so that the two
 # cannot drift apart.
-site_name: vsg-rs
+site_name: speja
 site_description: A VHDL formatter and linter in Rust, compatible with VSG.
-site_url: https://vsg-rs.readthedocs.io/
-repo_url: https://github.com/ru551n/vsg-rs
-repo_name: ru551n/vsg-rs
+site_url: https://speja.readthedocs.io/
+repo_url: https://github.com/ru551n/speja
+repo_name: ru551n/speja
 edit_uri: edit/main/docs/
 
 theme:
   name: material
+  logo: assets/speja-logo-dark.png
+  favicon: assets/favicon.png
   features:
     - navigation.sections
     - navigation.top

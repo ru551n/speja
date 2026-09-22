@@ -23,10 +23,10 @@ pub use project::Project;
 use crate::Parsed;
 use crate::config::{Config, RuleSettings, Severity};
 
-/// Which part of vsg-rs is responsible for a VSG rule.
+/// Which part of speja is responsible for a VSG rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Owner {
-    /// Layout policy, enforced by `vsg-rs fmt`.
+    /// Layout policy, enforced by `speja fmt`.
     Formatter,
     /// Structural rule whose fix is a syntax-local edit.
     Structure,
@@ -89,7 +89,7 @@ pub(crate) struct Rule {
 /// How safe it is to apply a fix without review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixSafety {
-    /// Syntax-local and meaning-preserving; applied by `vsg-rs fix`.
+    /// Syntax-local and meaning-preserving; applied by `speja fix`.
     Safe,
     /// May change behaviour; shown as a suggestion only.
     Unsafe,
@@ -246,7 +246,7 @@ pub fn info(id: &str) -> Option<&'static RuleInfo> {
     rules().iter().map(|r| &r.info).find(|i| i.id == id)
 }
 
-/// Every VSG rule id with the part of vsg-rs that owns it (the formatter, unless
+/// Every VSG rule id with the part of speja that owns it (the formatter, unless
 /// `catalog::OWNERS` says otherwise).
 pub fn vsg_catalog() -> impl Iterator<Item = (&'static str, Owner)> {
     crate::vsg_defaults::rule_ids()
@@ -254,7 +254,7 @@ pub fn vsg_catalog() -> impl Iterator<Item = (&'static str, Owner)> {
         .map(|id| (id, owner(id)))
 }
 
-/// Which part of vsg-rs owns a rule.
+/// Which part of speja owns a rule.
 #[must_use]
 pub fn owner_of(id: &str) -> Owner {
     owner(id)
@@ -267,7 +267,7 @@ fn owner(id: &str) -> Owner {
 }
 
 pub fn is_known_rule(id: &str) -> bool {
-    // `lint_*` are vsg-rs's own rules (the lint layer); the rest are VSG's.
+    // `lint_*` are speja's own rules (the lint layer); the rest are VSG's.
     id.starts_with("lint_") || !crate::vsg_defaults::defaults()["rule"][id].is_null()
 }
 

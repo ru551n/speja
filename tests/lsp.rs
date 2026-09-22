@@ -1,4 +1,4 @@
-//! `vsg-rs lsp` over the wire.
+//! `speja lsp` over the wire.
 //!
 //! These drive the real binary through stdin and stdout, because the point of a protocol server
 //! is what it puts on the wire, not what its functions return.
@@ -9,13 +9,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 /// Switch a class of lint rules on for everything under `dir`, the way a project does it: a
-/// `vsg-rs.yaml` the server discovers by walking up from the file.
+/// `speja.yaml` the server discovers by walking up from the file.
 ///
 /// Only definite errors run unless asked for. Most of these tests are about how a finding
 /// reaches the editor, and the advisory rules make the most convenient findings, so they say so.
 fn enable_class(dir: &std::path::Path, class: &str) {
     std::fs::write(
-        dir.join("vsg-rs.yaml"),
+        dir.join("speja.yaml"),
         format!("rule:\n  group:\n    {class}:\n      disable: false\n"),
     )
     .expect("write config");
@@ -45,14 +45,14 @@ impl Session {
     }
 
     fn start_in(dir: &std::path::Path) -> Session {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_vsg-rs"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_speja"))
             .arg("lsp")
             .current_dir(dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("spawn vsg-rs lsp");
+            .expect("spawn speja lsp");
         let mut stdout = child.stdout.take().expect("stdout");
         let (send, reader) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -266,8 +266,8 @@ fn it_does_not_advertise_being_a_vhdl_language_server() {
         .expect("an initialize response")["result"];
     let capabilities = &result["capabilities"];
 
-    assert_eq!(result["serverInfo"]["name"], "vsg-rs");
-    // What vsg-rs is: diagnostics (through sync) and formatting.
+    assert_eq!(result["serverInfo"]["name"], "speja");
+    // What speja is: diagnostics (through sync) and formatting.
     assert!(capabilities["textDocumentSync"].is_number());
     assert_eq!(capabilities["documentFormattingProvider"], true);
     let kinds = capabilities["codeActionProvider"]["codeActionKinds"]
@@ -276,7 +276,7 @@ fn it_does_not_advertise_being_a_vhdl_language_server() {
     assert!(kinds.iter().any(|k| k == "quickfix"));
     assert!(kinds.iter().any(|k| k == "source.fixAll"));
 
-    // What belongs to vhdl_ls. Advertising any of these would make editors ask vsg-rs for
+    // What belongs to vhdl_ls. Advertising any of these would make editors ask speja for
     // answers it has no business giving.
     for capability in [
         "completionProvider",
@@ -322,7 +322,7 @@ fn diagnostics_carry_related_locations() {
         .iter()
         .find(|d| d["code"] == "lint_601")
         .expect("the multiple driver is reported");
-    assert_eq!(drivers["source"], "vsg-rs");
+    assert_eq!(drivers["source"], "speja");
     // Structured, so an editor can offer each one as a place to go.
     let related = drivers["relatedInformation"]
         .as_array()
@@ -445,7 +445,7 @@ fn the_front_ends_rules_reach_the_editor_too() {
         .iter()
         .filter_map(|d| d["code"].as_str())
         .collect();
-    // lint_004 comes from the VHDL front end, not from vsg-rs's own rules: an editor sees what
+    // lint_004 comes from the VHDL front end, not from speja's own rules: an editor sees what
     // `--check style,lint` sees, not a subset of it.
     assert!(codes.contains(&"lint_004"), "{codes:?}");
 }
@@ -624,7 +624,7 @@ fn formatting_is_what_the_command_line_would_have_written() {
     let file = dir.path().join("e.vhd");
     std::fs::write(&file, source).expect("write");
     // What `--fix` produces, which is what CI checks.
-    let fixed = Command::new(env!("CARGO_BIN_EXE_vsg-rs"))
+    let fixed = Command::new(env!("CARGO_BIN_EXE_speja"))
         .args([file.to_str().unwrap(), "--fix"])
         .output()
         .expect("run --fix");
@@ -745,7 +745,7 @@ fn a_configuration_that_does_not_load_stops_the_editor_rather_than_defaulting() 
     // the project never chose, while the command line refused to run at all.
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(
-        dir.path().join("vsg-rs.yaml"),
+        dir.path().join("speja.yaml"),
         "rule: [this is not a mapping\n",
     )
     .expect("write config");
@@ -775,7 +775,7 @@ fn a_configuration_that_does_not_load_stops_the_editor_rather_than_defaulting() 
         message.contains("configuration could not be read"),
         "{message}"
     );
-    assert!(message.contains("vsg-rs.yaml"), "names the file: {message}");
+    assert!(message.contains("speja.yaml"), "names the file: {message}");
 
     // And it refuses to format, rather than formatting with the defaults.
     let answered = session.talk_while(
@@ -1042,7 +1042,7 @@ fn a_waived_finding_is_not_published() {
 
     // With one beside the file, it is not.
     std::fs::write(
-        dir.path().join("vsg-rs-waivers.yaml"),
+        dir.path().join("speja-waivers.yaml"),
         "waivers:\n  - rule: lint_770\n    files: 'dut.vhd'\n    reason: deliberate\n",
     )
     .expect("write waivers");
@@ -1117,7 +1117,7 @@ fn a_finding_can_be_waived_from_the_editor() {
         .iter()
         .find(|a| a["title"] == "Waive lint_770 on this line...")
         .expect("the line action");
-    assert_eq!(waiver["command"]["command"], "vsg-rs.waiveWithReason");
+    assert_eq!(waiver["command"]["command"], "speja.waiveWithReason");
     assert!(waiver["edit"].is_null(), "an action wrote without a reason");
 
     // Executing the server's command writes the entry, through an edit the editor applies.
@@ -1126,7 +1126,7 @@ fn a_finding_can_be_waived_from_the_editor() {
     let got = session.talk_while(
         &[serde_json::json!({
             "jsonrpc": "2.0", "id": 8, "method": "workspace/executeCommand",
-            "params": { "command": "vsg-rs.applyWaiver", "arguments": [argument] }
+            "params": { "command": "speja.applyWaiver", "arguments": [argument] }
         })],
         |seen| seen.iter().any(|m| m["method"] == "workspace/applyEdit"),
     );
@@ -1141,7 +1141,7 @@ fn a_finding_can_be_waived_from_the_editor() {
         written.contains("reason: deliberate, it is a stimulus process"),
         "{written}"
     );
-    assert!(written.contains("vsg-rs-waivers.yaml"), "{written}");
+    assert!(written.contains("speja-waivers.yaml"), "{written}");
 }
 
 /// The editor can sort the context clauses, which no rule reports and `--fix` does not do.

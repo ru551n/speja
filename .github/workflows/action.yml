@@ -56,7 +56,7 @@ jobs:
           SARIF: ${{ steps.vsg.outputs.sarif-file }}
           VERSION: ${{ steps.vsg.outputs.version }}
         run: |
-          echo "vsg-rs $VERSION exited with $CODE"
+          echo "speja $VERSION exited with $CODE"
           test "$CODE" = 1
           grep -q '"ruleId": "entity_008"' "$SARIF"
           grep -q '"uri": "action-test/src/bad.vhd"' "$SARIF"

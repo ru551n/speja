@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use clap::{CommandFactory, Parser, ValueEnum};
 use rayon::prelude::*;
-use vsg_rs::config::Config;
-use vsg_rs::rules::{self, Project, Violation};
-use vsg_rs::{FixOptions, FormatError, Parsed};
+use speja::config::Config;
+use speja::rules::{self, Project, Violation};
+use speja::{FixOptions, FormatError, Parsed};
 
 use crate::local_rules::LocalRules;
 
@@ -41,7 +41,7 @@ struct Diagnostic {
     fixable: bool,
     /// The other places this finding is about; see `lint::Related`.
     #[serde(default)]
-    related: Vec<vsg_rs::analysis::lint::Related>,
+    related: Vec<speja::analysis::lint::Related>,
     /// The edits of this finding's fix, when it has a safe one.
     #[serde(default)]
     fix: Vec<Replacement>,
@@ -71,7 +71,7 @@ fn wants(args: &Args, layer: &str) -> bool {
 
 fn diagnostic(parsed: &Parsed, v: &Violation) -> Diagnostic {
     let (line, column) = parsed.line_col(v.start);
-    // Only a fix vsg-rs would apply itself is offered; an unsafe one is a suggestion for a
+    // Only a fix speja would apply itself is offered; an unsafe one is a suggestion for a
     // person, and the same rule governs --fix, so the two cannot disagree.
     let safe = v
         .fix
@@ -125,7 +125,7 @@ fn diagnostic(parsed: &Parsed, v: &Violation) -> Diagnostic {
 
 /// Whether the source is written in PSL, the assertion language VHDL-2008 folds in.
 ///
-/// vsg-rs's formatter cannot parse PSL written as code, and says so in terms of the token it
+/// speja's formatter cannot parse PSL written as code, and says so in terms of the token it
 /// tripped over -- `Unexpected(Token(Keyword(Default)))` for `default clock is`, which tells
 /// nobody anything. The markers below are not legal VHDL outside PSL, so finding one explains
 /// the failure rather than guessing at it.
@@ -161,7 +161,7 @@ fn describe_error(parsed: &Parsed, e: &FormatError) -> String {
         FormatError::Syntax(diags) => {
             if written_in_psl(&String::from_utf8_lossy(parsed.source())) {
                 return "cannot format: this file is written in PSL, which the formatter does \
-                        not parse; left unchanged. The lint layer reads it: run `vsg-rs lint`, \
+                        not parse; left unchanged. The lint layer reads it: run `speja lint`, \
                         or `--check lint` to leave the style layer out. PSL written in comments \
                         formats normally."
                     .to_owned();
@@ -181,8 +181,8 @@ fn describe_error(parsed: &Parsed, e: &FormatError) -> String {
 fn layout_findings(parsed: &Parsed, formatted: Vec<u8>, cfg: &Config) -> Vec<Diagnostic> {
     let after = Parsed::new(formatted);
     let mut out: Vec<Diagnostic> = Vec::new();
-    for change in vsg_rs::layout::layout_changes(parsed, &after) {
-        let rule = vsg_rs::layout::rule_for(&change);
+    for change in speja::layout::layout_changes(parsed, &after) {
+        let rule = speja::layout::rule_for(&change);
         // A disabled VSG rule does not report (the formatter still applies its policy).
         if rule != "format" && cfg.rule_by_id(rule).is_some_and(|s| !s.enabled) {
             continue;
@@ -195,7 +195,7 @@ fn layout_findings(parsed: &Parsed, formatted: Vec<u8>, cfg: &Config) -> Vec<Dia
             column: 1,
             rule: rule.to_owned(),
             severity: "error".into(),
-            message: vsg_rs::layout::message(&change, cfg.format.indent),
+            message: speja::layout::message(&change, cfg.format.indent),
             fixable: true,
             related: Vec::new(),
             fix: Vec::new(),
@@ -276,15 +276,15 @@ enum Style {
 #[allow(clippy::struct_excessive_bools)] // VSG's flags.
 #[command(
     name = "VHDL Style Guide (VSG)",
-    bin_name = "vsg-rs",
+    bin_name = "speja",
     about = "Analyzes VHDL files for style guide violations. Reference documentation is \
              located at: http://vhdl-style-guide.readthedocs.io/en/latest/index.html",
     // Neither is a VSG argument, and a file of that name still wins over both, so no VSG command
     // line changes meaning. They are listed because a server nobody knows about is a server
     // nobody runs.
     after_help = "Servers:\n  \
-                  vsg-rs lsp   a language server: diagnostics, formatting and quick fixes\n  \
-                  vsg-rs mcp   an MCP server, so a coding agent can lint and format a buffer",
+                  speja lsp   a language server: diagnostics, formatting and quick fixes\n  \
+                  speja mcp   an MCP server, so a coding agent can lint and format a buffer",
     disable_version_flag = true
 )]
 struct Args {
@@ -303,7 +303,7 @@ struct Args {
     /// Fix issues found
     #[arg(long)]
     fix: bool,
-    /// Fix issues up to and including this phase (vsg-rs has one phase)
+    /// Fix issues up to and including this phase (speja has one phase)
     #[arg(long = "fix_phase", value_name = "FIX_PHASE")]
     fix_phase: Option<u32>,
     /// Extract Junit file
@@ -330,7 +330,7 @@ struct Args {
     /// Displays version information
     #[arg(short = 'v', long)]
     version: bool,
-    /// Do not stop when a violation is detected (always the case in vsg-rs)
+    /// Do not stop when a violation is detected (always the case in speja)
     #[arg(long = "all_phases")]
     all_phases: bool,
     /// Restrict fixing via JSON file.
@@ -356,55 +356,55 @@ struct Args {
     #[arg(long)]
     debug: bool,
     /// With --fix, also apply fixes that VSG does not apply by default; they may change
-    /// behaviour or remove information (vsg-rs extension)
+    /// behaviour or remove information (speja extension)
     #[arg(long = "unsafe_fixes")]
     unsafe_fixes: bool,
-    /// With --fix, print a unified diff instead of changing files (vsg-rs extension)
+    /// With --fix, print a unified diff instead of changing files (speja extension)
     #[arg(long)]
     diff: bool,
-    /// With --fix, change only lines START to END, 1-based (vsg-rs extension)
+    /// With --fix, change only lines START to END, 1-based (speja extension)
     #[arg(long, value_name = "START:END", value_parser = parse_line_range)]
     range: Option<(usize, usize)>,
-    /// Path of the --stdin input, for configuration lookup and reports (vsg-rs extension)
+    /// Path of the --stdin input, for configuration lookup and reports (speja extension)
     #[arg(long = "stdin_filename", value_name = "PATH")]
     stdin_filename: Option<PathBuf>,
-    /// Extract SARIF 2.1.0 file for code scanning (vsg-rs extension)
+    /// Extract SARIF 2.1.0 file for code scanning (speja extension)
     #[arg(long, value_name = "SARIF")]
     sarif: Option<PathBuf>,
-    /// Check the VHDL files (.vhd, .vhdl) in directories and their subdirectories (vsg-rs
+    /// Check the VHDL files (.vhd, .vhdl) in directories and their subdirectories (speja
     /// extension)
     #[arg(long)]
     recursive: bool,
-    /// List every VSG rule and how vsg-rs handles it (vsg-rs extension)
+    /// List every VSG rule and how speja handles it (speja extension)
     #[arg(long = "list_rules")]
     list_rules: bool,
-    /// Print how many violations each rule reports, over all inputs (vsg-rs extension)
+    /// Print how many violations each rule reports, over all inputs (speja extension)
     #[arg(long)]
     statistics: bool,
     /// Configuration applied to the lint layer only, after `-c`. Several files are merged in
-    /// order (vsg-rs extension)
+    /// order (speja extension)
     #[arg(long = "lint_configuration", value_name = "LINT_CONFIGURATION", num_args = 1..)]
     lint_configuration: Vec<PathBuf>,
     /// Describe one rule: what it checks, which layer it belongs to and whether it is fixed
-    /// (vsg-rs extension)
+    /// (speja extension)
     #[arg(long = "explain", value_name = "RULE")]
     explain: Option<String>,
     /// Which layers make the run fail, comma separated: `style`, `layout`, `lint`. By default
-    /// any error-severity violation does (vsg-rs extension)
+    /// any error-severity violation does (speja extension)
     #[arg(long = "fail_on", value_name = "LAYERS")]
     fail_on: Option<String>,
     /// Which layers to run, comma separated: `style` (VSG's rules, the default) and `lint`
-    /// (rules that need name resolution). `vsg-rs lint ...` is the short way to say
-    /// `--check lint` (vsg-rs extension)
+    /// (rules that need name resolution). `speja lint ...` is the short way to say
+    /// `--check lint` (speja extension)
     #[arg(long = "check", value_name = "LAYERS", default_value = "style")]
     check: String,
-    /// Accept the violations listed in this file, with their reasons (vsg-rs extension)
+    /// Accept the violations listed in this file, with their reasons (speja extension)
     #[arg(long = "waivers", value_name = "WAIVERS", num_args = 1..)]
     waivers: Vec<PathBuf>,
-    /// Write a waiver file accepting every violation found now (vsg-rs extension)
+    /// Write a waiver file accepting every violation found now (speja extension)
     #[arg(long = "generate_waivers", value_name = "FILE")]
     generate_waivers: Option<PathBuf>,
-    /// List the waived violations instead of only counting them (vsg-rs extension)
+    /// List the waived violations instead of only counting them (speja extension)
     #[arg(long = "show_waived")]
     show_waived: bool,
 }
@@ -435,12 +435,12 @@ fn line_range(src: &[u8], (first, last): (usize, usize)) -> std::ops::Range<usiz
 }
 
 /// VSG's multi-letter single-dash options, as long options.
-/// The root command is VSG's: same arguments, same reports, style rules only. `vsg-rs lint ...`
+/// The root command is VSG's: same arguments, same reports, style rules only. `speja lint ...`
 /// runs the lint layer instead, and is the same thing as `--check lint`.
 ///
 /// VSG has no subcommands and its positional arguments are file names, so the word is only taken
 /// as a subcommand when it is the first argument and no file of that name exists; a file called
-/// `lint` still wins. An explicit `--check` is left alone, so `vsg-rs lint --check style,lint`
+/// `lint` still wins. An explicit `--check` is left alone, so `speja lint --check style,lint`
 /// runs both layers.
 fn lint_subcommand(args: &mut Vec<String>) {
     let Some(first) = args.get(1) else {
@@ -450,7 +450,7 @@ fn lint_subcommand(args: &mut Vec<String>) {
         return;
     }
     if Path::new(first).exists() {
-        // A path wins, as it must: `vsg-rs lint` in a directory that happens to contain one
+        // A path wins, as it must: `speja lint` in a directory that happens to contain one
         // called `lint` is asking about that directory. But the two readings do completely
         // different things -- one checks the layer, the other checks the files with the style
         // rules -- and silently picking the second is how a run comes to report nothing and
@@ -537,7 +537,7 @@ fn check(
     };
     // A file with only comments has nothing to check but still formats.
     if !parsed.syntax_errors().is_empty() && !parsed.is_blank() {
-        let e = vsg_rs::FormatError::Syntax(parsed.syntax_errors().to_vec());
+        let e = speja::FormatError::Syntax(parsed.syntax_errors().to_vec());
         result.error = Some(describe_error(&parsed, &e));
         return result;
     }
@@ -550,17 +550,17 @@ fn check(
     let indent_only = args.style == Some(Style::IndentOnly);
     if let (true, Some(lines)) = (args.fix, args.range) {
         let range = line_range(parsed.source(), lines);
-        match vsg_rs::fix_range(&parsed, cfg, options, range) {
-            Ok(edits) => result.output = Some(vsg_rs::apply_edits(parsed.source(), &edits)),
+        match speja::fix_range(&parsed, cfg, options, range) {
+            Ok(edits) => result.output = Some(speja::apply_edits(parsed.source(), &edits)),
             Err(e) => result.error = Some(describe_error(&parsed, &e)),
         }
         return result;
     }
     if args.fix {
         let fixed = if indent_only {
-            vsg_rs::reindent(&parsed, &cfg.format).map(|out| (out, Vec::new()))
+            speja::reindent(&parsed, &cfg.format).map(|out| (out, Vec::new()))
         } else {
-            vsg_rs::fix_with(&parsed, cfg, options).map(|o| {
+            speja::fix_with(&parsed, cfg, options).map(|o| {
                 let fixed = Parsed::new(o.output.clone());
                 let remaining = o.remaining.iter().map(|v| diagnostic(&fixed, v)).collect();
                 (o.output, remaining)
@@ -576,7 +576,7 @@ fn check(
         return result;
     }
     let formatted = if indent_only {
-        vsg_rs::reindent(&parsed, &cfg.format)
+        speja::reindent(&parsed, &cfg.format)
     } else {
         let (violations, formatted) =
             rules::check_and_format_with(&parsed, cfg, options.project.as_deref());
@@ -882,9 +882,9 @@ fn quality_report(results: &[FileResult]) -> String {
             let key = format!("{}:{}:{}:{}", r.name, d.rule, d.line, d.message);
             // GitLab's own categories, not invented ones: a proven defect is a bug risk, a
             // rule about how the code reads is clarity, and a convention is style.
-            let category = match vsg_rs::analysis::certainty_of(&d.rule) {
-                Some(vsg_rs::analysis::Certainty::Definite) => "Bug Risk",
-                Some(vsg_rs::analysis::Certainty::Policy) | None => "Style",
+            let category = match speja::analysis::certainty_of(&d.rule) {
+                Some(speja::analysis::Certainty::Definite) => "Bug Risk",
+                Some(speja::analysis::Certainty::Policy) | None => "Style",
                 Some(_) => "Clarity",
             };
             serde_json::json!({
@@ -899,7 +899,7 @@ fn quality_report(results: &[FileResult]) -> String {
     serde_json::to_string_pretty(&issues).unwrap_or_default()
 }
 
-/// How much a finding should weigh in SonarQube, which grades on five levels where vsg-rs has
+/// How much a finding should weigh in SonarQube, which grades on five levels where speja has
 /// two. The layer supplies what the severity alone cannot:
 ///
 /// * anything `--fix` repairs on its own is `INFO`, because one run removes all of it at once.
@@ -924,7 +924,7 @@ fn sonar_severity(kind: &str, severity: &str, fixable: bool) -> &'static str {
 
 /// SonarQube's generic issue format, for `sonar.externalIssuesReportPaths`.
 ///
-/// SonarQube also reads SARIF, which vsg-rs already writes, but it files every SARIF issue as a
+/// SonarQube also reads SARIF, which speja already writes, but it files every SARIF issue as a
 /// vulnerability. A style violation is not a security finding, and a few hundred of them would
 /// bury the project's real ones. This format carries the type, so the lint layer arrives as a
 /// bug and everything else as a code smell.
@@ -944,10 +944,10 @@ fn sonar_report(results: &[FileResult]) -> String {
             // A bug is a claim that the design is wrong, so only the rules that can show it get
             // to make it. An advisory rule someone switched on is reporting something legal, and
             // filing that as a bug is how a report stops being believed.
-            let bug = vsg_rs::analysis::certainty_of(&d.rule)
-                .is_some_and(|c| c == vsg_rs::analysis::Certainty::Definite);
+            let bug = speja::analysis::certainty_of(&d.rule)
+                .is_some_and(|c| c == speja::analysis::Certainty::Definite);
             serde_json::json!({
-                "engineId": "vsg-rs",
+                "engineId": "speja",
                 "ruleId": d.rule,
                 "type": if bug { "BUG" } else { "CODE_SMELL" },
                 "severity": sonar_severity(kind, &d.severity, d.fixable),
@@ -997,11 +997,11 @@ fn sarif_rule(id: &str) -> serde_json::Value {
     });
     // What the rule can prove, as a tag: SARIF has no field for it, and a consumer that groups
     // by tag can then tell a proven defect from something switched on deliberately.
-    if let Some(certainty) = vsg_rs::analysis::certainty_of(id) {
+    if let Some(certainty) = speja::analysis::certainty_of(id) {
         rule["properties"] = serde_json::json!({ "tags": [certainty.name()] });
     }
     if let Some((prefix, number)) = id.rsplit_once('_')
-        && vsg_rs::vsg_defaults::rule_ids().any(|known| known == id)
+        && speja::vsg_defaults::rule_ids().any(|known| known == id)
     {
         rule["helpUri"] = format!(
             "https://vhdl-style-guide.readthedocs.io/en/latest/{prefix}_rules.html#{}-{number}",
@@ -1025,7 +1025,7 @@ fn is_layout(rule: &str) -> bool {
 /// stands for several findings and has neither.
 #[derive(Default)]
 struct SarifExtras<'a> {
-    related: &'a [vsg_rs::analysis::lint::Related],
+    related: &'a [speja::analysis::lint::Related],
     fix: &'a [Replacement],
 }
 
@@ -1078,7 +1078,7 @@ fn sarif_result(
             .collect();
         object.insert("relatedLocations".to_owned(), locations.into());
     }
-    // Only fixes vsg-rs would apply itself, so what a consumer offers matches `--fix`.
+    // Only fixes speja would apply itself, so what a consumer offers matches `--fix`.
     if !fix.is_empty() {
         let replacements: Vec<serde_json::Value> = fix
             .iter()
@@ -1097,7 +1097,7 @@ fn sarif_result(
         object.insert(
             "fixes".to_owned(),
             serde_json::json!([{
-                "description": { "text": format!("Apply the {rule} fix (vsg-rs --fix)") },
+                "description": { "text": format!("Apply the {rule} fix (speja --fix)") },
                 "artifactChanges": [{
                     "artifactLocation": { "uri": sarif_uri(&r.name) },
                     "replacements": replacements
@@ -1127,10 +1127,10 @@ fn sarif_report(results: &[FileResult]) -> String {
                     format!("lines {first}-{last}")
                 };
                 let message = if kinds.is_empty() {
-                    format!("Reformat {lines} (vsg-rs --fix)")
+                    format!("Reformat {lines} (speja --fix)")
                 } else {
                     format!(
-                        "Reformat {lines} (vsg-rs --fix); VSG rules: {}",
+                        "Reformat {lines} (speja --fix); VSG rules: {}",
                         kinds.join(", ")
                     )
                 };
@@ -1192,9 +1192,9 @@ fn sarif_report(results: &[FileResult]) -> String {
         "runs": [{
             "tool": {
                 "driver": {
-                    "name": "vsg-rs",
+                    "name": "speja",
                     "version": env!("CARGO_PKG_VERSION"),
-                    "informationUri": "https://github.com/ru551n/vsg-rs",
+                    "informationUri": "https://github.com/ru551n/speja",
                     "rules": rules.iter().map(|r| sarif_rule(r)).collect::<Vec<_>>(),
                 }
             },
@@ -1204,21 +1204,21 @@ fn sarif_report(results: &[FileResult]) -> String {
     serde_json::to_string_pretty(&doc).unwrap_or_default()
 }
 
-/// `--explain RULE`: what one rule is, in the words vsg-rs has for it.
-/// Every rule of the lint layer: the front end's own, and the structural ones vsg-rs adds.
+/// `--explain RULE`: what one rule is, in the words speja has for it.
+/// Every rule of the lint layer: the front end's own, and the structural ones speja adds.
 /// One list, so `--list_rules` and `--explain` can never disagree about what exists.
 /// Every rule of the lint layer, from the library's one registry.
 ///
 /// The binary used to chain the modules itself, which meant the command line could list a set
 /// of rules the configuration layer knew nothing about.
-fn lint_rules() -> impl Iterator<Item = vsg_rs::analysis::Rule> {
-    vsg_rs::analysis::rules()
+fn lint_rules() -> impl Iterator<Item = speja::analysis::Rule> {
+    speja::analysis::rules()
 }
 
 fn explain_rule(rule: &str) -> ExitCode {
     let mut out = io::stdout().lock();
     let kind = kind_of(rule);
-    let certainty = vsg_rs::analysis::certainty_of(rule);
+    let certainty = speja::analysis::certainty_of(rule);
     let described = lint_rules()
         .find(|known| known.id == rule)
         .map(|known| known.description.to_owned())
@@ -1254,9 +1254,9 @@ fn explain_rule(rule: &str) -> ExitCode {
         out,
         "Run by:    {}",
         if kind == "lint" {
-            "vsg-rs lint (or --check style,lint)"
+            "speja lint (or --check style,lint)"
         } else {
-            "vsg-rs (the default layer)"
+            "speja (the default layer)"
         }
     );
     let _ = writeln!(
@@ -1369,13 +1369,13 @@ fn fix_options(args: &Args) -> Result<FixOptions, String> {
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct Index {
     project: Option<Project>,
-    design: Option<vsg_rs::analysis::elaborate::Design>,
+    design: Option<speja::analysis::elaborate::Design>,
 }
 
 fn index_of(files: &[PathBuf], style: bool, lint: bool) -> Index {
     Index {
         project: style.then(|| project(files)),
-        design: lint.then(|| vsg_rs::analysis::elaborate::design(files)),
+        design: lint.then(|| speja::analysis::elaborate::design(files)),
     }
 }
 
@@ -1433,7 +1433,7 @@ fn check_local_rules(
                 rule: finding.rule,
                 severity: finding.severity,
                 message: finding.message,
-                // A VSG rule plugin reports; vsg-rs does not know how to fix what it found.
+                // A VSG rule plugin reports; speja does not know how to fix what it found.
                 fixable: false,
                 related: Vec::new(),
                 fix: Vec::new(),
@@ -1447,7 +1447,7 @@ fn check_local_rules(
 }
 
 /// Set in worker processes (see [`in_workers`]).
-const WORKER_ENV: &str = "VSG_RS_WORKER";
+const WORKER_ENV: &str = "SPEJA_WORKER";
 
 /// Check the files at `indices`, in parallel.
 fn process(
@@ -1574,11 +1574,11 @@ struct PerFile {
 /// The per-file half of the lint layer: everything that needs only this file plus the design-wide
 /// port table. Runs in a worker process, so the parser's global token interner is not shared.
 fn lint_files(
-    sources: &[vsg_rs::analysis::lint::Source],
+    sources: &[speja::analysis::lint::Source],
     indices: &[usize],
-    design: &vsg_rs::analysis::elaborate::Design,
+    design: &speja::analysis::elaborate::Design,
     lint_cfg: &Config,
-    kind_sources: &vsg_rs::analysis::testbench::Kinds,
+    kind_sources: &speja::analysis::testbench::Kinds,
 ) -> Result<Vec<PerFile>, String> {
     // Testbench code gets the `testbench` rule block, hardware the `rtl` one. There are only ever
     // those two, so they are resolved once rather than per file -- including the naming patterns
@@ -1586,7 +1586,7 @@ fn lint_files(
     // reported before any file is read.
     let settings_for = |kind| {
         let cfg = lint_cfg.for_kind(kind);
-        vsg_rs::analysis::naming_rules(&cfg).map(|naming| (cfg, naming))
+        speja::analysis::naming_rules(&cfg).map(|naming| (cfg, naming))
     };
     let (rtl, testbench) = (settings_for("rtl")?, settings_for("testbench")?);
     Ok(indices
@@ -1607,26 +1607,26 @@ fn lint_files(
                     }
                 },
             };
-            let parsed = vsg_rs::Parsed::new(source);
+            let parsed = speja::Parsed::new(source);
             if !parsed.syntax_errors().is_empty() {
                 return PerFile {
                     kind: None,
                     found: Vec::new(),
                 };
             }
-            let reason = vsg_rs::analysis::testbench::classify(&parsed, file, kind_sources);
+            let reason = speja::analysis::testbench::classify(&parsed, file, kind_sources);
             let (cfg, naming) = if reason.is_some() { &testbench } else { &rtl };
-            let wiring = vsg_rs::analysis::elaborate::undriven(&parsed, file, &design.entities)
+            let wiring = speja::analysis::elaborate::undriven(&parsed, file, &design.entities)
                 .into_iter()
-                .chain(vsg_rs::analysis::elaborate::interfaces(
+                .chain(speja::analysis::elaborate::interfaces(
                     &parsed,
                     file,
                     &design.entities,
                 ))
-                .chain(vsg_rs::analysis::elaborate::configurations(
+                .chain(speja::analysis::elaborate::configurations(
                     &parsed, file, design,
                 ));
-            let found = vsg_rs::analysis::per_file(&parsed, file, naming, &cfg.synchronizers)
+            let found = speja::analysis::per_file(&parsed, file, naming, &cfg.synchronizers)
                 .into_iter()
                 .chain(wiring)
                 .filter_map(|f| {
@@ -1674,7 +1674,7 @@ fn run_worker(files: &[PathBuf], cfg: &Config, args: &Args, mut options: FixOpti
     #[derive(serde::Deserialize)]
     struct LintRequest {
         indices: Vec<usize>,
-        design: vsg_rs::analysis::elaborate::Design,
+        design: speja::analysis::elaborate::Design,
         /// The configuration files the lint layer reads, already in merge order, so a worker
         /// resolves exactly the configuration the parent would have.
         configuration: Vec<PathBuf>,
@@ -1700,14 +1700,14 @@ fn run_worker(files: &[PathBuf], cfg: &Config, args: &Args, mut options: FixOpti
                 }
             }
         };
-        let kind_sources = vsg_rs::analysis::testbench::Kinds {
+        let kind_sources = speja::analysis::testbench::Kinds {
             patterns: &cfg.testbench_files,
             libraries: &cfg.testbench_libraries,
             of_file: &lint.libraries,
         };
-        let sources: Vec<vsg_rs::analysis::lint::Source> = files
+        let sources: Vec<speja::analysis::lint::Source> = files
             .iter()
-            .map(vsg_rs::analysis::lint::Source::file)
+            .map(speja::analysis::lint::Source::file)
             .collect();
         match lint_files(
             &sources,
@@ -1748,12 +1748,12 @@ fn run_worker(files: &[PathBuf], cfg: &Config, args: &Args, mut options: FixOpti
 }
 
 pub(crate) fn main(command_line: &[String]) -> ExitCode {
-    // `vsg-rs lsp` serves a language server instead of checking files. As with `lint`, a file of
+    // `speja lsp` serves a language server instead of checking files. As with `lint`, a file of
     // that name still wins, so no VSG command line changes meaning.
     if command_line.get(1).is_some_and(|a| a == "lsp") && !Path::new("lsp").exists() {
         return crate::lsp::serve();
     }
-    // `vsg-rs mcp` answers the same questions to a coding agent over the Model Context Protocol.
+    // `speja mcp` answers the same questions to a coding agent over the Model Context Protocol.
     if command_line.get(1).is_some_and(|a| a == "mcp") && !Path::new("mcp").exists() {
         return crate::mcp::serve();
     }
@@ -1764,7 +1764,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     };
     if args.version {
         println!(
-            "vsg-rs version: {} (VHDL Style Guide (VSG) 3.35 compatible)",
+            "speja version: {} (VHDL Style Guide (VSG) 3.35 compatible)",
             env!("CARGO_PKG_VERSION")
         );
         return ExitCode::SUCCESS;
@@ -1810,7 +1810,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     }
     let mut files: Vec<PathBuf> = args.filename.clone();
     files.extend(args.positional.iter().cloned());
-    // Without -c, a vsg-rs.yaml (or .json) next to the input or in a parent directory is used.
+    // Without -c, a speja.yaml (or .json) next to the input or in a parent directory is used.
     let configuration = if args.configuration.is_empty() {
         let near = if args.stdin {
             args.stdin_filename.clone()
@@ -1822,7 +1822,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
             .and_then(|p| p.parent().map(Path::to_path_buf))
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default();
-        vsg_rs::config::discover(&dir).into_iter().collect()
+        speja::config::discover(&dir).into_iter().collect()
     } else {
         args.configuration.clone()
     };
@@ -1837,11 +1837,11 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     let local_rules_dir = cfg.local_rules.clone().or_else(|| {
         args.local_rules
             .as_deref()
-            .map(|d| vsg_rs::config::expand_path(&d.to_string_lossy()))
+            .map(|d| speja::config::expand_path(&d.to_string_lossy()))
     });
     let local_rule_setting = |w: &&String| {
         local_rules_dir.is_some()
-            && w.ends_with("is not implemented by vsg-rs; its settings are ignored")
+            && w.ends_with("is not implemented by speja; its settings are ignored")
     };
     for w in cfg
         .warnings
@@ -1879,7 +1879,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     };
     if !args.stdin {
         for (pattern, source) in &cfg.file_list {
-            let found = vsg_rs::config::expand_pattern(pattern);
+            let found = speja::config::expand_pattern(pattern);
             if found.is_empty() {
                 println!(
                     "ERROR: Could not find file {pattern} in configuration file {}",
@@ -1894,7 +1894,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
                 .into_iter()
                 .flat_map(|f| {
                     if f.is_dir() {
-                        vsg_rs::config::vhdl_files(&f)
+                        speja::config::vhdl_files(&f)
                     } else {
                         vec![f]
                     }
@@ -1931,7 +1931,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
         },
         None => None,
     };
-    // With --fix, the local rules fix copies of the files first; vsg-rs continues from them.
+    // With --fix, the local rules fix copies of the files first; speja continues from them.
     let mut sources: Vec<Option<PathBuf>> = vec![None; files.len()];
     if let Some(local) = local.as_ref().filter(|_| args.fix && !args.stdin) {
         let copies: Vec<(usize, PathBuf)> = files
@@ -1960,7 +1960,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
     // Several files are read together: the style layer checks uses of package declarations and
     // entity interfaces across files, and the lint layer needs every entity's port modes. Both
     // come from one parse per file, in the workers, so neither costs a pass of its own.
-    let mut design = vsg_rs::analysis::elaborate::Design::default();
+    let mut design = speja::analysis::elaborate::Design::default();
     if !args.stdin && files.len() > 1 {
         let start = std::time::Instant::now();
         let request = |chunk: &[usize]| serde_json::json!({ "index": chunk });
@@ -2079,33 +2079,33 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
         // What the lint layer is about: the files named on the command line, or the one buffer
         // `--stdin` supplied. A buffer is analysed as itself, not as whatever is on disk under
         // its name, which is what an editor needs and what `--stdin` always implied.
-        let sources: Vec<vsg_rs::analysis::lint::Source> = if args.stdin {
+        let sources: Vec<speja::analysis::lint::Source> = if args.stdin {
             let path = args
                 .stdin_filename
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("stdin.vhd"));
-            vec![vsg_rs::analysis::lint::Source::buffer(
+            vec![speja::analysis::lint::Source::buffer(
                 path,
                 stdin_source.clone(),
             )]
         } else {
             files
                 .iter()
-                .map(vsg_rs::analysis::lint::Source::file)
+                .map(speja::analysis::lint::Source::file)
                 .collect()
         };
         // Design checks on our own tree: they need no resolution, so they run per file and
         // survive a file the analyser cannot parse. The port table comes from the index round
         // above; a single input never has one, so it is built here.
         if design.entities.is_empty() && !args.stdin {
-            design = vsg_rs::analysis::elaborate::design(&files);
+            design = speja::analysis::elaborate::design(&files);
         }
         // Whether this index is the project or merely part of it. A `vhdl_ls.toml` says what
         // the project's files are; the index covers it when nothing it names was left out. With
         // no map there is nothing to compare against, so completeness cannot be claimed, and the
         // rules that report something *missing* stay quiet rather than guess.
         design.complete = {
-            let mapped = vsg_rs::analysis::lint::libraries_of_files();
+            let mapped = speja::analysis::lint::libraries_of_files();
             let given: std::collections::BTreeSet<PathBuf> = files
                 .iter()
                 .map(|f| std::fs::canonicalize(f).unwrap_or_else(|_| f.clone()))
@@ -2119,9 +2119,9 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
         let of_file = if cfg.testbench_libraries.is_empty() {
             std::collections::BTreeMap::new()
         } else {
-            vsg_rs::analysis::lint::libraries_of_files()
+            speja::analysis::lint::libraries_of_files()
         };
-        let kind_sources = vsg_rs::analysis::testbench::Kinds {
+        let kind_sources = speja::analysis::testbench::Kinds {
             patterns: &cfg.testbench_files,
             libraries: &cfg.testbench_libraries,
             of_file: &of_file,
@@ -2187,7 +2187,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
                 eprintln!("DEBUG:   {} ({reason})", file.display());
             }
         }
-        match vsg_rs::analysis::lint::analyse(&sources) {
+        match speja::analysis::lint::analyse(&sources) {
             Ok(analysis) => {
                 let mapped = analysis.mapped;
                 let mut held_back = 0usize;
@@ -2205,7 +2205,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
                     if settings.as_ref().is_some_and(|s| !s.enabled) {
                         continue;
                     }
-                    if !mapped && !vsg_rs::analysis::lint::needs_no_library_map(f.rule) {
+                    if !mapped && !speja::analysis::lint::needs_no_library_map(f.rule) {
                         held_back += 1;
                         continue;
                     }
@@ -2236,10 +2236,10 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
                     // The front end's rules, plus the native rules that also read the resolved
                     // project rather than the syntax tree. Counting only the first set would
                     // understate what a missing library map costs.
-                    let inactive = vsg_rs::analysis::lint::rules()
-                        .filter(|rule| !vsg_rs::analysis::lint::needs_no_library_map(rule.id))
+                    let inactive = speja::analysis::lint::rules()
+                        .filter(|rule| !speja::analysis::lint::needs_no_library_map(rule.id))
                         .count()
-                        + vsg_rs::analysis::calls::RULES.len();
+                        + speja::analysis::calls::RULES.len();
                     let findings = if held_back > 0 {
                         format!(", and {held_back} finding(s) of theirs were held back")
                     } else {
@@ -2248,7 +2248,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
                     eprintln!(
                         "WARNING: no vhdl_ls.toml found, so {inactive} of {all} lint rules did \
                          not run{findings}. They need to know which library each file is in; \
-                         see https://vsg-rs.readthedocs.io/en/latest/project-setup/"
+                         see https://speja.readthedocs.io/en/latest/project-setup/"
                     );
                 }
                 if !analysis.unanalysed.is_empty() {
@@ -2468,9 +2468,9 @@ NOTE: Refer to online documentation at https://vhdl-style-guide.readthedocs.io/e
     fn short_options() {
         let args = |a: &[&str]| normalize(a.iter().map(|s| (*s).to_owned()));
         assert_eq!(
-            args(&["vsg-rs", "-fp", "3", "-of", "summary", "-f", "x"]),
+            args(&["speja", "-fp", "3", "-of", "summary", "-f", "x"]),
             [
-                "vsg-rs",
+                "speja",
                 "--fix_phase",
                 "3",
                 "--output_format",
@@ -2480,7 +2480,7 @@ NOTE: Refer to online documentation at https://vhdl-style-guide.readthedocs.io/e
             ]
         );
         let parsed = Args::try_parse_from(args(&[
-            "vsg-rs", "-f", "a.vhd", "b.vhd", "-js", "o.json", "-ap", "--fix",
+            "speja", "-f", "a.vhd", "b.vhd", "-js", "o.json", "-ap", "--fix",
         ]))
         .unwrap();
         assert_eq!(parsed.filename.len(), 2);

@@ -1,4 +1,4 @@
-"""``python -m vsg_rs``: run the bundled ``vsg-rs`` executable."""
+"""``python -m speja``: run the bundled ``speja`` executable."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ import os
 import subprocess
 import sys
 
-from vsg_rs import find_vsg_rs_bin
+from speja import find_speja_bin
 
 
 def main() -> int:
-    exe = find_vsg_rs_bin()
+    exe = find_speja_bin()
     if sys.platform == "win32":
         # `exec` does not replace the process on Windows; forward the exit code instead.
         return subprocess.run([exe, *sys.argv[1:]], check=False).returncode

@@ -12,7 +12,7 @@
 //! -- there is no reading under which the program carries on. Both simulators agree, and both
 //! say it at analysis rather than waiting for the run: GHDL reports "static expression violates
 //! bounds" and NVC "array X index 8 outside of NATURAL range 7 downto 0". The VHDL front end
-//! vsg-rs uses reports neither, which is why this rule exists.
+//! speja uses reports neither, which is why this rule exists.
 //!
 //! Only the exact case is reported: the object's range is written as integer literals and the
 //! index is an integer literal. A range mentioning a generic is not evaluated, an index that is

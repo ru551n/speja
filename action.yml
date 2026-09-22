@@ -1,5 +1,5 @@
-name: vsg-rs
-description: Check VHDL style with vsg-rs (VSG-compatible), with annotations, suggested changes, a pull request summary and optional code scanning upload.
+name: speja
+description: Check VHDL style with speja (VSG-compatible), with annotations, suggested changes, a pull request summary and optional code scanning upload.
 author: ru551n
 branding:
   icon: check-square
@@ -7,13 +7,13 @@ branding:
 
 inputs:
   args:
-    description: 'Arguments for vsg-rs (VSG''s command line), for example `-c vsg.yaml --recursive src`.'
+    description: 'Arguments for speja (VSG''s command line), for example `-c vsg.yaml --recursive src`.'
     default: --recursive .
   version:
-    description: 'vsg-rs release to use (`v0.11.0`, or `latest`). By default, the release of the action''s own tag, else the latest release.'
+    description: 'speja release to use (`v0.13.0`, or `latest`). By default, the release of the action''s own tag, else the latest release.'
     default: ""
   working-directory:
-    description: 'Directory to run vsg-rs in, relative to the repository root.'
+    description: 'Directory to run speja in, relative to the repository root.'
     default: .
   annotations:
     description: 'Show findings as annotations: `changed` (on pull requests, only on lines the pull request adds or changes), `true` (all) or `false`. GitHub shows at most 10 errors and 10 warnings per step.'
@@ -28,7 +28,7 @@ inputs:
     description: 'Upload the findings to GitHub code scanning. The job needs `permissions: security-events: write`.'
     default: "false"
   fail-on-violations:
-    description: 'Fail the step when vsg-rs exits with an error (error-severity violations, files that could not be checked).'
+    description: 'Fail the step when speja exits with an error (error-severity violations, files that could not be checked).'
     default: "true"
   token:
     description: 'Token used to download the release.'
@@ -36,19 +36,19 @@ inputs:
 
 outputs:
   exit-code:
-    description: 'The exit code of vsg-rs.'
+    description: 'The exit code of speja.'
     value: ${{ steps.run.outputs.exit-code }}
   sarif-file:
     description: 'Path of the SARIF report (paths relative to the repository root).'
     value: ${{ steps.run.outputs.sarif-file }}
   version:
-    description: 'The vsg-rs release that was used.'
+    description: 'The speja release that was used.'
     value: ${{ steps.install.outputs.version }}
 
 runs:
   using: composite
   steps:
-    - name: Install vsg-rs
+    - name: Install speja
       id: install
       shell: bash
       env:
@@ -62,7 +62,7 @@ runs:
           if [[ "$ACTION_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then version="$ACTION_REF"; else version=latest; fi
         fi
         if [ "$version" = latest ]; then
-          version=$(gh release view --repo ru551n/vsg-rs --json tagName --jq .tagName)
+          version=$(gh release view --repo ru551n/speja --json tagName --jq .tagName)
         fi
         case "$RUNNER_OS-$RUNNER_ARCH" in
           Linux-X64) target=x86_64-unknown-linux-musl ext=tar.gz ;;
@@ -71,20 +71,20 @@ runs:
           macOS-X64) target=x86_64-apple-darwin ext=tar.gz ;;
           Windows-X64) target=x86_64-pc-windows-msvc ext=zip ;;
           Windows-ARM64) target=aarch64-pc-windows-msvc ext=zip ;;
-          *) echo "::error::vsg-rs has no binary for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+          *) echo "::error::speja has no binary for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
         esac
-        name="vsg-rs-$version-$target"
-        dir="$RUNNER_TEMP/vsg-rs-$version"
+        name="speja-$version-$target"
+        dir="$RUNNER_TEMP/speja-$version"
         mkdir -p "$dir"
         cd "$dir"
-        gh release download "$version" --repo ru551n/vsg-rs --pattern "$name.$ext" --pattern SHA256SUMS --clobber
+        gh release download "$version" --repo ru551n/speja --pattern "$name.$ext" --pattern SHA256SUMS --clobber
         grep " $name.$ext\$" SHA256SUMS > check.txt
         if command -v sha256sum > /dev/null; then sha256sum -c check.txt; else shasum -a 256 -c check.txt; fi
         if [ "$ext" = zip ]; then 7z x -y "$name.zip" > /dev/null; else tar xzf "$name.tar.gz"; fi
         if [ "$RUNNER_OS" = Windows ]; then cygpath -w "$dir/$name"; else echo "$dir/$name"; fi >> "$GITHUB_PATH"
         echo "version=$version" >> "$GITHUB_OUTPUT"
 
-    - name: Run vsg-rs
+    - name: Run speja
       id: run
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -96,20 +96,20 @@ runs:
         WORKDIR: ${{ inputs.working-directory }}
         GITHUB_TOKEN: ${{ inputs.token }}
       run: |
-        sarif="$RUNNER_TEMP/vsg-rs.sarif"
+        sarif="$RUNNER_TEMP/speja.sarif"
         set +e
         # Word splitting of the arguments is intended.
         # shellcheck disable=SC2086
-        vsg-rs $ARGS --sarif "$sarif"
+        speja $ARGS --sarif "$sarif"
         code=$?
         set -e
         echo "exit-code=$code" >> "$GITHUB_OUTPUT"
         echo "sarif-file=$sarif" >> "$GITHUB_OUTPUT"
         extra=()
         if [ "$LAYOUT" = suggestions ] && [[ "$GITHUB_EVENT_NAME" == pull_request* ]]; then
-          diff="$RUNNER_TEMP/vsg-rs.diff"
+          diff="$RUNNER_TEMP/speja.diff"
           # shellcheck disable=SC2086
-          vsg-rs $ARGS --fix --diff > "$diff" 2> /dev/null || true
+          speja $ARGS --fix --diff > "$diff" 2> /dev/null || true
           extra=(--diff "$diff")
         fi
         python=$(command -v python3 || command -v python || true)
@@ -124,7 +124,7 @@ runs:
       uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
       with:
         sarif_file: ${{ steps.run.outputs.sarif-file }}
-        category: vsg-rs
+        category: speja
 
     - name: Result
       if: inputs.fail-on-violations == 'true'
@@ -133,6 +133,6 @@ runs:
         CODE: ${{ steps.run.outputs.exit-code }}
       run: |
         if [ "$CODE" != 0 ]; then
-          echo "::error::vsg-rs found violations (exit code $CODE)"
+          echo "::error::speja found violations (exit code $CODE)"
           exit 1
         fi

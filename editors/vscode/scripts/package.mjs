@@ -8,7 +8,7 @@
 //   node scripts/package.mjs --binaries <dir> [--target <vscode-target>]
 //
 // `<dir>` holds the release binaries, named as the release publishes them:
-// `vsg-rs-<tag>-<rust-target>[.exe]`, or plain `vsg-rs`/`vsg-rs.exe` in a per-target subdirectory.
+// `speja-<tag>-<rust-target>[.exe]`, or plain `speja`/`speja.exe` in a per-target subdirectory.
 
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readdirSync, rmSync } from "node:fs";
@@ -32,12 +32,12 @@ function argument(name) {
 /**
  * The server built for `rustTarget`, wherever the caller put it.
  *
- * The release publishes archives that unpack to `vsg-rs-<tag>-<target>/vsg-rs`, so the target is
+ * The release publishes archives that unpack to `speja-<tag>-<target>/speja`, so the target is
  * in a directory name rather than in the file name. Searching the tree covers that as well as a
- * plain `<target>/vsg-rs`, or a file with the target in its own name.
+ * plain `<target>/speja`, or a file with the target in its own name.
  */
 function findServer(directory, rustTarget) {
-  const wanted = rustTarget.includes("windows") ? "vsg-rs.exe" : "vsg-rs";
+  const wanted = rustTarget.includes("windows") ? "speja.exe" : "speja";
   const found = [];
   const walk = (at) => {
     for (const entry of readdirSync(at, { withFileTypes: true })) {
@@ -77,7 +77,7 @@ for (const [target, rustTarget] of Object.entries(TARGETS)) {
   // One binary at a time, so a VSIX never carries a server for another platform.
   rmSync(serverDirectory, { recursive: true, force: true });
   mkdirSync(serverDirectory, { recursive: true });
-  const name = target.startsWith("win32") ? "vsg-rs.exe" : "vsg-rs";
+  const name = target.startsWith("win32") ? "speja.exe" : "speja";
   cpSync(server, join(serverDirectory, name));
   execFileSync(
     process.execPath,

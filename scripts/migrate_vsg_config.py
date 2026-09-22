@@ -2,7 +2,7 @@
 """Rewrite a VSG configuration written for 3.2x so that VSG 3.35 accepts it.
 
 VSG 3.35 refuses to load a configuration that names a rule it has since renamed or merged, and
-vsg-rs ignores those settings, so the successor rule runs at its default instead. Either way the
+speja ignores those settings, so the successor rule runs at its default instead. Either way the
 project is no longer linted the way it believes it is.
 
     python3 scripts/migrate_vsg_config.py old.yml > new.yml

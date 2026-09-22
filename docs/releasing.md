@@ -1,13 +1,13 @@
 # Releasing
 
-vsg-rs is distributed on PyPI as `vsg-rs`. The wheels contain the `vsg-rs` executable (installed
-into the environment's scripts directory, so it is on `PATH`) and a small `vsg_rs` Python module
-(`python -m vsg_rs ...`, `vsg_rs.find_vsg_rs_bin()`). The wheels do not depend on the Python
+speja is distributed on PyPI as `speja`. The wheels contain the `speja` executable (installed
+into the environment's scripts directory, so it is on `PATH`) and a small `speja` Python module
+(`python -m speja ...`, `speja.find_speja_bin()`). The wheels do not depend on the Python
 version (`py3-none-<platform>`); they are tested on Python 3.10 and 3.14 (the oldest and newest supported).
 
 ```sh
-pip install vsg-rs      # or: uv tool install vsg-rs / pipx install vsg-rs
-vsg-rs --version
+pip install speja      # or: uv tool install speja / pipx install speja
+speja --version
 ```
 
 ## Platforms
@@ -26,17 +26,17 @@ vsg-rs --version
 
 ## Standalone binaries
 
-Each GitHub release also has archives with just the `vsg-rs` executable (plus README and
+Each GitHub release also has archives with just the `speja` executable (plus README and
 licenses), and a `SHA256SUMS` file:
 
 | Archive | Platform |
 |---|---|
-| `vsg-rs-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz` | Linux x86_64, static |
-| `vsg-rs-vX.Y.Z-aarch64-unknown-linux-musl.tar.gz` | Linux aarch64, static |
-| `vsg-rs-vX.Y.Z-x86_64-pc-windows-msvc.zip` | Windows x64 |
-| `vsg-rs-vX.Y.Z-aarch64-pc-windows-msvc.zip` | Windows arm64 |
-| `vsg-rs-vX.Y.Z-aarch64-apple-darwin.tar.gz` | macOS arm64 |
-| `vsg-rs-vX.Y.Z-x86_64-apple-darwin.tar.gz` | macOS x86_64 |
+| `speja-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz` | Linux x86_64, static |
+| `speja-vX.Y.Z-aarch64-unknown-linux-musl.tar.gz` | Linux aarch64, static |
+| `speja-vX.Y.Z-x86_64-pc-windows-msvc.zip` | Windows x64 |
+| `speja-vX.Y.Z-aarch64-pc-windows-msvc.zip` | Windows arm64 |
+| `speja-vX.Y.Z-aarch64-apple-darwin.tar.gz` | macOS arm64 |
+| `speja-vX.Y.Z-x86_64-apple-darwin.tar.gz` | macOS x86_64 |
 
 ## The VSG version a release targets
 
@@ -44,7 +44,7 @@ Every release states it, because the rule set, the configuration keys and the re
 one VSG version's. Before tagging:
 
 1. The top of `CHANGELOG.md` says **Targets VSG X.Y.Z** for the release being cut.
-2. `vsg-rs --version` prints the same version (`src/vsg_cli.rs`).
+2. `speja --version` prints the same version (`src/vsg_cli.rs`).
 3. The pinned jobs in `.github/workflows/compatibility.yml` install that version.
 
 The `latest` job in that workflow installs whatever VSG released most recently and prints both
@@ -61,7 +61,7 @@ written for the older one may not load (see `scripts/migrate_vsg_config.py`).
    (Linux targets with `cargo zigbuild`); native binaries are run once;
 3. installs each Linux x86_64, Windows x64 and macOS arm64 wheel into Python 3.10 and 3.14,
    and builds the sdist on Linux and Windows. Each installation runs `python/tests/smoke.py`
-   (console script, `python -m vsg_rs`, stdin formatting, error handling, linting, fixing with
+   (console script, `python -m speja`, stdin formatting, error handling, linting, fixing with
    CRLF line endings);
 4. on tags only: publishes to PyPI with trusted publishing, and creates a GitHub release with
    the wheels, the sdist, the binary archives and `SHA256SUMS` attached, with build provenance
@@ -73,7 +73,7 @@ Manual runs (`gh workflow run release.yml`) and pull requests that touch the pac
 
 ## crates.io
 
-vsg-rs is not on crates.io yet: crates.io does not accept git dependencies, and vsg-rs needs
+speja is not on crates.io yet: crates.io does not accept git dependencies, and speja needs
 `vhdl_syntax` fixes that are newer than its 0.2.0 release (see `vhdl-frontend.md`). When a
 `vhdl_syntax` release contains them, switch `Cargo.toml` to that version, create an API token
 on crates.io and publish with `cargo publish` (afterwards, crates.io trusted publishing can
@@ -97,8 +97,8 @@ in the `msrv` job), and the runner images (`ubuntu-latest` and friends).
 
 ## One-time setup
 
-1. On PyPI, add a *trusted publisher* for the project `vsg-rs`: owner `ru551n`, repository
-   `vsg-rs`, workflow `release.yml`, environment `pypi` (a "pending publisher" can be created
+1. On PyPI, add a *trusted publisher* for the project `speja`: owner `ru551n`, repository
+   `speja`, workflow `release.yml`, environment `pypi` (a "pending publisher" can be created
    before the first upload).
 2. In the GitHub repository settings, create the environment `pypi` (optionally with required
    reviewers).
@@ -110,7 +110,7 @@ No API tokens are stored in the repository.
 ```sh
 # 1. bump `version` in Cargo.toml, run `cargo check` to update Cargo.lock
 # 2. commit and push to main; wait for CI
-git tag -a vX.Y.Z -m "vsg-rs X.Y.Z"
+git tag -a vX.Y.Z -m "speja X.Y.Z"
 git push origin vX.Y.Z
 gh run watch   # follow the Release workflow
 ```

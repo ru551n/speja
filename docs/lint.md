@@ -1,6 +1,6 @@
 # Static analysis
 
-The root command is VSG's: style rules, applied per file, byte-identical reports. `vsg-rs lint`
+The root command is VSG's: style rules, applied per file, byte-identical reports. `speja lint`
 runs the other layer.
 
 **A default run reports definite errors.** Every finding follows from the source and the
@@ -9,7 +9,7 @@ reported because it looks unusual, because it is probably a mistake, or because 
 downstream would refuse it.
 
 That is a promise about your attention. A finding is something to correct rather than something
-to weigh up, so an empty report means vsg-rs found nothing it can prove, and a report with one
+to weigh up, so an empty report means speja found nothing it can prove, and a report with one
 line in it means it found something real.
 
 Rules that answer broader questions — whether a declaration is used, whether a state can be
@@ -19,9 +19,9 @@ on what you meant rather than on what the language requires. See
 [asking for more](#asking-for-more).
 
 ```sh
-vsg-rs --recursive src                          # style
-vsg-rs lint --recursive src                     # static analysis
-vsg-rs --recursive src --check style,lint       # both in one run
+speja --recursive src                          # style
+speja lint --recursive src                     # static analysis
+speja --recursive src --check style,lint       # both in one run
 ```
 
 `lint` is a subcommand only when it is the first argument and no file of that name exists, so a
@@ -54,7 +54,7 @@ connections between design units.
 
 ## The principle
 
-**vsg-rs reports what it can derive. Where the source does not say something outright, it
+**speja reports what it can derive. Where the source does not say something outright, it
 generally reports nothing rather than guessing.**
 
 That is a deliberate trade. A tool that guesses produces findings that are individually plausible
@@ -63,7 +63,7 @@ measured against three real code bases — an FPGA accelerator, VUnit and open-l
 report **zero** findings on all of them before being added, unless a finding was confirmed real.
 A rule that cannot reach zero is either not shipped or narrowed until it can.
 
-The consequence is that vsg-rs under-reports. `lint_740` compares vector widths only when both
+The consequence is that speja under-reports. `lint_740` compares vector widths only when both
 sides are whole objects with literal ranges, so most parameterised RTL is out of its reach.
 `lint_700` accepts a single-stage synchroniser although two stages are the usual requirement. In
 both cases the alternative was a rule that fires on correct code.
@@ -124,7 +124,7 @@ group.
 ## Rules
 
 The [rule reference](rule-reference.md) lists every rule with what it reports, grouped by how
-sure it is. `vsg-rs --explain lint_740` prints the same for one rule, and `--list_rules` prints
+sure it is. `speja --explain lint_740` prints the same for one rule, and `--list_rules` prints
 all of them alongside the style rules, each with its class and whether a default run uses it.
 
 !!! important "Most of them need a library map"
@@ -153,7 +153,7 @@ Every finding carries its layer, derived from the rule id so it cannot disagree 
 it. `--fail_on` chooses which layers make the run fail; the rest are still reported:
 
 ```sh
-vsg-rs --recursive src --check style,lint --fail_on lint   # lint gates CI, style only informs
+speja --recursive src --check style,lint --fail_on lint   # lint gates CI, style only informs
 ```
 
 `--fix` belongs to the style layer and is refused without it: a lint finding never carries a fix,
@@ -172,7 +172,7 @@ apply to the lint layer only, so an analysis policy can sit beside a style polic
 it:
 
 ```sh
-vsg-rs --recursive src --check style,lint -c vsg.yaml -lc lint.yaml
+speja --recursive src --check style,lint -c vsg.yaml -lc lint.yaml
 ```
 
 Rules can also be configured per kind of file — see
@@ -188,7 +188,7 @@ exists today, so only new findings are reported from then on.
 
 * [Project setup](project-setup.md) — the library map, and which rules need it
 * [Rule reference](rule-reference.md) — every rule and its evidence
-* [Native rules in detail](native-rules.md) — worked examples for the ten vsg-rs implements
+* [Native rules in detail](native-rules.md) — worked examples for the ten speja implements
 * [CLI reference](cli.md) — every option, generated from the binary
 * [Waivers](waivers.md) — accepting known findings
 * [Report formats](reports.md) — getting findings into CI

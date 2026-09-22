@@ -726,7 +726,7 @@ fn clock_style(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violatio
                 },
             );
             // The forms differ for transitions from and to metavalues ('X', 'H', 'L'); VSG
-            // applies this fix when the rule is enabled, so vsg-rs does too.
+            // applies this fix when the rule is enabled, so speja does too.
             v.fix = fix(
                 FixSafety::Safe,
                 vec![edit(

@@ -218,7 +218,7 @@ jobs:
           name: coverage
           path: lcov.info
 
-  # Changes to the public library API against the base branch. Reported, not enforced: vsg-rs
+  # Changes to the public library API against the base branch. Reported, not enforced: speja
   # is still 0.x, and the API may change with a minor version.
   semver:
     needs: changes
@@ -264,7 +264,7 @@ jobs:
           git checkout -
       - run: python3 scripts/compare_bench.py base.txt head.txt
 
-  # Whether vsg-rs can run inside an airgap is a question with an answer, not a promise: the
+  # Whether speja can run inside an airgap is a question with an answer, not a promise: the
   # binary is exercised with no network at all, and traced to show it does not even try to open
   # a socket. See docs/airgapped.md.
   airgap:
@@ -298,7 +298,7 @@ jobs:
       # remote host. Anything that can address one fails the job.
       - name: The binary imports no symbol that can reach a host
         run: |
-          if nm -D target/release/vsg-rs \
+          if nm -D target/release/speja \
             | grep -E ' U (socket|connect|bind|listen|accept|sendto|recvfrom|getaddrinfo|gethostbyname)@'; then
             echo "The binary imports a symbol that can reach a network."
             exit 1
@@ -317,7 +317,7 @@ jobs:
             if timeout 5 bash -c "exec 3<>/dev/tcp/1.1.1.1/53" 2>/dev/null; then
               echo "the network is still reachable"; exit 1
             fi
-            bin=target/release/vsg-rs
+            bin=target/release/speja
             "$bin" --version
             "$bin" --check style,lint dut.vhd
             "$bin" --fix --diff dut.vhd > /dev/null
@@ -332,7 +332,7 @@ jobs:
       - name: It does not even try to open a socket
         run: |
           strace -f -qq -e trace=%network -o net.log \
-            target/release/vsg-rs --check style,lint dut.vhd || true
+            target/release/speja --check style,lint dut.vhd || true
           if grep -vE 'socketpair|^\+\+\+|^---|unfinished|resumed' net.log | grep -q .; then
             echo "The run made a network syscall:"
             cat net.log

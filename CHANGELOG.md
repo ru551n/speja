@@ -1,7 +1,28 @@
 # Changelog
 
 Every release says which version of VSG it targets: the rule set, the configuration and the
-reports are that version's. `vsg-rs --version` prints the same thing.
+reports are that version's. `speja --version` prints the same thing.
+
+## 0.13.0
+
+**Targets VSG 3.35.**
+
+* **The project is now called speja.** Everything the old name reached has moved with it: the
+  executable is `speja`, the package on PyPI is `speja`, the configuration file is `speja.yaml`
+  or `.speja.yaml`, the waiver file is `speja-waivers.yaml`, the VS Code settings and commands
+  are `speja.*`, the GitHub Action is `ru551n/speja`, and the documentation is at
+  speja.readthedocs.io.
+
+    **What this asks of you.** Rename your configuration file and your waiver file, install the
+    new package, and remove the old one. `pip install vsg-rs` keeps working but stops receiving
+    releases at 0.12.0, and the two packages install executables of different names, so they can
+    sit side by side while you move.
+
+    **What did not change.** The rules, their ids, the configuration format, the report formats
+    and the VSG compatibility are all exactly as they were in 0.12.0. `speja` accepts the same
+    command line as `vsg-rs` did and produces the same output, so a pipeline only needs the name
+    changed. Every release up to and including 0.12.0 was published as `vsg-rs`, and the entries
+    below describe that tool under its present name.
 
 ## 0.12.0
 
@@ -10,8 +31,8 @@ reports are that version's. `vsg-rs --version` prints the same thing.
 * **Waive a finding from the editor.** The language server offers to waive a finding on its line,
   in its file or everywhere, asks why, and writes the entry to the project's waiver file. It also
   reads that file, so a finding the project has already accepted is no longer underlined. The file
-  is `vsg-rs-waivers.yaml`, found by walking up from the source and created at the workspace root
-  when a project has none; `vsg-rs.waiverFile` names it in VS Code.
+  is `speja-waivers.yaml`, found by walking up from the source and created at the workspace root
+  when a project has none; `speja.waiverFile` names it in VS Code.
 * **Sort library and use clauses**, as `source.organizeImports`: `ieee` and `std` first, then
   alphabetical, then `work` last, with the `use` clauses sorted inside each library. Whole lines
   are moved and none is rewritten, so comments travel with their clauses, and nothing is offered
@@ -22,10 +43,10 @@ reports are that version's. `vsg-rs --version` prints the same thing.
   Dogrun, Unokai, Blue Moon, VS Code Dark+, Dracula, Koda Moss and PaperColor. Each is the
   scheme's own palette applied to the VHDL grammar and to VHDL-LS's semantic tokens, generated
   from one table that records where every colour came from.
-* **Choose which vsg-rs the VS Code extension runs**: the server bundled with the extension (the
-  default), `vsg-rs` from `PATH`, or an executable you name, with `vsg-rs.server.mode` and
-  `vsg-rs.server.path`. Changing either restarts the server, so a local build needs only
-  *vsg-rs: Restart Server*.
+* **Choose which speja the VS Code extension runs**: the server bundled with the extension (the
+  default), `speja` from `PATH`, or an executable you name, with `speja.server.mode` and
+  `speja.server.path`. Changing either restarts the server, so a local build needs only
+  *speja: Restart Server*.
 * **Editing actions in the VS Code extension**, built on VHDL-LS: instantiate an entity, from a
   picker or as a completion, naming its library and adding the library clause the name needs;
   declare the signals a port map needs; create a state machine from an enumeration type; add a
@@ -53,7 +74,7 @@ reports are that version's. `vsg-rs --version` prints the same thing.
 * **The lint layer reports definite errors by default.** *This changes what a default run
   reports.* Every rule now states how sure it is, and only those that can show a program cannot
   do what it says run unless you ask for more. A finding from a default run is something to
-  correct rather than something to weigh up, and an empty report means vsg-rs proved nothing
+  correct rather than something to weigh up, and an empty report means speja proved nothing
   rather than that it merely stayed quiet.
 
     Rules that report something legal VHDL allows, and that may well be meant, moved to **off
@@ -80,10 +101,10 @@ reports are that version's. `vsg-rs --version` prints the same thing.
     The class also decides how a finding is filed: only a definite error is a SonarQube **bug**,
     so an advisory rule you switched on arrives as a code smell rather than claiming the design
     is broken. `--list_rules` prints each rule's class and whether a default run uses it, and the
-    [rule reference](https://vsg-rs.readthedocs.io/en/latest/rule-reference/) is grouped by the
+    [rule reference](https://speja.readthedocs.io/en/latest/rule-reference/) is grouped by the
     same thing, and all of them read one registry, so they cannot drift apart.
 
-* **An MCP server.** `vsg-rs mcp` answers the same questions to a coding agent that the language
+* **An MCP server.** `speja mcp` answers the same questions to a coding agent that the language
   server answers to an editor, over the Model Context Protocol, from the same library entry
   points. Three tools: `lint`, `format` and `explain_rule`. `lint` and `format` take either a
   path or a buffer, and a buffer is source that is not a file yet, so an agent can check what it
@@ -96,14 +117,14 @@ reports are that version's. `vsg-rs --version` prints the same thing.
   told by whoever wrote the prompt:
 
     ```text
-    /plugin marketplace add ru551n/vsg-rs
-    /plugin install vsg-rs@vsg-rs
+    /plugin marketplace add ru551n/speja
+    /plugin install speja@speja
     ```
 
     It carries the `vsg` skill, which says to check the files that changed rather than the tree,
     that anything a default run reports is a definite error, and that a run warning about a
     missing library map has not called the file clean. It registers the MCP server as well.
-    `vsg-rs` itself still has to be on `PATH`.
+    `speja` itself still has to be on `PATH`.
 
 * **New rules.** These report something that cannot work, and run by default:
 
@@ -135,7 +156,7 @@ reports are that version's. `vsg-rs --version` prints the same thing.
   layer without saying so; findings after a tab were pointed at the wrong column; and a file
   reached through a symlink was analysed as though it belonged to no library.
 
-* **A language server.** `vsg-rs lsp` serves diagnostics, quick fixes and formatting over LSP,
+* **A language server.** `speja lsp` serves diagnostics, quick fixes and formatting over LSP,
   from the same library the command line uses: the same parser, formatter, analysis and
   configuration, so an editor and CI cannot disagree. It is deliberately narrow and does not
   advertise completion, hover, definition, references, rename or symbols: those belong to a VHDL
@@ -148,7 +169,7 @@ reports are that version's. `vsg-rs --version` prints the same thing.
   editor settings.
 * **Analysis runs on buffers, not only files.** `--stdin --check lint` analyses what it is given,
   in the context of the project its path belongs to, which is what lets an unsaved file be checked
-  at all. The analysis layer moved into the library (`vsg_rs::analysis`), so anything that is not
+  at all. The analysis layer moved into the library (`speja::analysis`), so anything that is not
   the command line can use it.
 * **Findings carry their other locations as data.** A multiply driven signal points at each
   driver and a combinational loop at each signal on it, rather than listing line numbers inside a
@@ -172,7 +193,7 @@ reports are that version's. `vsg-rs --version` prints the same thing.
   reports is certain.
 * `lint_700` reports an unsynchronised clock domain crossing: a register from one clock used in
   logic on another. A plain capture into a flop is read as a synchroniser's first stage, and
-  `vsg_rs: synchronizers` names the entities a crossing may safely pass through.
+  `speja: synchronizers` names the entities a crossing may safely pass through.
 * `lint_710` and `lint_711` read enumerated state machines out of the source and report a state
   nothing can enter and a state nothing can leave, the two checks a netlist is usually thought
   necessary for.
@@ -188,7 +209,7 @@ reports are that version's. `vsg-rs --version` prints the same thing.
 * `--explain RULE` says what a rule checks, which layer runs it, whether it is fixed, and links
   to VSG's documentation for VSG's own rules.
 * A second layer of rules (`docs/lint.md`). The root command stays VSG's, with the same arguments, the same
-  reports and byte-identical output, and `vsg-rs lint ...` runs rules that need names resolved,
+  reports and byte-identical output, and `speja lint ...` runs rules that need names resolved,
   through `vhdl_lang`. `--check style,lint` runs both in one pass.
 * 58 lint rules: sensitivity lists, unused declarations, and the name, type, subprogram and
   association diagnostics `vhdl_lang` produces, each with an id and a description in
@@ -202,9 +223,9 @@ reports are that version's. `vsg-rs --version` prints the same thing.
   and no configuration. `NOTICE` credits the IEEE P1076 WG and rust_hdl sources.
 * Rules that need cross-file resolution wait for a `vhdl_ls.toml`, because unresolved names make
   them meaningless. A lint run without one says how many rules did not run, every time.
-* Testbench and RTL code can carry different lint rules: `vsg_rs: testbench_files` (globs) or
-  `vsg_rs: testbench_libraries` (from `vhdl_ls.toml`) name the testbenches, and
-  `vsg_rs: testbench: rule:` / `vsg_rs: rtl: rule:` hold a rule block each. Without either, a
+* Testbench and RTL code can carry different lint rules: `speja: testbench_files` (globs) or
+  `speja: testbench_libraries` (from `vhdl_ls.toml`) name the testbenches, and
+  `speja: testbench: rule:` / `speja: rtl: rule:` hold a rule block each. Without either, a
   file is classified by its own shape, and `--debug` says which files and why.
 * `--lint_configuration` (`-lc`) takes configuration files applied to the lint layer only.
 * `compact_alignment` is implemented. With it (VSG's default) an aligned column is the narrowest
@@ -212,7 +233,7 @@ reports are that version's. `vsg-rs --version` prints the same thing.
 * The `:=` of generic and port clauses is aligned after the type, as VSG does (`entity_018`); it
   was previously collapsed to one space.
 * `scripts/migrate_vsg_config.py` rewrites a VSG 3.2x configuration to the rule names 3.35 uses.
-* The documentation is published at <https://vsg-rs.readthedocs.io/>. It covers what vsg-rs adds
+* The documentation is published at <https://speja.readthedocs.io/>. It covers what speja adds
   on top of VSG; the rules, their options and the configuration file are VSG's and are linked to
   rather than repeated, so the two cannot drift apart.
 * The weekly compatibility job gains a second corpus, and a comparison against whatever VSG
@@ -232,7 +253,7 @@ reports are that version's. `vsg-rs --version` prints the same thing.
   reported, attributed more precisely.
 * A weekly job measures agreement with VSG 3.35 and writes the per-rule table to the job
   summary (`scripts/compare_vsg.py --markdown`).
-* `vsg_rs: reflow_comments` re-wraps comment paragraphs to the line width (off by default; VSG
+* `speja: reflow_comments` re-wraps comment paragraphs to the line width (off by default; VSG
   has no such rule). Structured comments, directives and formatter-off regions are left alone.
 * `FormatConfig` is `#[non_exhaustive]`: struct literals of it no longer compile outside the
   crate (build one from `FormatConfig::default()` instead), and adding an option is no longer a
@@ -292,7 +313,7 @@ Less noise on pull requests.
 
 ## 0.9.2
 
-* A GitHub Action (`uses: ru551n/vsg-rs@v0.9.2`): downloads the release binary, runs vsg-rs,
+* A GitHub Action (`uses: ru551n/speja@v0.9.2`): downloads the release binary, runs speja,
   shows findings as annotations and in the job summary, and optionally uploads them to code
   scanning. See `docs/github-action.md`.
 * SARIF reports use paths relative to the working directory with `/` separators (as code
@@ -305,10 +326,10 @@ Less noise on pull requests.
 
 ## 0.9.0
 
-* VSG local rules (`-lr DIR`, `local_rules: DIR`) are supported: vsg-rs runs them with an
-  installed VSG (`vsg`, or the command in `VSG_RS_VSG`) with the built-in rules disabled, adds
+* VSG local rules (`-lr DIR`, `local_rules: DIR`) are supported: speja runs them with an
+  installed VSG (`vsg`, or the command in `SPEJA_VSG`) with the built-in rules disabled, adds
   their findings to its report and, with `--fix`, applies their fixes before its own.
-* Settings of rules vsg-rs does not know no longer cause warnings when local rules are used.
+* Settings of rules speja does not know no longer cause warnings when local rules are used.
 * `-oc` includes `local_rules`.
 * Release artifacts get build provenance attestations now that the repository is public.
 
@@ -331,7 +352,7 @@ Command line and distribution.
   files on the command line.
 * `--recursive` checks the VHDL files in directories given as inputs.
 * macOS wheels (arm64 and x86_64) on PyPI.
-* pre-commit hooks `vsg-rs` and `vsg-rs-fix` (`.pre-commit-hooks.yaml`).
+* pre-commit hooks `speja` and `speja-fix` (`.pre-commit-hooks.yaml`).
 * A migration guide from VSG (`docs/migrating-from-vsg.md`), with CI and pre-commit setups.
 
 ## 0.6.0
@@ -361,7 +382,7 @@ Correctness.
   disabled groups, alignment, `indent.tokens`, unsafe fixes) and requires no internal error
   and no change in the second run; it passes on the real-world corpus.
 * `reserved_001` reports declarations only, and `type_mark_500` skips subprogram parameters and
-  protected types (with the comparison against VSG: 12 findings that only vsg-rs reports, down
+  protected types (with the comparison against VSG: 12 findings that only speja reports, down
   from 49).
 
 ## 0.4.0

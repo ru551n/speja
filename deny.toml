@@ -1,5 +1,5 @@
-# cargo-deny: what vsg-rs accepts from its dependency tree (`cargo deny check`, and the `deny`
-# job in CI). vsg-rs is MIT OR Apache-2.0 and ships THIRD_PARTY_LICENSES.md, so a new
+# cargo-deny: what speja accepts from its dependency tree (`cargo deny check`, and the `deny`
+# job in CI). speja is MIT OR Apache-2.0 and ships THIRD_PARTY_LICENSES.md, so a new
 # dependency with another licence has to be a deliberate decision, not a surprise.
 
 [graph]
