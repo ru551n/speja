@@ -787,9 +787,9 @@ exports.run = async function run() {
         "and writes an arm for every state",
       );
 
-      // The verdict that matters: everything written above has to be VHDL. Saved first, because
-      // both servers answer about the file on disk.
-      await apply.save();
+      // The verdict that matters: everything written above has to be VHDL. Both servers answer
+      // about the open buffer rather than the file on disk, which is what makes this a check on
+      // what the actions wrote and not on what the fixture started as.
       await wait(2500);
       const left = vscode.languages.getDiagnostics(apply.uri);
       check(
@@ -804,6 +804,40 @@ exports.run = async function run() {
         unresolvedLeft.length === 0,
         "and every name the actions were raised on now resolves",
         unresolvedLeft.join(", ") || "none left",
+      );
+
+      // Whether speja writes code speja is happy with. The lines the actions produced are
+      // compared against what its own formatter would do to them: if formatting moves them, the
+      // generators and the formatter disagree, and the author is the one who finds out.
+      const generated = [
+        "    signal gate_out :",
+        "        when idle =>",
+        "  type t_sequencer is",
+        "  signal sequencer :",
+        "  signal data_in ",
+      ];
+      const linesFor = (text) =>
+        generated.map((g) => text.split("\n").find((l) => l.startsWith(g)) ?? `MISSING ${g}`);
+      const was = linesFor(apply.getText());
+      const formatting =
+        (await limit(
+          vscode.commands.executeCommand(
+            "vscode.executeFormatDocumentProvider",
+            apply.uri,
+            { tabSize: 2, insertSpaces: true },
+          ),
+          30000,
+          "formatting the applied file",
+        )) || [];
+      const formatted = new vscode.WorkspaceEdit();
+      for (const e of formatting) formatted.replace(apply.uri, e.range, e.newText);
+      await vscode.workspace.applyEdit(formatted);
+      const now = linesFor(apply.getText());
+      const moved = was.filter((l, i) => l !== now[i]);
+      check(
+        moved.length === 0,
+        "speja's formatter leaves the lines the actions wrote alone",
+        moved.map((l, i) => `${JSON.stringify(l)} -> ${JSON.stringify(now[i])}`).join(" ; "),
       );
 
       // A file under `speja: exclude` gets nothing from speja, however it is written.
