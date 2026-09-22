@@ -257,6 +257,10 @@ exports.run = async function run() {
     // edits above. What is asserted is the result, and that the server agrees it is sound.
     const errorsIn = (uri) =>
       vscode.languages.getDiagnostics(uri).filter((d) => d.severity === vscode.DiagnosticSeverity.Error);
+    // Two servers answer for a VHDL file here. "Does this parse and resolve" is VHDL-LS's
+    // question; speja's layout opinions are a different one, and mixing them makes a check about
+    // generated VHDL fail over an indent.
+    const analysisErrorsIn = (uri) => errorsIn(uri).filter((d) => d.source !== "speja");
     const open = async (name) => {
       const document = await vscode.workspace.openTextDocument(at(name));
       const shown = await vscode.window.showTextDocument(document);
@@ -268,7 +272,7 @@ exports.run = async function run() {
     const settle = async (uri, ms = 15000) => {
       // The server re-analyses after an edit; give it the moment it needs, then read.
       await wait(2500);
-      return errorsIn(uri);
+      return analysisErrorsIn(uri);
     };
 
     // 9a. A state machine over an enumeration type. The signal belongs in the declarative part
@@ -436,6 +440,55 @@ exports.run = async function run() {
       "hints appear once the entity exists, without the document changing",
       `${known.length}`,
     );
+
+    // 13. Formatting a selection, and the action that offers it from the squiggle. Both go
+    // through the speja server rather than VHDL-LS, and both must leave every line the user did
+    // not pick byte-identical: that is the whole promise of a range operation.
+    {
+      const layout = await vscode.workspace.openTextDocument(at("layout.vhd"));
+      const before = layout.getText().split("\n");
+      const longLine = before.findIndex((l) => l.length > 120);
+      const looseLine = before.findIndex((l) => /^signal count/.test(l));
+      check(longLine >= 0 && looseLine >= 0, "the layout fixture has a long line and an unindented one",
+        `long=${longLine + 1} loose=${looseLine + 1}`);
+
+      // Format Selection over the long line only.
+      const range = new vscode.Range(new vscode.Position(longLine, 0), new vscode.Position(longLine + 1, 0));
+      const edits = (await limit(
+        vscode.commands.executeCommand("vscode.executeFormatRangeProvider", layout.uri, range,
+          { tabSize: 2, insertSpaces: true }),
+        30000, "range formatting")) || [];
+      check(edits.length > 0, "Format Selection returns an edit for the over-long line", `${edits.length} edit(s)`);
+      const outside = edits.filter((e) => e.range.start.line < longLine || e.range.end.line > longLine + 1);
+      check(outside.length === 0, "and no edit falls outside the selected line",
+        outside.map((e) => `${e.range.start.line + 1}..${e.range.end.line + 1}`).join(" | "));
+
+      // Apply them and confirm the file really did change only there.
+      const applied = new vscode.WorkspaceEdit();
+      for (const edit of edits) applied.replace(layout.uri, edit.range, edit.newText);
+      await vscode.workspace.applyEdit(applied);
+      const after = layout.getText().split("\n");
+      check(after.every((l) => l.length <= 120), "the long line is folded", `longest is now ${Math.max(...after.map((l) => l.length))}`);
+      check(after[looseLine] === before[looseLine], "a line outside the selection is untouched",
+        JSON.stringify(after[looseLine]));
+      const untouched = before.slice(0, longLine).every((l, i) => l === after[i]);
+      check(untouched, "and so is everything above it");
+
+      // The lightbulb on the still-unindented line offers to format it.
+      const at0 = new vscode.Position(looseLine, 0);
+      const actions = (await limit(
+        vscode.commands.executeCommand("vscode.executeCodeActionProvider", layout.uri, new vscode.Range(at0, at0)),
+        30000, "code actions on a badly laid out line")) || [];
+      const format = actions.find((a) => /^speja: format line/.test(a.title));
+      check(!!format, "a badly laid out line offers to format itself",
+        actions.map((a) => a.title).slice(0, 4).join(" | "));
+      if (format && format.edit) {
+        await vscode.workspace.applyEdit(format.edit);
+        const now = layout.getText().split("\n");
+        check(/^  signal count/.test(now[looseLine]), "and applying it indents that line",
+          JSON.stringify(now[looseLine]));
+      }
+    }
 
     out("done");
   } catch (error) {

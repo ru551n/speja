@@ -527,8 +527,16 @@ pub fn fix_range(
     range: Range<usize>,
 ) -> Result<Vec<TextEdit>, FormatError> {
     let fixed = fix_with(parsed, config, options)?.output;
+    // Parsing is not enough. Hunks are aligned on identical lines, so a heavily reformatted file
+    // can pair a line with an unrelated one and leave a hunk that deletes source and inserts
+    // nothing; the result still parses, because dropping a comment and a concurrent assignment
+    // leaves valid VHDL. What must hold is that the partial result is a waypoint on the way to
+    // the fixed file: fixing it the rest of the way has to land exactly on `fixed`. Anything
+    // that lost or invented code cannot.
     Ok(range_edits(parsed, &fixed, range, |edited| {
-        Parsed::new(edited.to_vec()).syntax_errors().is_empty()
+        let partial = Parsed::new(edited.to_vec());
+        partial.syntax_errors().is_empty()
+            && fix_with(&partial, config, options).is_ok_and(|out| out.output == fixed)
     }))
 }
 
@@ -564,13 +572,29 @@ fn range_edits(
     let last = line_of(range.end.saturating_sub(1)).max(first);
     let offset = |line: usize| starts.get(line).copied().unwrap_or(src.len());
 
+    // Align on the lines with their indentation removed. Formatting changes the indentation of
+    // almost every line in a badly laid out file, so diffing the raw lines finds hardly anything
+    // equal and produces a few enormous hunks whose two sides correspond only loosely. Comparing
+    // what the lines say rather than where they start makes a re-indented line equal to itself,
+    // and what is left are the hunks that really did change.
+    let key = |lines: &[&[u8]]| -> Vec<Vec<u8>> {
+        lines
+            .iter()
+            .map(|line| {
+                let text = line.strip_suffix(b"\n").unwrap_or(line);
+                let text = text.strip_suffix(b"\r").unwrap_or(text);
+                text.iter()
+                    .copied()
+                    .skip_while(u8::is_ascii_whitespace)
+                    .collect()
+            })
+            .collect()
+    };
+    let (old_key, new_key) = (key(&old), key(&new));
+
     // Changed hunks as (old line range, new line range).
     let mut hunks: Vec<(Range<usize>, Range<usize>)> = Vec::new();
-    for op in similar::capture_diff_slices(similar::Algorithm::Myers, &old, &new) {
-        let (tag, o, n) = op.as_tag_tuple();
-        if tag == similar::DiffTag::Equal {
-            continue;
-        }
+    let push = |o: Range<usize>, n: Range<usize>, hunks: &mut Vec<(Range<usize>, Range<usize>)>| {
         if let Some(h) = hunks.last_mut()
             && h.0.end == o.start
             && h.1.end == n.start
@@ -580,6 +604,21 @@ fn range_edits(
         } else {
             hunks.push((o, n));
         }
+    };
+    for op in similar::capture_diff_slices(similar::Algorithm::Myers, &old_key, &new_key) {
+        let (tag, o, n) = op.as_tag_tuple();
+        if tag == similar::DiffTag::Equal {
+            // Equal by key means the line says the same thing; it can still have moved across
+            // the page. Re-indenting is the commonest thing the formatter does, and it would be
+            // invisible here if a matched pair were assumed identical.
+            for (i, j) in o.clone().zip(n.clone()) {
+                if old[i] != new[j] {
+                    push(i..i + 1, j..j + 1, &mut hunks);
+                }
+            }
+            continue;
+        }
+        push(o, n, &mut hunks);
     }
     // Hunks are also tried line by line (blank lines as separate edits), so adjacent
     // statements stay separate.
@@ -607,8 +646,11 @@ fn range_edits(
             return edits;
         }
     }
-    // ponytail: last resort formats everything; grow the hunk set if this shows up in practice.
-    hunks.iter().map(to_edit).collect()
+    // No subset of the hunks is safe to apply on its own. Formatting everything instead would
+    // rewrite lines the caller did not ask about, which is the one thing a range operation
+    // promises not to do, so nothing is changed and the caller can format the whole file if
+    // that is what they meant.
+    Vec::new()
 }
 
 fn to_crlf(text: &[u8]) -> Vec<u8> {
@@ -651,6 +693,78 @@ mod tests {
         let (edits, out) = range_format(SRC, at..at + 2);
         assert_eq!(edits.len(), 1);
         assert_eq!(out, SRC.replace("c<=d", "c <= d"));
+    }
+
+    /// A range fix must never remove code.
+    ///
+    /// Reduced from a real file: every line misindented, and a comment above a statement that is
+    /// itself too long to keep on one line. Diffing the raw lines against the formatted version
+    /// then finds almost nothing equal, and the hunks it does produce pair lines that have
+    /// nothing to do with each other. Applying one deleted the comment and the statement, and
+    /// the result still parsed, so an acceptance check that only asked "does it parse" let it
+    /// through.
+    #[test]
+    fn a_range_fix_never_deletes_code() {
+        let src = concat!(
+            "library ieee;\n",
+            "use ieee.std_logic_1164.all;\n",
+            "use ieee.numeric_std.all;\n",
+            "\n",
+            "entity e is\n",
+            "port (\n",
+            "clk : in std_logic;\n",
+            "d : in std_logic_vector(31 downto 0)\n",
+            ");\n",
+            "end entity e;\n",
+            "\n",
+            "architecture rtl of e is\n",
+            "signal counter : unsigned(7 downto 0);\n",
+            "signal enable : std_logic;\n",
+            "begin\n",
+            "-- a comment that must survive\n",
+            "-- and a second line of it\n",
+            "enable <= '1' when counter > to_unsigned(17, counter'length) and d(0) = '1' and clk = '0' else '0';\n",
+            "\n",
+            "process (clk)\n",
+            "begin\n",
+            "if rising_edge(clk) then\n",
+            "counter <= counter + 1;\n",
+            "end if;\n",
+            "end process;\n",
+            "end architecture rtl;\n",
+        );
+        let parsed = Parsed::new(src.as_bytes().to_vec());
+        let config = Config::default();
+        let options = FixOptions::default();
+        let starts: Vec<usize> = std::iter::once(0)
+            .chain(src.match_indices('\n').map(|(at, _)| at + 1))
+            .collect();
+        // Every line, one at a time. A range fix may decline to do anything, but it may never
+        // lose what was there.
+        for line in 1..=src.lines().count() {
+            let range = starts[line - 1]..*starts.get(line).unwrap_or(&src.len());
+            let edits = fix_range(&parsed, &config, &options, range).expect("a range fix");
+            let text = String::from_utf8(apply_edits(parsed.source(), &edits)).expect("utf-8");
+            for must in [
+                "a comment that must survive",
+                "and a second line of it",
+                "counter <= counter + 1",
+                "signal enable",
+                "process (clk)",
+            ] {
+                assert!(
+                    text.contains(must),
+                    "formatting line {line} lost {must:?}:\n{text}"
+                );
+            }
+            // Whatever it did, the result has to be the same program.
+            assert!(
+                Parsed::new(text.as_bytes().to_vec())
+                    .syntax_errors()
+                    .is_empty(),
+                "formatting line {line} left a syntax error:\n{text}"
+            );
+        }
     }
 
     #[test]

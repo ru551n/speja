@@ -1044,3 +1044,91 @@ fn explain_says_whether_a_default_run_uses_the_rule() {
     // And how to switch it on, since that is the next thing anyone asks.
     assert!(out.contains("rule.group.advisory.disable: false"), "{out}");
 }
+
+/// `--fix --range` must never delete code.
+///
+/// This is the file that caught it, kept verbatim. Every line is misindented, so diffing the
+/// source against its formatted self finds almost nothing equal and the hunks it produces pair
+/// lines that have nothing to do with each other. Applying the one covering lines 22 to 24
+/// deleted a two-line comment and the statement under it, taking the file from 36 non-blank
+/// lines to 33. The result still parsed, because what was left was valid VHDL, so an acceptance
+/// check that only asked "does this parse" let it through.
+#[test]
+fn a_range_fix_never_deletes_code() {
+    let source = concat!(
+        "-- Layout only. Nothing here is wrong as VHDL; every finding is something --fix would rewrite.\n",
+        "-- Put the cursor on a squiggled line and open the lightbulb: \"speja: format line N\".\n",
+        "-- Or select several lines and use Format Selection.\n",
+        "library ieee;\n",
+        "use ieee.std_logic_1164.all;\n",
+        "use ieee.numeric_std.all;\n",
+        "\n",
+        "entity layout is\n",
+        "port (\n",
+        "clk : in std_logic;\n",
+        "rst : in std_logic;\n",
+        "data_in : in std_logic_vector(31 downto 0);\n",
+        "data_out : out std_logic_vector(31 downto 0)\n",
+        ");\n",
+        "end entity layout;\n",
+        "\n",
+        "architecture rtl of layout is\n",
+        "signal counter : unsigned(7 downto 0);\n",
+        "signal shadow : std_logic_vector(31 downto 0);\n",
+        "signal enable : std_logic;\n",
+        "begin\n",
+        "-- a comment that must survive, long enough that the formatter has to fold the line below it\n",
+        "-- line should change.\n",
+        "enable <= '1' when counter > to_unsigned(17, counter'length) and data_in(0) = '1' and rst = '0' else '0';\n",
+        "\n",
+        "process (clk)\n",
+        "begin\n",
+        "if rising_edge(clk) then\n",
+        "if rst = '1' then\n",
+        "counter <= (others => '0');\n",
+        "shadow <= (others => '0');\n",
+        "else\n",
+        "counter <= counter + 1;\n",
+        "shadow <= data_in;\n",
+        "end if;\n",
+        "end if;\n",
+        "end process;\n",
+        "data_out <= shadow;\n",
+        "end architecture rtl;\n",
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let lines = source.lines().count();
+    let solid = |text: &str| text.lines().filter(|l| !l.trim().is_empty()).count();
+    // Every line on its own. A range fix may decline to change anything, but it may never lose
+    // what was there.
+    for line in 1..=lines {
+        let file = dir.path().join(format!("ranged{line}.vhd"));
+        std::fs::write(&file, source).expect("write");
+        let run = Command::new(env!("CARGO_BIN_EXE_speja"))
+            .args([
+                file.to_str().expect("path"),
+                "--fix",
+                "--range",
+                &format!("{line}:{line}"),
+            ])
+            .output()
+            .expect("run --fix --range");
+        assert!(
+            run.status.success() || run.status.code() == Some(1),
+            "line {line}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let after = std::fs::read_to_string(&file).expect("read back");
+        assert!(
+            solid(&after) >= solid(source),
+            "formatting line {line} dropped {} line(s):\n{after}",
+            solid(source) - solid(&after)
+        );
+        for must in ["a comment that must survive", "counter <= counter + 1"] {
+            assert!(
+                after.contains(must),
+                "formatting line {line} lost {must:?}:\n{after}"
+            );
+        }
+    }
+}

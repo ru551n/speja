@@ -22,10 +22,18 @@ import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..", "..");
 const vhdlLs = process.env.VHDL_LS;
+// speja's own server. The extension defaults to the one bundled in a packaged VSIX, and a dev
+// checkout has none, so until this was passed the suite silently tested VHDL-LS only and
+// nothing speja itself provides.
+const speja = process.env.SPEJA ?? join(root, "..", "..", "target", "release", "speja");
 const code = process.env.CODE ?? "code";
 
 if (!vhdlLs || !existsSync(vhdlLs)) {
   console.error("Set VHDL_LS to a vhdl_ls executable that can find its vhdl_libraries.");
+  process.exit(2);
+}
+if (!existsSync(speja)) {
+  console.error(`No speja server at ${speja}. Build one (cargo build --release) or set SPEJA.`);
   process.exit(2);
 }
 if (!existsSync(join(root, "out", "editing.js"))) {
@@ -44,12 +52,18 @@ for (const directory of [workspace, join(workspace, "other"), join(workspace, ".
 const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
-const ENTITIES = 46;
+const ENTITIES = 47;   // includes layout.vhd, the formatting fixture
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
 write("vhdl_ls.toml", "[libraries]\nmylib.files = ['*.vhd']\nother.files = ['other/*.vhd']\n");
-write(".vscode/settings.json", JSON.stringify({ "vhdlls.languageServer": "user", "vhdlls.languageServerUserPath": vhdlLs }, null, 2));
+write(".vscode/settings.json", JSON.stringify({
+  "vhdlls.languageServer": "user",
+  "vhdlls.languageServerUserPath": vhdlLs,
+  // Point the extension at the server just built, not at a bundled one it does not have.
+  "speja.server.mode": "userPath",
+  "speja.server.path": speja,
+}, null, 2));
 
 write("fifo.vhd", `library ieee;
 use ieee.std_logic_1164.all;
@@ -114,6 +128,31 @@ end architecture rtl;
 
 // A state machine over an enumeration type that spans several lines, so the signal has to go
 // after all of it and the process after the architecture's own `begin`.
+// A tidy file with one over-long line and one unindented signal: what Format Selection and the
+// format-this-line action are for. Kept apart from the other fixtures so a formatting test
+// cannot be thrown off by someone else's edits.
+write("layout.vhd", `library ieee;
+  use ieee.std_logic_1164.all;
+  use ieee.numeric_std.all;
+
+entity layout is
+  port (
+    clk   : in    std_logic;
+    value : out   unsigned(7 downto 0)
+  );
+end entity layout;
+
+architecture rtl of layout is
+
+signal count : unsigned(7 downto 0);
+
+begin
+
+  value <= count when count > to_unsigned(3, count'length) and count < to_unsigned(200, count'length) else (others => '0');
+
+end architecture rtl;
+`);
+
 write("fsm.vhd", `library ieee;
 use ieee.std_logic_1164.all;
 

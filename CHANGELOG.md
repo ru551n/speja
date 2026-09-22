@@ -14,6 +14,17 @@ reports are that version's. `speja --version` prints the same thing.
 * **A line the formatter would change offers to format itself**, from the lightbulb, whatever it
   tripped. A badly laid out line usually breaks several layout rules at once, and clearing them
   one rule at a time is not what someone looking at the squiggle wants.
+* **Layout findings reach the editor.** The language server published rule violations but not the
+  findings that come from comparing the source with what the formatter would write, so a
+  misindented line was never underlined even though `speja` reported it on the command line and
+  `--fix` changed it. The editor and the command line now report the same thing.
+* **`--fix --range` no longer deletes code.** On a file where most lines are misindented, the
+  source and its formatted self have almost no lines in common, and the hunks the diff produced
+  paired lines that had nothing to do with each other. Applying one removed a comment and the
+  statement under it, and because what was left still parsed, the check guarding partial results
+  accepted it. A partial result must now fix the rest of the way to exactly the fully fixed file,
+  which nothing that lost or invented code can do, and lines are matched on what they say rather
+  than where they start, so re-indenting one no longer looks like an unrelated change.
 
 ## 0.13.0
 

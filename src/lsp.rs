@@ -435,7 +435,44 @@ fn diagnose(
         return out;
     }
 
-    for violation in speja::rules::check_with(&parsed, &cfg, None) {
+    // Both halves of what the command line reports: the rule violations, and the layout findings
+    // that come from comparing the source with what the formatter would write. Only the rules
+    // were published before, so an editor never underlined a misindented line even though
+    // `speja` on the command line reported it and `--fix` changed it.
+    let (violations, formatted) = speja::rules::check_and_format_with(&parsed, &cfg, None);
+    if let Ok(formatted) = formatted
+        && formatted != parsed.source()
+    {
+        let after = speja::Parsed::new(formatted);
+        let mut seen: std::collections::HashSet<(usize, String)> = std::collections::HashSet::new();
+        for change in speja::layout::layout_changes(&parsed, &after) {
+            let rule = speja::layout::rule_for(&change);
+            // A disabled VSG rule does not report, though the formatter still applies its policy.
+            if rule != "format" && cfg.rule_by_id(rule).is_some_and(|set| !set.enabled) {
+                continue;
+            }
+            if !seen.insert((change.line, rule.to_owned())) {
+                continue;
+            }
+            // Layout findings carry a line, not a span. Underlining the whole line is what the
+            // finding is about: everything on it is in the wrong place.
+            let line = u32::try_from(change.line.saturating_sub(1)).unwrap_or(0);
+            let end = text
+                .lines()
+                .nth(line as usize)
+                .map_or(0, |l| u32::try_from(l.chars().count()).unwrap_or(0));
+            out.push(Diagnostic {
+                range: Range::new(Position::new(line, 0), Position::new(line, end)),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: Some(NumberOrString::String(rule.to_owned())),
+                source: Some("speja".to_owned()),
+                message: speja::layout::message(&change, cfg.format.indent),
+                ..Diagnostic::default()
+            });
+        }
+    }
+
+    for violation in violations {
         out.push(Diagnostic {
             range: Range::new(
                 position_of(text, violation.start),
