@@ -9,7 +9,6 @@ import {
   declarableKinds,
   missingChoices,
   renderDeclaration,
-  renderStateDeclarations,
   renderWhenChoices,
   compareCandidates,
   contextClause,
@@ -738,6 +737,17 @@ async function fsmFromEnum(): Promise<void> {
   });
   if (!signal) return;
 
+  // A state machine is a process, and a process does not go inside one. Saying so is the whole
+  // help here: the search below fails for this too, but "could not find the architecture's
+  // begin" tells the author nothing about what they did.
+  if (sequentialHome(doc, editor.selection.active) !== null) {
+    vscode.window.showWarningMessage(
+      "A state machine is a process, and a process cannot go inside another one. Declare this " +
+        "type in the architecture instead, or fill in the states where the `case` already is.",
+    );
+    return;
+  }
+
   // The signal is a declaration and the process a concurrent statement, so they go either side
   // of the architecture's `begin`. Written as one block after the type, the process ended up
   // among the declarations, which the server rejects.
@@ -1081,19 +1091,17 @@ function caseBody(
 }
 
 /**
- * What a case selector is: the enumeration it has as its type, and whether it exists at all.
+ * The enumeration a case selector has as its type, or null when it has none.
  *
- * The two are separate answers, and conflating them was a bug. A selector that is declared but is
- * not an enumeration, `case counter is` over an integer, has no literals to offer *and* must not
- * be offered a state machine: that would declare it a second time.
+ * Null covers both a selector that is not an enumeration and one that does not exist: neither
+ * has states to offer, and nothing here invents any.
  */
-async function selectorType(
+async function enumOfSelector(
   doc: vscode.TextDocument,
   at: vscode.Position,
-): Promise<{ literals: EnumType | null; declared: boolean }> {
-  const hover = await hoverText(doc.uri, at);
-  const direct = parseEnumHover(hover);
-  if (direct) return { literals: direct, declared: true };
+): Promise<EnumType | null> {
+  const direct = parseEnumHover(await hoverText(doc.uri, at));
+  if (direct) return direct;
 
   // `signal state : t_state;` names the type but does not list its literals, so the selector's
   // declaration is opened and the type name in it hovered in its turn. Asking the workspace
@@ -1120,70 +1128,9 @@ async function selectorType(
         new vscode.Position(range.start.line, line.indexOf(type, colon) + 1),
       ),
     );
-    if (found) return { literals: found, declared: true };
+    if (found) return found;
   }
-  // A name the server can point at or say anything about is declared, whatever its type.
-  return { literals: null, declared: locations.length > 0 || hover.length > 0 };
-}
-
-/**
- * Turn a `case` over a name that does not exist into a state machine: the enumeration, the
- * state signal and a `when` arm for each state.
- *
- * Someone typing `case state is` before declaring anything has already decided the shape of
- * what they want. The states are the one thing that cannot be guessed, so they are asked for
- * and nothing else is.
- */
-async function insertStateMachine(
-  uri: vscode.Uri,
-  selector: string,
-  headerLine: number,
-): Promise<void> {
-  const editor = await vscode.window.showTextDocument(
-    await vscode.workspace.openTextDocument(uri),
-  );
-  const doc = editor.document;
-
-  const answer = await vscode.window.showInputBox({
-    prompt: `States of ${selector}`,
-    value: "idle, busy, done",
-    validateInput: (v) =>
-      v.split(",").every((s) => /^\s*[a-z]\w*\s*$/i.test(s))
-        ? undefined
-        : "A comma separated list of VHDL identifiers",
-  });
-  if (!answer) return;
-  const states = answer.split(",").map((s) => s.trim());
-
-  const site = declarationSite(
-    doc,
-    new vscode.Position(headerLine, 0),
-    "signal",
-  );
-  if (!site) {
-    vscode.window.showWarningMessage(
-      "Could not find the architecture's declarative part to declare the states in.",
-    );
-    return;
-  }
-  const body = caseBody(doc, headerLine);
-  const header = doc.lineAt(headerLine);
-  const { type, declaration } = renderStateDeclarations(
-    `t_${selector}`,
-    selector,
-    states,
-    site.indent,
-  );
-
-  await editor.edit((b) => {
-    b.insert(site.position, `${type}\n${declaration}\n`);
-    const arms = renderWhenChoices(states, indentOf(header.text) + "  ");
-    if (body) {
-      b.insert(new vscode.Position(body.endLine, 0), arms);
-    } else {
-      b.insert(header.range.end, `\n${arms}${indentOf(header.text)}end case;`);
-    }
-  });
+  return null;
 }
 
 // --- providers -------------------------------------------------------------
@@ -1536,10 +1483,9 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         sel.line,
         header.text.indexOf(sel.selector),
       );
-      const named = /^[a-z]\w*$/i.test(sel.selector);
-      const { literals, declared } = named
-        ? await selectorType(document, at)
-        : { literals: null, declared: true };
+      const literals = /^[a-z]\w*$/i.test(sel.selector)
+        ? await enumOfSelector(document, at)
+        : null;
       const body = caseBody(document, sel.line);
       const missing = literals
         ? missingChoices(body?.text ?? "", literals.literals)
@@ -1559,20 +1505,9 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         action.edit = edit;
         actions.push(action);
       }
-      // Only for a selector that does not exist yet. One that is declared and simply is not a
-      // state has nothing to gain from this and a duplicate declaration to lose.
-      if (named && !declared) {
-        const action = new vscode.CodeAction(
-          `Insert state machine over ${sel.selector}`,
-          vscode.CodeActionKind.QuickFix,
-        );
-        action.command = {
-          command: "speja.insertStateMachine",
-          title: action.title,
-          arguments: [document.uri, sel.selector, sel.line],
-        };
-        actions.push(action);
-      }
+      // Nothing is offered for a selector that does not exist, or is not an enumeration. There
+      // are no states to infer from a name: an author who has not declared it has not decided
+      // what its states are either, and guessing three would be putting words in their mouth.
     }
 
     if (!range.isEmpty) {
@@ -1799,10 +1734,6 @@ export function registerEditingFeatures(
     ),
     vscode.commands.registerCommand("speja.extractObject", extractObject),
     vscode.commands.registerCommand("speja.declareObject", declareObject),
-    vscode.commands.registerCommand(
-      "speja.insertStateMachine",
-      insertStateMachine,
-    ),
     vscode.commands.registerCommand(
       "speja.removeUnusedUseClauses",
       removeUnusedUseClauses,

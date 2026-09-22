@@ -428,7 +428,12 @@ export function contextClauseEdit(
     let at = -1;
     region.forEach((l, i) => {
       const u = useOf(l);
-      if (u && u[1].toLowerCase() === lib && comparePackages(lib, u[2], pkg) < 0) at = i;
+      if (
+        u &&
+        u[1].toLowerCase() === lib &&
+        comparePackages(lib, u[2], pkg) < 0
+      )
+        at = i;
       else if (at < 0 && libOf(l)?.[1].toLowerCase() === lib) at = i;
     });
     if (at >= 0) line = start + at + 1;
@@ -746,22 +751,4 @@ export function renderWhenChoices(
   return choices
     .map((c) => `${indent}when ${c} =>\n${indent}  null;\n`)
     .join("\n");
-}
-
-/**
- * The type and signal a `case` over a name that does not exist yet needs.
- *
- * The `when` arms go where the author already put the case statement, so only the two
- * declarations are generated here: enough to make the state machine they started writing real.
- */
-export function renderStateDeclarations(
-  typeName: string,
-  signal: string,
-  states: string[],
-  indent = "  ",
-): { type: string; declaration: string } {
-  return {
-    type: `${indent}type ${typeName} is (${states.join(", ")});`,
-    declaration: `${indent}signal ${signal} : ${typeName} := ${states[0]};`,
-  };
 }

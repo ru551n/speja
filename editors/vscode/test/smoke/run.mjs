@@ -53,7 +53,7 @@ const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
 // `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
-const ENTITIES = 51;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
+const ENTITIES = 52;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -342,6 +342,29 @@ begin
       when others =>
         null;
     end case;
+  end process;
+
+end architecture rtl;
+`);
+
+// An enumeration declared inside a process, not in the architecture. The state machine command
+// writes a process, and a process does not go inside a process.
+write("innerfsm.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity innerfsm is
+  port (
+    clk : in    std_logic
+  );
+end entity innerfsm;
+
+architecture rtl of innerfsm is
+
+begin
+
+  p_inner : process (clk) is
+    type t_inner is (idle, run);
+  begin
   end process;
 
 end architecture rtl;

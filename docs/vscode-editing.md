@@ -158,15 +158,14 @@ values substituted.
 each literal the case does not cover. The literals come from the selector's declaration, so the
 signal does not have to be the thing under the cursor.
 
-**Insert state machine over x** appears instead when the `case` selects on a name that does not
-exist yet, which is what a half-written state machine looks like. It asks for the states, declares
-the enumeration and the signal, and writes the arms. The `case` does not have to be finished: with
-no arms and no `end case` the file does not parse, and this is found by reading the line rather
-than by asking the server, which is the only way an action can reach you mid-sentence.
+It is the only thing offered on a `case`, and only when the selector is declared and its type is
+an enumeration. A name that does not exist has no states to infer: an author who has not declared
+it has not decided what its states are either, and inventing three would be putting words in their
+mouth. Declare it first, with the actions above, and the choices follow.
 
-A selector that already exists gets neither action unless it is an enumeration. `case counter is`
-over an integer has no states to fill in, and offering to make it a state machine would declare
-`counter` a second time.
+A state machine as a whole comes from **Create State Machine from Enum Type**, which works from a
+type that already exists and writes the registered process. It declines inside a process, because
+a process does not go inside a process, and says so.
 
 **VHDL Design** is a tree in the Explorer of every entity in the workspace, expanding through its
 architectures into the instances they contain, each resolved to the entity it instantiates. It

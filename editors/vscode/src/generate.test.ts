@@ -424,7 +424,6 @@ import {
   coveredChoices,
   missingChoices,
   renderWhenChoices,
-  renderStateDeclarations,
   comparePackages,
 } from "./generate.ts";
 
@@ -479,10 +478,6 @@ assert.match(
   renderWhenChoices(["done"], "  "),
   /^ {2}when done =>\n {4}null;\n$/,
 );
-
-const machine = renderStateDeclarations("t_state", "state", ["idle", "run"]);
-assert.equal(machine.type, "  type t_state is (idle, run);");
-assert.equal(machine.declaration, "  signal state : t_state := idle;");
 
 // The ieee block is not alphabetical: std_logic_1164 declares what the rest are built on, and
 // that is how hdl-modules, tsfpga and VUnit all write it.

@@ -603,17 +603,19 @@ exports.run = async function run() {
         onKnown.join(" | "),
       );
 
-      // A case over a name that does not exist: the state machine itself is offered.
+      // A case over a name that does not exist gets nothing from the case actions. There are no
+      // states to infer from a name, and declaring it is what the declare actions are for.
       const unknown = lineOf(/case sequencer is/);
       const onUnknown = await actionsOn(unknown, text[unknown].indexOf("sequencer") + 1);
       check(
-        onUnknown.includes("Insert state machine over sequencer"),
-        "a case over an undeclared name offers to make it a state machine",
+        !onUnknown.some((t) => /missing when choices|state machine/.test(t)),
+        "a case over an undeclared name is not given states it never had",
         onUnknown.join(" | "),
       );
       check(
-        !onUnknown.some((t) => /missing when choices/.test(t)),
-        "and does not pretend to know its states",
+        onUnknown.includes("Declare signal sequencer"),
+        "and is offered the declaration instead",
+        onUnknown.join(" | "),
       );
 
       // Applying them: a title is not a feature. The arms have to land inside the case and the
@@ -769,24 +771,6 @@ exports.run = async function run() {
         JSON.stringify(declarations.trim()),
       );
 
-      // A case over a name that does not exist: the enumeration, the signal and the arms.
-      check(
-        !!(await actionFor(/case sequencer is/, "sequencer", "Insert state machine over sequencer")),
-        "the state machine action is there to apply",
-      );
-      const afterFsm = apply.getText();
-      check(
-        /type t_sequencer is \(idle, busy, done\);/.test(afterFsm) &&
-          /signal sequencer : t_sequencer := idle;/.test(afterFsm),
-        "and declares the enumeration and the state signal",
-      );
-      check(
-        /when idle =>/.test(afterFsm) &&
-          /when busy =>/.test(afterFsm) &&
-          /when done =>/.test(afterFsm),
-        "and writes an arm for every state",
-      );
-
       // The verdict that matters: everything written above has to be VHDL. Both servers answer
       // about the open buffer rather than the file on disk, which is what makes this a check on
       // what the actions wrote and not on what the fixture started as.
@@ -801,9 +785,9 @@ exports.run = async function run() {
         apply.getText(d.range),
       );
       check(
-        unresolvedLeft.length === 0,
-        "and every name the actions were raised on now resolves",
-        unresolvedLeft.join(", ") || "none left",
+        unresolvedLeft.join(",") === "sequencer",
+        "and every name a declare action was applied to now resolves",
+        `still unresolved: ${unresolvedLeft.join(", ") || "none"}`,
       );
 
       // Whether speja writes code speja is happy with. The lines the actions produced are
@@ -811,9 +795,6 @@ exports.run = async function run() {
       // generators and the formatter disagree, and the author is the one who finds out.
       const generated = [
         "    signal gate_out :",
-        "        when idle =>",
-        "  type t_sequencer is",
-        "  signal sequencer :",
         "  signal data_in ",
       ];
       const linesFor = (text) =>
@@ -881,49 +862,55 @@ exports.run = async function run() {
       const typed = lineOfHalf(/case walker is/);
       const onTyped = await titlesAt(typed, "walker");
       check(
-        onTyped.includes("Insert state machine over walker"),
-        "a half-typed case still offers the state machine",
-        onTyped.join(" | "),
+        !onTyped.some((t) => /state machine|missing when choices/.test(t)),
+        "a half-typed case over an undeclared name is offered no states",
+        onTyped.join(" | ") || "nothing",
       );
 
       const declared = lineOfHalf(/case counter is/);
       const onDeclared = await titlesAt(declared, "counter");
       check(
-        !onDeclared.includes("Insert state machine over counter"),
-        "a case over something already declared does not offer to declare it again",
-        onDeclared.join(" | "),
+        !onDeclared.some((t) => /state machine|missing when choices/.test(t)),
+        "and neither is a case over something declared that is not an enumeration",
+        onDeclared.join(" | ") || "nothing",
       );
 
-      const action = (
-        await limit(
-          vscode.commands.executeCommand(
-            "vscode.executeCodeActionProvider",
-            half.uri,
-            new vscode.Range(
-              new vscode.Position(typed, half.lineAt(typed).text.indexOf("walker") + 1),
-              new vscode.Position(typed, half.lineAt(typed).text.indexOf("walker") + 1),
-            ),
-          ),
-          30000,
-          "the state machine action",
-        )
-      ).find((a) => /Insert state machine/.test(a.title));
-      if (action) {
-        await vscode.commands.executeCommand(
-          action.command.command,
-          ...action.command.arguments,
-        );
-        await wait(1000);
-        await wait(2500);
-        const bad = vscode.languages
-          .getDiagnostics(half.uri)
-          .filter((d) => d.source === "speja" && d.code === "syntax_error");
-        check(
-          bad.length === 0,
-          "and what it writes into a half-typed case parses",
-          bad.map((d) => d.message).join(" ; ") || "no syntax errors",
-        );
-      }
+    }
+
+    // 17. A process does not go inside a process. The enum command writes one, so what it does
+    // when the type it is pointed at lives in a process's own declarative part is worth knowing.
+    {
+      const inner = await vscode.workspace.openTextDocument(at("innerfsm.vhd"));
+      const innerEditor = await vscode.window.showTextDocument(inner);
+      await until(
+        async () => (await symbols("innerfsm")).some((s) => /^entity/i.test(s.name)),
+        30000,
+        "the server to read innerfsm.vhd",
+      );
+      const typeLine = inner.getText().split("\n").findIndex((l) => /type t_inner is/.test(l));
+      innerEditor.selection = new vscode.Selection(
+        new vscode.Position(typeLine, inner.lineAt(typeLine).text.indexOf("t_inner") + 1),
+        new vscode.Position(typeLine, inner.lineAt(typeLine).text.indexOf("t_inner") + 1),
+      );
+      const before = inner.getText();
+      messages.length = 0;
+      await limit(
+        vscode.commands.executeCommand("speja.fsmFromEnum"),
+        30000,
+        "the state machine command on a type inside a process",
+      );
+      await wait(500);
+      const processes = (inner.getText().match(/\bprocess\b/g) ?? []).length;
+      check(
+        inner.getText() === before && processes === 2,
+        "a type declared inside a process gets no state machine written into it",
+        `${processes} process keywords`,
+      );
+      check(
+        messages.some((m) => /cannot go inside another one/.test(m)),
+        "and the refusal says why, rather than blaming a missing begin",
+        messages.join(" | ") || "none",
+      );
     }
 
     out("done");

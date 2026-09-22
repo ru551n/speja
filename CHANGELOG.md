@@ -30,8 +30,8 @@ reports are that version's. `speja --version` prints the same thing.
   declaration goes in the declarative part that can hold it. Inside a generate or a block, which
   declare signals of their own, both that scope and the architecture are offered. A port map
   offers to declare every actual it names at once.
-* **A `case` that is a state machine.** Over an enumeration, the `when` arms it does not cover;
-  over a name that does not exist yet, the enumeration, the signal and the arms together.
+* **A `case` over an enumeration offers the `when` arms it does not cover.** Only there: a
+  selector that is not declared, or is not an enumeration, has no states to infer.
 * **`speja: exclude` leaves directories alone.** Generated and vendored sources get no
   diagnostics, no quick fixes and no formatting, and a `--recursive` walk passes them by. Naming
   such a file on the command line still formats it.
