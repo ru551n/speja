@@ -418,6 +418,7 @@ console.log("ok - state machine parts");
 
 import {
   declarableKinds,
+  assignmentKind,
   renderDeclaration,
   caseSelector,
   coveredChoices,
@@ -426,9 +427,22 @@ import {
   renderStateDeclarations,
 } from "./generate.ts";
 
-// A variable is never an architecture's, a signal is never a process's, a constant is both.
+// The operator settles what the name is; a process assigns to the architecture's signals too.
+assert.equal(assignmentKind("    held <= go;", "held"), "signal");
+assert.equal(assignmentKind("    scratch := go;", "scratch"), "variable");
+assert.equal(assignmentKind("    counts(3) <= go;", "counts"), "signal");
+// "less than or equal" is not an assignment: the name is not the target of the line.
+assert.equal(assignmentKind("    if a <= limit then", "limit"), null);
+assert.equal(assignmentKind("    y <= a and b;", "a"), null);
+
+// A constant cannot be assigned to, but it is offered either way: picking it says the line is
+// about to change.
+assert.deepEqual(declarableKinds(true, "signal"), ["signal", "constant"]);
+assert.deepEqual(declarableKinds(true, "variable"), ["variable", "constant"]);
+assert.deepEqual(declarableKinds(false, "variable"), ["constant"]);
+// Only read, never assigned: whatever the enclosing declarative parts can hold.
 assert.deepEqual(declarableKinds(false), ["signal", "constant"]);
-assert.deepEqual(declarableKinds(true), ["variable", "constant"]);
+assert.deepEqual(declarableKinds(true), ["signal", "variable", "constant"]);
 
 assert.equal(
   renderDeclaration("signal", "count"),

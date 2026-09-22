@@ -5,6 +5,7 @@ import {
   EnumType,
   ObjectKind,
   caseSelector,
+  assignmentKind,
   declarableKinds,
   missingChoices,
   renderDeclaration,
@@ -1338,9 +1339,11 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
     )) {
       const name = document.getText(diagnostic.range);
       if (!/^[A-Za-z]\w*$/.test(name)) continue;
-      for (const kind of declarableKinds(
+      const kinds = declarableKinds(
         sequentialHome(document, diagnostic.range.start) !== null,
-      )) {
+        assignmentKind(document.lineAt(diagnostic.range.start.line).text, name),
+      );
+      for (const kind of kinds) {
         if (!declarationSite(document, diagnostic.range.start, kind)) continue;
         const action = new vscode.CodeAction(
           `Declare ${kind} ${name}`,

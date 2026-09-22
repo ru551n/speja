@@ -642,14 +642,46 @@ export function compareCandidates(
 export type ObjectKind = "signal" | "variable" | "constant";
 
 /**
- * The kinds of declaration legal where the cursor is, most likely first.
+ * What an assignment to `name` on this line says it has to be.
  *
- * A variable belongs to a process or a subprogram and nowhere else in a design; a signal is the
- * opposite, an architecture's own and never a process's. A constant is legal in both. Offering
- * only the legal ones is the difference between a menu and a quiz.
+ * `<=` is a signal assignment and `:=` a variable one, and that is a harder fact than where the
+ * cursor happens to sit: a process assigns to signals all the time, and those signals are the
+ * architecture's. `<=` is also "less than or equal", so only a name at the start of the line,
+ * where a target goes, is read as an assignment.
  */
-export function declarableKinds(inSequentialPart: boolean): ObjectKind[] {
-  return inSequentialPart ? ["variable", "constant"] : ["signal", "constant"];
+export function assignmentKind(
+  line: string,
+  name: string,
+): "signal" | "variable" | null {
+  const target = new RegExp(
+    `^\\s*${name}\\s*(\\([^)]*\\))?\\s*(<=|:=)`,
+    "i",
+  ).exec(line.replace(/--.*$/, ""));
+  if (!target) return null;
+  return target[2] === "<=" ? "signal" : "variable";
+}
+
+/**
+ * The kinds of declaration that could explain this name, most likely first.
+ *
+ * An assignment settles which of a signal and a variable it is. A constant is offered either
+ * way: it cannot be assigned to at all, so an author who picks it is telling you the line is
+ * what they will change next, and leaving it out would be the tool arguing with them.
+ *
+ * Without an assignment the name is only being read, and then it is the declarative parts in
+ * reach that decide: a variable needs a process or a subprogram, and a signal and a constant are
+ * declared above them and so are always available.
+ */
+export function declarableKinds(
+  inSequentialPart: boolean,
+  assigned: "signal" | "variable" | null = null,
+): ObjectKind[] {
+  if (assigned === "signal") return ["signal", "constant"];
+  if (assigned === "variable")
+    return inSequentialPart ? ["variable", "constant"] : ["constant"];
+  return inSequentialPart
+    ? ["signal", "variable", "constant"]
+    : ["signal", "constant"];
 }
 
 /** A one-line object declaration, with the type left as a tab stop for the editor. */

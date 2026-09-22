@@ -22,7 +22,7 @@ reports are that version's. `speja --version` prints the same thing.
   `std` first, then everything else alphabetically, then `work` last, separated from the block it
   precedes.
 * **Declarations offered where you are typing.** A name the analyser cannot resolve offers to be
-  declared as a signal, a variable or a constant, whichever are legal at that point, and the
+  declared as a signal, a variable or a constant, chosen by the assignment operator, and the
   declaration goes in the declarative part that can hold it. A port map offers to declare every
   actual it names at once.
 * **A `case` that is a state machine.** Over an enumeration, the `when` arms it does not cover;

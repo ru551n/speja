@@ -117,11 +117,17 @@ instantiation.
 **Extract to constant / signal** turns a selected expression into a declaration before `begin` and
 replaces the selection with its name. It edits the document the selection was made in.
 
-**Declare signal / variable / constant** is offered on a name the analyser could not resolve, and
-offers only the declarations that are legal where the cursor is: a variable inside a process or a
-subprogram, a signal outside one, a constant in both. The declaration goes in the declarative part
-that can hold it, which for a variable is the process's own and for a signal the architecture's,
-and the type is left selected as `std_logic` so typing over it costs one keystroke.
+**Declare signal / variable / constant** is offered on a name the analyser could not resolve. The
+assignment decides which: `x <= ...` is a signal, `x := ...` is a variable, and a name that is
+only read offers whatever the declarative parts in reach can hold. A constant is offered either
+way, because it cannot be assigned to at all and choosing it says the line is what you will change
+next. A process assigns to signals constantly, so this is about the operator rather than about
+where the cursor is.
+
+The declaration goes in the part that can hold it: a variable in the process's or subprogram's
+own declarative part, a signal or constant in the architecture's, even when the assignment that
+prompted it is inside a process. The type is left selected as `std_logic`, so typing over it
+costs one keystroke.
 
 **Declare N signals for this port map** is the same thing for a whole instantiation: every actual
 the map names that nothing has declared yet, with each port's type and the instance's generic

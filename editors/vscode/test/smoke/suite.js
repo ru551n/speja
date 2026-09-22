@@ -525,11 +525,23 @@ exports.run = async function run() {
       const held = lineOf(/held <= go;/);
       const onHeld = await actionsOn(held, text[held].indexOf("held") + 1);
       check(
-        onHeld.includes("Declare variable held") && onHeld.includes("Declare constant held"),
-        "inside a process, a variable is offered and a signal is not",
+        onHeld.includes("Declare signal held") && onHeld.includes("Declare constant held"),
+        "a `<=` inside a process asks for a signal, which is the architecture's",
         onHeld.join(" | "),
       );
-      check(!onHeld.includes("Declare signal held"), "a signal is not declarable in a process");
+      check(
+        !onHeld.includes("Declare variable held"),
+        "and not for a variable, which `<=` cannot assign to",
+      );
+
+      const scratch = lineOf(/scratch := go;/);
+      const onScratch = await actionsOn(scratch, text[scratch].indexOf("scratch") + 1);
+      check(
+        onScratch.includes("Declare variable scratch") &&
+          !onScratch.includes("Declare signal scratch"),
+        "and `:=` asks for a variable, not a signal",
+        onScratch.join(" | "),
+      );
 
       // The port map's actuals.
       const portMap = lineOf(/rst  => reset_n/);
@@ -602,20 +614,22 @@ exports.run = async function run() {
           30000,
           "the declare-variable action",
         )
-      ).find((a) => a.title === "Declare variable held");
+      ).find((a) => a.title === "Declare signal held");
       await vscode.commands.executeCommand(
         heldAction.command.command,
         ...heldAction.command.arguments,
       );
       await wait(500);
-      const withVariable = decl.getText().split("\n");
-      const processLine = withVariable.findIndex((l) => /p_main : process/.test(l));
-      const processBegin = withVariable.findIndex((l, i) => i > processLine && /^\s*begin\b/.test(l));
-      const between = withVariable.slice(processLine + 1, processBegin).join("\n");
+      const declared = decl.getText().split("\n");
+      const architecture = declared.findIndex((l) => /^architecture rtl/.test(l));
+      const architectureBegin = declared.findIndex(
+        (l, i) => i > architecture && /^begin\b/.test(l),
+      );
+      const between = declared.slice(architecture + 1, architectureBegin).join("\n");
       check(
-        /variable held :/.test(between),
-        "the variable is declared in the process, above its begin",
-        JSON.stringify(between),
+        /signal held :/.test(between),
+        "the signal is declared in the architecture, not in the process that assigns it",
+        JSON.stringify(between.split("\n").slice(-3).join("\n")),
       );
     }
 
