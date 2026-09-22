@@ -30,8 +30,10 @@ reports are that version's. `speja --version` prints the same thing.
   declaration goes in the declarative part that can hold it. Inside a generate or a block, which
   declare signals of their own, both that scope and the architecture are offered. A port map
   offers to declare every actual it names at once.
-* **A `case` over an enumeration offers the `when` arms it does not cover.** Only there: a
-  selector that is not declared, or is not an enumeration, has no states to infer.
+* **`case my_signal` is enough.** Before `is`, before any arm, the states of an enumeration are
+  offered, and accepting writes the `is`, an arm each and the `end case`. On a statement that
+  already exists it fills in only the choices that are missing. A selector that is not declared,
+  or is not an enumeration, still has no states to infer.
 * **`speja: exclude` leaves directories alone.** Generated and vendored sources get no
   diagnostics, no quick fixes and no formatting, and a `--recursive` walk passes them by. Naming
   such a file on the command line still formats it.

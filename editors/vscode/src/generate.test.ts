@@ -421,6 +421,7 @@ import {
   assignmentKind,
   renderDeclaration,
   caseSelector,
+  enumFromSource,
   coveredChoices,
   missingChoices,
   renderWhenChoices,
@@ -457,6 +458,39 @@ assert.equal(caseSelector("    case state is"), "state");
 assert.equal(caseSelector("  CASE r.state IS -- note"), "r.state");
 assert.equal(caseSelector("  case ?? sel is"), "sel");
 assert.equal(caseSelector("  if state = idle then"), null);
+// Before `is` is typed, which is the moment the action exists for.
+assert.equal(caseSelector("    case state"), "state");
+assert.equal(caseSelector("    case state  "), "state");
+
+// Read out of the source, because a case with no `end case` does not parse and the server
+// answers a hover on the selector with nothing at all.
+const SRC = `architecture rtl of e is
+  type t_mode is (boot, idle, active);
+  signal mode : t_mode := boot;
+  signal other : std_logic;
+  variable count, mark : t_mode;
+begin
+  case mode
+end architecture rtl;`;
+assert.deepEqual(enumFromSource(SRC, "mode"), {
+  name: "t_mode",
+  literals: ["boot", "idle", "active"],
+});
+// One of several names on a line counts; a name that is not declared does not; a signal whose
+// type is not an enumeration declared in this file gives nothing.
+assert.deepEqual(enumFromSource(SRC, "mark")?.literals, [
+  "boot",
+  "idle",
+  "active",
+]);
+assert.equal(enumFromSource(SRC, "other"), null);
+assert.equal(enumFromSource(SRC, "nosuch"), null);
+// A port is a declaration too.
+assert.deepEqual(
+  enumFromSource("type t_s is (a, b);\nport (\n  sel : in t_s\n);", "sel")
+    ?.literals,
+  ["a", "b"],
+);
 
 const BODY = `
       when idle =>

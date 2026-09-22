@@ -36,7 +36,8 @@ Each one reads what it writes back from VHDL-LS. None of them parses VHDL.
 * **Declare signal, variable or constant** for an unresolved name, chosen by the assignment
   operator and placed in the declarative part that can hold it, including a generate's or a
   block's own, and **Declare N signals for this port map** for a whole instantiation.
-* **Add missing when choices** for a `case` over an enumeration.
+* **Write the states of a `case`** as soon as `case my_signal` is on the line, and **add the
+  missing when choices** to one that already exists.
 * **Map missing ports**, **Declare Entity as Component**, **Extract to constant or signal**,
   **Remove Unused Use Clauses**, a references **CodeLens** on entities, and **signature help** in
   a port map.

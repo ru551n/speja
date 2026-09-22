@@ -913,6 +913,56 @@ exports.run = async function run() {
       );
     }
 
+    // 18. `case mode` and nothing more: no `is`, no arms, no `end case`. The file does not parse,
+    // so the server says nothing about `mode` at all (measured: zero hovers, zero definitions).
+    // The declaration is in the file, and that is where the states come from.
+    {
+      const typing = await vscode.workspace.openTextDocument(at("typing.vhd"));
+      await vscode.window.showTextDocument(typing);
+      await wait(3000);
+      const line = typing.getText().split("\n").findIndex((l) => /case mode\s*$/.test(l));
+      const at0 = new vscode.Position(line, typing.lineAt(line).text.indexOf("mode") + 1);
+      const hovers =
+        (await vscode.commands.executeCommand("vscode.executeHoverProvider", typing.uri, at0)) ??
+        [];
+      check(
+        hovers.length === 0,
+        "the server has nothing to say about a selector in an unfinished case",
+        `${hovers.length} hover(s)`,
+      );
+
+      const found = (
+        (await limit(
+          vscode.commands.executeCommand(
+            "vscode.executeCodeActionProvider",
+            typing.uri,
+            new vscode.Range(at0, at0),
+          ),
+          30000,
+          "code actions on `case mode`",
+        )) || []
+      ).find((a) => /Write the 3 states of mode/.test(a.title));
+      check(!!found, "and `case mode` alone still offers its three states");
+      if (found) {
+        await vscode.workspace.applyEdit(found.edit);
+        await wait(2500);
+        const written = typing.getText();
+        check(
+          /case mode is\n/.test(written) &&
+            /when boot =>/.test(written) &&
+            /when idle =>/.test(written) &&
+            /when active =>/.test(written) &&
+            /end case;/.test(written),
+          "and writes `is`, an arm per state and the `end case` to close it",
+          JSON.stringify(written.split("\n").slice(line, line + 4).join("\n")),
+        );
+        const bad = vscode.languages
+          .getDiagnostics(typing.uri)
+          .filter((d) => d.source === "speja" && d.code === "syntax_error");
+        check(bad.length === 0, "and the statement now parses", bad.length ? "syntax errors" : "clean");
+      }
+    }
+
     out("done");
   } catch (error) {
     out("HARNESS ERROR: " + (error && error.stack ? error.stack : error));

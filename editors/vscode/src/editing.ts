@@ -7,6 +7,7 @@ import {
   caseSelector,
   assignmentKind,
   declarableKinds,
+  enumFromSource,
   missingChoices,
   renderDeclaration,
   renderWhenChoices,
@@ -1099,9 +1100,16 @@ function caseBody(
 async function enumOfSelector(
   doc: vscode.TextDocument,
   at: vscode.Position,
+  name: string,
 ): Promise<EnumType | null> {
   const direct = parseEnumHover(await hoverText(doc.uri, at));
   if (direct) return direct;
+
+  // Before the statement is finished the design unit does not analyse and the server has nothing
+  // to say about the selector, which is the one moment this is for. The declaration is in the
+  // file, so read it from there.
+  const fromText = enumFromSource(doc.getText(), name);
+  if (fromText) return fromText;
 
   // `signal state : t_state;` names the type but does not list its literals, so the selector's
   // declaration is opened and the type name in it hovered in its turn. Asking the workspace
@@ -1484,23 +1492,36 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         header.text.indexOf(sel.selector),
       );
       const literals = /^[a-z]\w*$/i.test(sel.selector)
-        ? await enumOfSelector(document, at)
+        ? await enumOfSelector(document, at, sel.selector)
         : null;
       const body = caseBody(document, sel.line);
       const missing = literals
         ? missingChoices(body?.text ?? "", literals.literals)
         : [];
 
-      if (literals && missing.length && body) {
-        const action = new vscode.CodeAction(
-          `Add ${missing.length} missing when choice${missing.length > 1 ? "s" : ""}`,
-          vscode.CodeActionKind.QuickFix,
-        );
+      if (literals && missing.length) {
+        const indent = indentOf(header.text);
+        const arms = renderWhenChoices(missing, indent + "  ");
         const edit = new vscode.WorkspaceEdit();
-        edit.insert(
-          document.uri,
-          new vscode.Position(body.endLine, 0),
-          renderWhenChoices(missing, indentOf(header.text) + "  "),
+        if (body) {
+          edit.insert(document.uri, new vscode.Position(body.endLine, 0), arms);
+        } else {
+          // Nothing written after the selector yet, so the statement is finished as well as
+          // filled: `is` if it is missing, the arms, and the `end case` to close it. The text is
+          // put after the code on the line rather than after a trailing comment.
+          const code = header.text.replace(/--.*$/, "").trimEnd();
+          const needsIs = !/\bis$/i.test(code);
+          edit.insert(
+            document.uri,
+            new vscode.Position(sel.line, code.length),
+            `${needsIs ? " is" : ""}\n${arms}${indent}end case;`,
+          );
+        }
+        const action = new vscode.CodeAction(
+          body
+            ? `Add ${missing.length} missing when choice${missing.length > 1 ? "s" : ""}`
+            : `Write the ${missing.length} states of ${sel.selector}`,
+          vscode.CodeActionKind.QuickFix,
         );
         action.edit = edit;
         actions.push(action);

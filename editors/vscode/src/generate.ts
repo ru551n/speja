@@ -716,12 +716,55 @@ export function renderDeclaration(
   return `${indent}${kind} ${name} : \${1:${type}}${value};`;
 }
 
-/** The selector of a `case` statement: the `x` of `case x is`. */
+/**
+ * The selector of a `case` statement: the `x` of `case x is`, and of `case x` on its own.
+ *
+ * `is` is optional because the action this feeds exists to fire before the statement is
+ * finished. A line that has not reached `is` yet is exactly the moment the author wants help.
+ */
 export function caseSelector(line: string): string | null {
-  const m = /^\s*case\b\s*(\?\?)?\s*(.+?)\s+is\b/i.exec(
+  const m = /^\s*case\b\s*(\?\?)?\s*(.+?)(\s+is)?\s*$/i.exec(
     line.replace(/--.*$/, ""),
   );
   return m ? m[2].trim() : null;
+}
+
+/**
+ * The enumeration `name` is declared with, read out of the source itself.
+ *
+ * Everything else in this file transforms what vhdl_ls said, and for good reason. This does not,
+ * because at the moment it is for there is nothing to transform: a `case` with no `end case` does
+ * not parse, the design unit does not analyse, and a hover on the selector comes back empty.
+ * Measured in the extension host, not assumed. The declaration is in front of the author anyway,
+ * so it is read from there, and only from the same file: a type from a package is a question for
+ * the server, and the server will answer it once the statement is finished.
+ */
+export function enumFromSource(source: string, name: string): EnumType | null {
+  const text = source.replace(/--.*$/gm, "");
+  const declaration = new RegExp(
+    `(?:^|\\n)\\s*(?:signal|variable|constant|shared\\s+variable)?\\s*` +
+      `([\\w\\s,]*\\b${name}\\b[\\w\\s,]*?)\\s*:\\s*(?:in|out|inout|buffer)?\\s*([A-Za-z]\\w*)`,
+    "i",
+  ).exec(text);
+  if (!declaration) return null;
+  // The name has to be one of the names declared, not a substring of a longer one.
+  if (
+    !declaration[1]
+      .split(",")
+      .some((n) => n.trim().toLowerCase() === name.toLowerCase())
+  )
+    return null;
+
+  const enumeration = new RegExp(
+    `\\btype\\s+${declaration[2]}\\s+is\\s*\\(([^)]*)\\)`,
+    "i",
+  ).exec(text);
+  if (!enumeration) return null;
+  const literals = enumeration[1]
+    .split(",")
+    .map((l) => l.trim())
+    .filter((l) => /^[A-Za-z]\w*$/.test(l));
+  return literals.length ? { name: declaration[2], literals } : null;
 }
 
 /** The choices a `case` body already covers, lower-cased. `others` counts as covering nothing. */

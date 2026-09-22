@@ -154,9 +154,17 @@ yet gets its `begin` written along with the declaration.
 the map names that nothing has declared yet, with each port's type and the instance's generic
 values substituted.
 
-**Add N missing when choices** appears on a `case` over an enumeration and writes a `when` arm for
-each literal the case does not cover. The literals come from the selector's declaration, so the
-signal does not have to be the thing under the cursor.
+**Write the N states of x** appears as soon as `case x` is on the line, before `is`, before any
+arm, before `end case`. It writes the `is`, an arm for each of the type's literals and the
+`end case` to close the statement. Once the statement exists, the same action becomes **Add N
+missing when choices** and fills in only what is not covered.
+
+At that first moment the file does not parse, the design unit does not analyse, and VHDL-LS
+answers a hover on the selector with nothing at all. So the states are read from the declaration
+in the open file: `signal x : t_mode;` and `type t_mode is (...)`. That is the one place in the
+extension that reads VHDL rather than asking the server, and it is limited to the same file. A
+type that lives in a package is a question for the server, and the server answers it as soon as
+the statement is finished.
 
 It is the only thing offered on a `case`, and only when the selector is declared and its type is
 an enumeration. A name that does not exist has no states to infer: an author who has not declared

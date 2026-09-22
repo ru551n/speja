@@ -53,7 +53,7 @@ const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
 // `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
-const ENTITIES = 52;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
+const ENTITIES = 53;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -365,6 +365,33 @@ begin
   p_inner : process (clk) is
     type t_inner is (idle, run);
   begin
+  end process;
+
+end architecture rtl;
+`);
+
+// `case mode`, and nothing else: no `is`, no arms, no `end case`. The file does not parse, and
+// the question is whether the server will still say what `mode` is.
+write("typing.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity typing is
+  port (
+    clk : in    std_logic
+  );
+end entity typing;
+
+architecture rtl of typing is
+
+  type t_mode is (boot, idle, active);
+
+  signal mode : t_mode := boot;
+
+begin
+
+  p_mode : process (clk) is
+  begin
+    case mode
   end process;
 
 end architecture rtl;
