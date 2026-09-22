@@ -30,6 +30,18 @@ reports are that version's. `speja --version` prints the same thing.
   declaration goes in the declarative part that can hold it. Inside a generate or a block, which
   declare signals of their own, both that scope and the architecture are offered. A port map
   offers to declare every actual it names at once.
+* **Works with the VHDL-LS the Marketplace extension embeds.** That is vhdl_ls 0.80, which gives
+  an instantiation's document symbol the range of its label alone, nine characters, where 0.88
+  gives it the whole statement. Every feature that read the port map out of that range read
+  nothing: inlay hints, signature help, "Map N missing ports", "Declare N signals for this port
+  map". The statement's extent is now read from the text and the symbol is trusted only for
+  where it starts.
+* **The use-clause offers are ranked**, most likely wanted first and preferred: `ieee.numeric_std`
+  above `numeric_bit`, the Synopsys packages last. Alphabetical had put `NUMERIC_BIT` on top.
+* **An actual is what it is connected to.** A port actual is offered as a signal and nothing else,
+  a generic actual as a constant and nothing else, each with the type of what it feeds.
+* **A constant's default value fits its type**: `1` for a `positive`, `(others => '0')` for a
+  vector, an empty tab stop for a type this cannot guess at. It was `'0'` for everything.
 * **Only the name under the cursor is offered a declaration or a use clause.** On a line with two
   unresolved names, asking about one no longer offers fixes for the other.
 * **The instantiation completion is labelled and no longer sorted last.** It reads

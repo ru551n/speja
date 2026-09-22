@@ -481,6 +481,7 @@ import {
   missingChoices,
   renderWhenChoices,
   comparePackages,
+  compareUseCandidates,
 } from "./generate.ts";
 
 // The operator settles what the name is; a process assigns to the architecture's signals too.
@@ -592,6 +593,21 @@ assert.ok(comparePackages("osvvm", "std_logic_1164", "numeric_std") > 0);
     "std_logic_1164",
   );
   assert.equal(before.line, 1, "std_logic_1164 goes before numeric_std");
+}
+
+// For a name several packages declare, the one people mean comes first and the ones they are
+// migrating away from last.
+{
+  const sorted = [
+    { library: "ieee", pkg: "std_logic_arith" },
+    { library: "ieee", pkg: "NUMERIC_BIT" },
+    { library: "ieee", pkg: "numeric_std" },
+    { library: "mylib", pkg: "own_pkg" },
+  ].sort(compareUseCandidates);
+  assert.deepEqual(
+    sorted.map((c) => c.pkg),
+    ["numeric_std", "own_pkg", "NUMERIC_BIT", "std_logic_arith"],
+  );
 }
 
 console.log("generate.test.ts: ok");

@@ -89,6 +89,12 @@ ieee.numeric_std        function to_unsigned[...]
 ieee.std_logic_arith    function to_unsigned[...]
 ```
 
+The list is ranked, and the first entry is the preferred one, so the editor's auto-fix keystroke
+takes it without asking: for `unsigned` that is `ieee.numeric_std`, with `numeric_bit` below it
+and the Synopsys `std_logic_arith` last, where a package a codebase is trying to leave belongs.
+A project's own package is never ranked below a deprecated one. Alphabetical order put
+`NUMERIC_BIT` on top, and the top row of a lightbulb is the one that gets accepted.
+
 Picking one inserts the `use` clause after the existing context clause, adding `library ieee;`
 only if it is not already there, and only for the design unit the cursor is in. Packages that are
 already visible are left out of the list, and candidates are ordered `ieee` first, then
@@ -130,9 +136,11 @@ The declaration goes in the part that can hold it: a variable in the process's o
 own declarative part, a signal or constant in the architecture's, even when the assignment that
 prompted it is inside a process.
 
-The type comes from where the name is used. An actual in a port map takes the type of the port it
-feeds, with the instance's generics substituted, so `rst => sys_rst` declares `sys_rst` as
-`std_logic` and `din => data_in` as `std_logic_vector(8 - 1 downto 0)`. An assignment from a
+The type comes from where the name is used, and so does the kind. An actual in a port map is a
+signal and is offered as nothing else, with the type of the port it feeds and the instance's
+generics substituted: `rst => sys_rst` declares `sys_rst` as `std_logic`, `din => data_in` as
+`std_logic_vector(8 - 1 downto 0)`. An actual in a generic map is a constant and only a constant,
+with the generic's type. An assignment from a
 single name takes that name's type, on either side of the operator, so `tally <= step` makes
 `step` whatever `tally` is; from a literal it is the type the literal says: `'0'` is a
 `std_logic`, `true` a `boolean`, `42` a `natural`, `10 ns` a `time`. Anything that needs thinking
@@ -247,9 +255,6 @@ Two facts about the server shaped the code, and are worth knowing if you change 
   being selected first.
 * Extract to constant or signal asks for the type, since the server cannot give the type of an
   arbitrary expression.
-* A use clause added for a name used in an architecture goes above that architecture, which keeps
-  it scoped to it. A `library` clause already given above its entity is therefore repeated, which
-  is legal.
 * When the server reports no symbols for a file, for example because it does not parse, the
   commands that need them say that no server answered.
 * An instance generated from an entity maps each formal to an actual of the same name. Those

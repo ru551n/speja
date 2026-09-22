@@ -13,6 +13,7 @@ import {
   renderWhenChoices,
   typeOfLiteral,
   compareCandidates,
+  compareUseCandidates,
   contextClause,
   contextClauseEdit,
   designatorOf,
@@ -249,6 +250,39 @@ async function resolveInstance(
     }
   }
 
+  if (!found) {
+    // Go-to-definition from inside an instantiation is not something every VHDL-LS answers:
+    // 0.80.0, the one the Marketplace extension embeds, returns nothing for it, and with that
+    // every feature built on the instance went dark while the picker and the completion kept
+    // working. Those hover the entity at its own declaration, which every version answers. So
+    // the name is read off the header and the entity looked up by it, the same way they do.
+    const direct = /\bentity\s+(?:([A-Za-z]\w*)\s*\.\s*)?([A-Za-z]\w*)/i.exec(
+      text,
+    );
+    const viaComponent =
+      /\bcomponent\s+([A-Za-z]\w*)/i.exec(text) ??
+      /^\s*[A-Za-z]\w*\s*:\s*([A-Za-z]\w*)/.exec(text);
+    const library = direct?.[1]?.toLowerCase();
+    const name = direct?.[2] ?? viaComponent?.[1];
+    if (name) {
+      const candidates = (await findEntities(name)).filter(
+        (s) => identOf(s.name).toLowerCase() === name.toLowerCase(),
+      );
+      const sym =
+        candidates.find(
+          (s) =>
+            library !== undefined &&
+            library !== "work" &&
+            libraryOf(s).toLowerCase() === library,
+        ) ?? candidates[0];
+      if (sym) {
+        const at = sym.location.range.start;
+        const entity = await entityAt(sym.location.uri, at, libraryOf(sym));
+        if (entity) found = { entity, uri: sym.location.uri, position: at };
+      }
+    }
+  }
+
   if (found) {
     if (resolvedInstances.size > 400) resolvedInstances.clear();
     resolvedInstances.set(key, found);
@@ -256,13 +290,57 @@ async function resolveInstance(
   return found;
 }
 
+/**
+ * The whole statement that starts at `start`: to the first `;` outside parentheses.
+ *
+ * The document symbol for an instantiation is not trusted for this. VHDL-LS 0.88 gives it the
+ * statement's range; 0.80, the version the Marketplace extension embeds, gives it the label's
+ * nine characters, and every feature that read the port map out of that range read nothing.
+ */
+function statementRange(
+  doc: vscode.TextDocument,
+  start: vscode.Position,
+): vscode.Range {
+  let depth = 0;
+  for (let l = start.line; l < doc.lineCount && l < start.line + 400; l++) {
+    const code = doc.lineAt(l).text.replace(/--.*$/, "");
+    for (let c = l === start.line ? start.character : 0; c < code.length; c++) {
+      const ch = code[c];
+      if (ch === "(") depth += 1;
+      else if (ch === ")") depth -= 1;
+      else if (ch === ";" && depth <= 0)
+        return new vscode.Range(start, new vscode.Position(l, c + 1));
+    }
+  }
+  return new vscode.Range(start, doc.lineAt(doc.lineCount - 1).range.end);
+}
+
+/** Every instantiation in the document, each with the range of its whole statement. */
+async function instanceSymbols(
+  doc: vscode.TextDocument,
+): Promise<vscode.DocumentSymbol[]> {
+  return flatten(await documentSymbols(doc.uri))
+    .filter(isInstance)
+    .map((s) => {
+      const whole = new vscode.DocumentSymbol(
+        s.name,
+        s.detail,
+        s.kind,
+        statementRange(doc, s.range.start),
+        s.selectionRange,
+      );
+      whole.children = s.children;
+      return whole;
+    });
+}
+
 /** The instantiation statement containing `position`, innermost first. */
 async function instanceAt(
   doc: vscode.TextDocument,
   position: vscode.Position,
 ): Promise<vscode.DocumentSymbol | undefined> {
-  return flatten(await documentSymbols(doc.uri))
-    .filter((s) => isInstance(s) && s.range.contains(position))
+  return (await instanceSymbols(doc))
+    .filter((s) => s.range.contains(position))
     .sort((a, b) => (a.range.contains(b.range) ? 1 : -1))[0];
 }
 
@@ -296,7 +374,7 @@ async function findDeclaringPackages(name: string): Promise<UseCandidate[]> {
     seen.add(key);
     out.push({ library, pkg, describes: s.name });
   }
-  return out.sort(compareCandidates);
+  return out.sort(compareUseCandidates);
 }
 
 /** First line of the design unit the position belongs to. */
@@ -1028,36 +1106,54 @@ function declarationSite(
  * author, as the tab stop it already was: a wrong type inserted confidently is worse than an
  * obvious placeholder.
  */
+/**
+ * What `name` is connected to, when it is an actual in an instantiation: the port or generic it
+ * feeds, and so the type it has to have. A port actual is a signal and a generic actual a
+ * constant; the choice of what to declare is settled by that, not offered.
+ */
+async function actualOf(
+  doc: vscode.TextDocument,
+  name: string,
+  at: vscode.Position,
+): Promise<{ role: "port" | "generic"; type: string } | null> {
+  const inst = await instanceAt(doc, at);
+  const resolved = inst && (await resolveInstance(doc, inst));
+  if (!inst || !resolved) return null;
+  const text = doc.getText(inst.range);
+  const generics = new Map(
+    readAssociations(
+      text,
+      resolved.entity.generics.map((g) => g.name),
+    ).map((a) => [a.formal, a.actual]),
+  );
+  for (const g of resolved.entity.generics)
+    if (!generics.has(g.name) && g.def !== undefined)
+      generics.set(g.name, g.def);
+  const same = (actual: string) =>
+    actual.trim().toLowerCase() === name.toLowerCase();
+  for (const [role, items] of [
+    ["generic", resolved.entity.generics],
+    ["port", resolved.entity.ports],
+  ] as const) {
+    const hit = readAssociations(
+      text,
+      items.map((i) => i.name),
+    ).find((a) => same(a.actual));
+    const item = items.find(
+      (i) => i.name.toLowerCase() === hit?.formal.toLowerCase(),
+    );
+    if (item) return { role, type: substituteGenerics(item.type, generics) };
+  }
+  return null;
+}
+
 async function inferredType(
   doc: vscode.TextDocument,
   name: string,
   at: vscode.Position,
 ): Promise<string | undefined> {
-  const inst = await instanceAt(doc, at);
-  const resolved = inst && (await resolveInstance(doc, inst));
-  if (inst && resolved) {
-    const text = doc.getText(inst.range);
-    const ports = resolved.entity.ports;
-    const hit = readAssociations(
-      text,
-      ports.map((p) => p.name),
-    ).find((a) => a.actual.trim().toLowerCase() === name.toLowerCase());
-    const port = ports.find(
-      (p) => p.name.toLowerCase() === hit?.formal.toLowerCase(),
-    );
-    if (port) {
-      const generics = new Map(
-        readAssociations(
-          text,
-          resolved.entity.generics.map((g) => g.name),
-        ).map((a) => [a.formal, a.actual]),
-      );
-      for (const g of resolved.entity.generics)
-        if (!generics.has(g.name) && g.def !== undefined)
-          generics.set(g.name, g.def);
-      return substituteGenerics(port.type, generics);
-    }
-  }
+  const actual = await actualOf(doc, name, at);
+  if (actual) return actual.type;
 
   const line = doc.lineAt(at.line).text.replace(/--.*$/, "");
 
@@ -1398,8 +1494,8 @@ const MAX_HINT = 40;
 /** Port direction and type next to each actual in a port or generic map. */
 const portMapHints: vscode.InlayHintsProvider = {
   async provideInlayHints(document, range) {
-    const instances = flatten(await documentSymbols(document.uri)).filter(
-      (s) => isInstance(s) && s.range.intersection(range),
+    const instances = (await instanceSymbols(document)).filter((s) =>
+      s.range.intersection(range),
     );
 
     const hints: vscode.InlayHint[] = [];
@@ -1458,7 +1554,8 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
       if (!/^[A-Za-z]\w*$/.test(name)) continue;
       const unitLine = await designUnitLine(document, diagnostic.range.start);
 
-      for (const c of await findDeclaringPackages(name)) {
+      const candidates = await findDeclaringPackages(name);
+      for (const c of candidates) {
         const edit = contextClauseEdit(lines, unitLine, c.library, c.pkg);
         if (!edit) continue;
         const action = new vscode.CodeAction(
@@ -1467,6 +1564,9 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         );
         action.edit = applyContextEdit(document, edit);
         action.diagnostics = [diagnostic];
+        // The first candidate is the ranked one, and "preferred" is what an editor applies on
+        // its auto-fix keystroke rather than asking.
+        action.isPreferred = c === candidates[0];
         actions.push(action);
       }
     }
@@ -1477,11 +1577,21 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
     for (const diagnostic of underCursor) {
       const name = document.getText(diagnostic.range);
       if (!/^[A-Za-z]\w*$/.test(name)) continue;
-      const kinds = declarableKinds(
-        sequentialHome(document, diagnostic.range.start) !== null,
-        assignmentKind(document.lineAt(diagnostic.range.start.line).text, name),
-      );
-      const type = await inferredType(document, name, diagnostic.range.start);
+      // Connected to a port it is a signal, to a generic a constant, and nothing else is
+      // offered: a constant on a port or a signal on a generic is not a choice, it is an error.
+      const actual = await actualOf(document, name, diagnostic.range.start);
+      const kinds: ObjectKind[] = actual
+        ? [actual.role === "port" ? "signal" : "constant"]
+        : declarableKinds(
+            sequentialHome(document, diagnostic.range.start) !== null,
+            assignmentKind(
+              document.lineAt(diagnostic.range.start.line).text,
+              name,
+            ),
+          );
+      const type =
+        actual?.type ??
+        (await inferredType(document, name, diagnostic.range.start));
       // A signal used inside a generate or a block can belong to it or to the architecture, and
       // only the author knows which. Both are offered, the nearer scope first.
       const scope =

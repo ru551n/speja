@@ -272,6 +272,9 @@ architecture rtl of apply_me is
 begin
 
   u_fifo : entity work.fifo
+    generic map (
+      width => c_width
+    )
     port map (
       clk  => clk,
       rst  => reset_n,

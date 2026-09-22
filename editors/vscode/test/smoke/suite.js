@@ -331,6 +331,19 @@ exports.run = async function run() {
       const quick = fixes.find((a) => /^Add use ieee\.numeric_std\.all$/i.test(a.title));
       check(!!quick, "a quick fix offers the package that declares an unresolved name",
         fixes.map((a) => a.title).slice(0, 4).join(" | "));
+      // Several packages declare `unsigned`. The one people mean is first and preferred, and
+      // the Synopsys one is last: alphabetical put NUMERIC_BIT on top.
+      const offers = fixes.filter((a) => /^Add use /.test(a.title));
+      check(
+        offers.length > 1 && offers[0] === quick && quick.isPreferred === true,
+        "and the standard package is ranked first and preferred",
+        offers.map((a) => `${a.title}${a.isPreferred ? " *" : ""}`).join(" | "),
+      );
+      check(
+        !offers.length || /std_logic_arith|numeric_bit/i.test(offers[offers.length - 1].title),
+        "with the packages nobody means at the bottom",
+        offers.map((a) => a.title).join(" | "),
+      );
 
       cursorAt(shown, at0);
       pick = "ieee.NUMERIC_STD";
@@ -357,6 +370,7 @@ exports.run = async function run() {
         "an entity is declared as a component");
       const bad = (await settle(uri)).filter((d) => /No declaration|Unexpected|expected/i.test(d.message));
       check(bad.length === 0, "and the server accepts it", bad.map((d) => d.message).join(" | ") || "no errors");
+      }
     }
 
     // 9e. Completion: an entity as a whole instantiation, and a name from a package the file has
@@ -602,6 +616,13 @@ exports.run = async function run() {
         "a port map offers to declare every actual it names",
         onMap.join(" | "),
       );
+      // What an actual is connected to settles what it is: a port actual is a signal and only
+      // a signal, a generic actual a constant and only a constant.
+      check(
+        onMap.includes("Declare signal reset_n") && !onMap.some((t) => /constant reset_n|variable reset_n/.test(t)),
+        "a port actual is offered as a signal and nothing else",
+        onMap.join(" | "),
+      );
 
       // A case over an enumeration with one arm written: the rest are offered.
       const known = lineOf(/case phase is/);
@@ -790,6 +811,40 @@ exports.run = async function run() {
         ),
       );
 
+      // A generic actual is a constant and only a constant, with the generic's type.
+      {
+        const line = lineWith(/width => c_width/);
+        const p = new vscode.Position(line, apply.lineAt(line).text.indexOf("c_width") + 1);
+        const titles = (
+          (await limit(
+            vscode.commands.executeCommand(
+              "vscode.executeCodeActionProvider",
+              apply.uri,
+              new vscode.Range(p, p),
+            ),
+            30000,
+            "code actions on a generic actual",
+          )) || []
+        ).map((a) => a.title);
+        check(
+          titles.includes("Declare constant c_width") &&
+            !titles.some((t) => /signal c_width|variable c_width/.test(t)),
+          "a generic actual is offered as a constant and nothing else",
+          titles.join(" | "),
+        );
+      }
+      check(
+        !!(await actionFor(/width => c_width/, "c_width", "Declare constant c_width")),
+        "the constant action is there to apply",
+      );
+      check(
+        /constant c_width : positive/.test(between(/^architecture rtl/, /^begin\b/)),
+        "and takes the generic's type",
+        JSON.stringify(
+          apply.getText().split("\n").find((l) => /constant c_width/.test(l)) ?? "missing",
+        ),
+      );
+
       // One actual on its own takes the type of the port it feeds, not a placeholder.
       check(
         !!(await actionFor(/rst  => reset_n/, "reset_n", "Declare signal reset_n")),
@@ -843,8 +898,13 @@ exports.run = async function run() {
         "    signal gate_out :",
         "  signal data_in ",
       ];
+      // Inner runs of spaces are alignment, which the formatter owns and two separate actions
+      // cannot agree on between them; the indent and the words are what the generators own.
+      const settle = (l) => l.replace(/(\S)\s+/g, "$1 ");
       const linesFor = (text) =>
-        generated.map((g) => text.split("\n").find((l) => l.startsWith(g)) ?? `MISSING ${g}`);
+        generated.map(
+          (g) => settle(text.split("\n").find((l) => settle(l).startsWith(settle(g))) ?? `MISSING ${g}`),
+        );
       const was = linesFor(apply.getText());
       const formatting =
         (await limit(
@@ -1108,6 +1168,20 @@ exports.run = async function run() {
       const walk = (list) => list.forEach((x) => { flat.push(x.name); walk(x.children || []); });
       walk(syms);
       out("INFO  testbed symbols: " + flat.join(", "));
+      const instSym = (function find(list) {
+        for (const x of list) {
+          if (/^instance/i.test(x.name)) return x;
+          const inner = find(x.children || []);
+          if (inner) return inner;
+        }
+        return null;
+      })(syms);
+      out(
+        "INFO  instance symbol range: " +
+          (instSym
+            ? `${instSym.range.start.line + 1}:${instSym.range.start.character}..${instSym.range.end.line + 1}:${instSym.range.end.character}  selection ${instSym.selectionRange.start.line + 1}..${instSym.selectionRange.end.line + 1}`
+            : "no instance symbol"),
+      );
       check(
         titles.some((t) => /signals? for this port map/.test(t)),
         "the testbed's own port map offers to declare its actuals",

@@ -683,6 +683,50 @@ export function compareLibraries(a: string, b: string): number {
   return rank(a) - rank(b) || a.toLowerCase().localeCompare(b.toLowerCase());
 }
 
+/**
+ * How much a package is wanted, for a name several of them declare.
+ *
+ * The standard `ieee` packages come first, then the less common standard ones, then the two
+ * `numeric_bit` variants that nobody reaches for by accident, and last the Synopsys packages
+ * (`std_logic_arith` and friends) that predate the standard and are what a codebase is trying
+ * to get away from. A package this table does not know sorts with the standard ones, so a
+ * project's own package is never pushed below a deprecated one.
+ */
+const IEEE_PREFERENCE: Record<string, number> = {
+  std_logic_1164: 0,
+  numeric_std: 0,
+  math_real: 1,
+  math_complex: 1,
+  fixed_pkg: 1,
+  float_pkg: 1,
+  fixed_float_types: 1,
+  std_logic_textio: 1,
+  numeric_std_unsigned: 2,
+  numeric_bit: 3,
+  numeric_bit_unsigned: 3,
+  std_logic_arith: 4,
+  std_logic_unsigned: 4,
+  std_logic_signed: 4,
+  std_logic_misc: 4,
+};
+
+/**
+ * Order the packages offered for an unresolved name, most likely wanted first.
+ *
+ * Alphabetical put `NUMERIC_BIT` above `numeric_std` for `unsigned`, and the top row of a
+ * lightbulb is the one that gets accepted.
+ */
+export function compareUseCandidates(
+  a: { library: string; pkg: string },
+  b: { library: string; pkg: string },
+): number {
+  const wanted = (c: { library: string; pkg: string }) =>
+    c.library.toLowerCase() === "ieee"
+      ? (IEEE_PREFERENCE[c.pkg.toLowerCase()] ?? 1)
+      : 0;
+  return wanted(a) - wanted(b) || compareCandidates(a, b);
+}
+
 /** Order candidate packages for any list shown to the user. */
 export function compareCandidates(
   a: { library: string; pkg: string },
@@ -760,6 +804,25 @@ export function typeOfLiteral(expr: string): string | null {
   return null;
 }
 
+/**
+ * A value a constant of `type` could start from, as the second tab stop's default.
+ *
+ * A constant has to have one, so the tab stop is always there; what is in it should at least be
+ * legal for the type, and `'0'` is not a `positive`. A type this does not know gets an empty
+ * stop, which the editor lands on straight after the type.
+ */
+export function initialOf(type: string): string {
+  const t = type.toLowerCase();
+  if (/^(std_u?logic|bit)$/.test(t)) return "'0'";
+  if (/^(std_u?logic_vector|unsigned|signed|bit_vector)\b/.test(t))
+    return "(others => '0')";
+  if (t === "boolean") return "false";
+  if (t === "positive") return "1";
+  if (/^(natural|integer|real)$/.test(t)) return "0";
+  if (t === "time") return "0 ns";
+  return "";
+}
+
 /** A one-line object declaration, with the type left as a tab stop for the editor. */
 export function renderDeclaration(
   kind: ObjectKind,
@@ -767,7 +830,7 @@ export function renderDeclaration(
   indent = "  ",
   type = "std_logic",
 ): string {
-  const value = kind === "constant" ? ` := \${2:'0'}` : "";
+  const value = kind === "constant" ? ` := \${2:${initialOf(type)}}` : "";
   return `${indent}${kind} ${name} : \${1:${type}}${value};`;
 }
 
