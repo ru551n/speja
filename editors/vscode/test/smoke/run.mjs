@@ -53,7 +53,7 @@ const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
 // `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
-const ENTITIES = 53;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
+const ENTITIES = 54;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -395,6 +395,28 @@ begin
   end process;
 
 end architecture rtl;
+`);
+
+// A package of the project's own, and a file that needs a name from it without saying so. The
+// use-clause quick fix has only ever been checked against `ieee`, where the library clause is
+// already there; here both the `library` and the `use` have to be written.
+write("counter_pkg.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+package counter_pkg is
+
+  constant c_counter_width : positive := 8;
+
+end package counter_pkg;
+`);
+write("other/needs_pkg.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity needs_pkg is
+  port (
+    count : out   std_logic_vector(c_counter_width - 1 downto 0)
+  );
+end entity needs_pkg;
 `);
 
 // A use clause that nothing needs, beside one that is needed.

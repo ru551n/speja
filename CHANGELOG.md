@@ -30,6 +30,9 @@ reports are that version's. `speja --version` prints the same thing.
   declaration goes in the declarative part that can hold it. Inside a generate or a block, which
   declare signals of their own, both that scope and the architecture are offered. A port map
   offers to declare every actual it names at once.
+* **A new library block gets a blank line above it.** Adding a use clause for a package in
+  another library appended `library mylib;` straight under the `ieee` block, so two groups read
+  as one.
 * **`case my_signal` is enough.** Before `is`, before any arm, the states of an enumeration are
   offered, and accepting writes the `is`, an arm each and the `end case`. On a statement that
   already exists it fills in only the choices that are missing. A selector that is not declared,

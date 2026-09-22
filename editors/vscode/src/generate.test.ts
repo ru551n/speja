@@ -163,6 +163,19 @@ assert.deepEqual(contextClauseEdit(twoLibraries, 6, "ieee", "numeric_std"), {
   text: "use ieee.numeric_std.all;\n",
 });
 
+// Appended after the last block, a new library still gets a blank line above it: two libraries
+// running together stop reading as two groups.
+{
+  const appended = contextClauseEdit(
+    ["library ieee;", "use ieee.std_logic_1164.all;", "", "entity foo is"],
+    3,
+    "mylib",
+    "counter_pkg",
+  );
+  assert.equal(appended.line, 2);
+  assert.equal(appended.text, "\nlibrary mylib;\nuse mylib.counter_pkg.all;\n");
+}
+
 // A whole new library sorts into place too, in the order organizeImports uses: ieee and std
 // first, everything else alphabetically, work last. It is separated from the block it precedes.
 const ieeeAndWork = [
@@ -362,8 +375,8 @@ console.log("ok - library order");
       3,
       "mylib",
     ),
-    { line: 2, text: "library mylib;\n" },
-    "goes after the existing clauses, not above them",
+    { line: 2, text: "\nlibrary mylib;\n" },
+    "goes after the existing clauses, not above them, with a blank line between",
   );
   assert.equal(
     clause(["entity top is"], 0, "work"),

@@ -462,6 +462,15 @@ export function contextClauseEdit(
   const indent = /^\s*/.exec(lines[unitLine] ?? "")![0];
 
   let text = "";
+  // A whole new library block appended after another one needs a blank line above it just as
+  // much as one inserted in front: without it the two libraries run together and stop reading
+  // as separate groups. Only when the line above really is a clause, not a blank already there.
+  if (
+    !hasLibrary &&
+    line > start &&
+    /^\s*(library|use)\b/i.test(lines[line - 1] ?? "")
+  )
+    text += "\n";
   if (!hasLibrary) text += `${indent}library ${library};\n`;
   if (pkg) text += `${indent}use ${library}.${pkg}.all;\n`;
   // Keep a blank line between the clause and the design unit it precedes.

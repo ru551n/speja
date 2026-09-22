@@ -963,6 +963,66 @@ exports.run = async function run() {
       }
     }
 
+    // 19. The use-clause fix for a package of the project, not of ieee. The library clause is
+    // not there either, so both have to be written, and in the order the file already uses.
+    {
+      const needs = await vscode.workspace.openTextDocument(at("other/needs_pkg.vhd"));
+      await vscode.window.showTextDocument(needs);
+      await until(
+        async () => (await symbols("counter_pkg")).some((s) => /counter_pkg/i.test(s.name)),
+        30000,
+        "the server to read counter_pkg",
+      );
+      await wait(2000);
+      const line = needs.getText().split("\n").findIndex((l) => /c_counter_width/.test(l));
+      const at0 = new vscode.Position(
+        line,
+        needs.lineAt(line).text.indexOf("c_counter_width") + 1,
+      );
+      const offers = (
+        (await limit(
+          vscode.commands.executeCommand(
+            "vscode.executeCodeActionProvider",
+            needs.uri,
+            new vscode.Range(at0, at0),
+          ),
+          30000,
+          "code actions on a name from a project package",
+        )) || []
+      ).filter((a) => /^Add use /.test(a.title));
+      check(
+        offers.some((a) => /counter_pkg/.test(a.title)),
+        "a name from a project package is offered its own use clause",
+        offers.map((a) => a.title).join(" | ") || "nothing",
+      );
+      const chosen = offers.find((a) => /counter_pkg/.test(a.title));
+      if (chosen) {
+        await vscode.workspace.applyEdit(chosen.edit);
+        await wait(2500);
+        const text = needs.getText();
+        const libraryAt = text.indexOf("library mylib;");
+        check(
+          libraryAt > 0 && text.includes("use mylib.counter_pkg.all;"),
+          "and the library clause is written with it",
+          JSON.stringify(text.split("\n").slice(0, 6).join("\n")),
+        );
+        check(
+          text.indexOf("library ieee;") < libraryAt &&
+            /use ieee\.std_logic_1164\.all;\n\nlibrary mylib;/.test(text),
+          "after ieee, with a blank line so the two libraries stay two groups",
+          JSON.stringify(text.split("\n").slice(0, 5).join("\n")),
+        );
+        const unresolved = vscode.languages
+          .getDiagnostics(needs.uri)
+          .filter((d) => d.code === "unresolved");
+        check(
+          unresolved.length === 0,
+          "and the name resolves once it is added",
+          unresolved.map((d) => needs.getText(d.range)).join(", ") || "none left",
+        );
+      }
+    }
+
     out("done");
   } catch (error) {
     out("HARNESS ERROR: " + (error && error.stack ? error.stack : error));
