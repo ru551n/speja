@@ -415,6 +415,12 @@ fn diagnose(
             return out;
         }
     };
+    // `speja: exclude` means speja is not running on this file. Silence here and refusal in the
+    // three actions below are the same decision: a generated or vendored file gets no squiggles,
+    // and nothing in the editor rewrites it. Only naming it on the command line still does.
+    if cfg.excluded(path) {
+        return out;
+    }
     let parsed = speja::Parsed::new(text.as_bytes().to_vec());
 
     // A file that does not parse gets its syntax errors and nothing else: every rule below would
@@ -923,6 +929,9 @@ impl LanguageServer for Backend {
                 let Ok(cfg) = config_for(&path) else {
                     return Vec::new();
                 };
+                if cfg.excluded(&path) {
+                    return Vec::new();
+                }
                 let parsed = speja::Parsed::new(text.as_bytes().to_vec());
                 let mut actions: Vec<CodeActionOrCommand> = Vec::new();
 
@@ -1096,6 +1105,9 @@ impl LanguageServer for Backend {
             let source = text.as_bytes().to_vec();
             move || {
                 let cfg = config_for(&path)?;
+                if cfg.excluded(&path) {
+                    return Ok(None);
+                }
                 let parsed = speja::Parsed::new(source);
                 Ok(
                     speja::fix_with(&parsed, &cfg, &speja::FixOptions::default())
@@ -1162,6 +1174,9 @@ impl LanguageServer for Backend {
             let source = text.as_bytes().to_vec();
             move || -> std::result::Result<Vec<speja::TextEdit>, String> {
                 let cfg = config_for(&path)?;
+                if cfg.excluded(&path) {
+                    return Ok(Vec::new());
+                }
                 let parsed = speja::Parsed::new(source);
                 speja::fix_range(&parsed, &cfg, &speja::FixOptions::default(), span)
                     .map_err(|error| error.to_string())

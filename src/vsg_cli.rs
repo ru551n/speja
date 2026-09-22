@@ -1817,9 +1817,17 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
         } else {
             files.first().cloned()
         };
+        // A directory argument (`-f . --recursive`) is where to look, not something to look
+        // beside: taking its parent walked straight past the project's own configuration.
         let dir = near
             .and_then(|p| std::path::absolute(p).ok())
-            .and_then(|p| p.parent().map(Path::to_path_buf))
+            .and_then(|p| {
+                if p.is_dir() {
+                    Some(p)
+                } else {
+                    p.parent().map(Path::to_path_buf)
+                }
+            })
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default();
         speja::config::discover(&dir).into_iter().collect()
@@ -1878,6 +1886,9 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
         }
     };
     if !args.stdin {
+        // A file named on the command line is formatted even when `speja: exclude` names it.
+        // Everything below this point is speja going looking, and that is what exclude is about.
+        let named: std::collections::HashSet<PathBuf> = files.iter().cloned().collect();
         for (pattern, source) in &cfg.file_list {
             let found = speja::config::expand_pattern(pattern);
             if found.is_empty() {
@@ -1901,6 +1912,7 @@ pub(crate) fn main(command_line: &[String]) -> ExitCode {
                 })
                 .collect();
         }
+        files.retain(|f| named.contains(f) || !cfg.excluded(f));
         let mut seen = std::collections::HashSet::new();
         files.retain(|f| seen.insert(f.clone()));
     }

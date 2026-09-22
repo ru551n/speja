@@ -178,6 +178,8 @@ pub struct Config {
     pub testbench_libraries: Vec<String>,
     /// `speja: synchronizers`: entity names (globs) that make a clock domain crossing safe.
     pub synchronizers: Vec<String>,
+    /// `speja: exclude`: globs naming directories and files speja leaves alone.
+    pub exclude: Vec<String>,
     /// `speja: rtl` / `speja: testbench`: a `rule` block for each kind of file.
     kind_rules: BTreeMap<String, Value>,
     /// `file_list`: (path or glob pattern, the configuration file that lists it).
@@ -433,6 +435,22 @@ impl Config {
                     probe.merge_rules(rule)?;
                     self.kind_rules.insert(kind.to_owned(), rule.clone());
                 }
+                "exclude" => {
+                    let list = value
+                        .as_sequence()
+                        .ok_or("`exclude` must be a list of patterns")?;
+                    self.exclude = list
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|p| {
+                            p.replace('\\', "/")
+                                .trim_start_matches("./")
+                                .trim_end_matches('/')
+                                .to_owned()
+                        })
+                        .filter(|p| !p.is_empty())
+                        .collect();
+                }
                 "reflow_comments" => {
                     self.format.reflow_comments = value
                         .as_bool()
@@ -527,6 +545,34 @@ impl Config {
             }
         }
         Ok(())
+    }
+
+    /// Whether `speja: exclude` names this path, or a directory it is under.
+    ///
+    /// The pattern is matched against the path and against every directory above it, so
+    /// `generated` covers `generated/gen.vhd` and `build/**` covers everything under a `build`.
+    /// A relative pattern matches at any depth, the same as `file_rules`, because a project's
+    /// `generated` directory is usually one per module rather than one per repository.
+    ///
+    /// This is about files speja goes looking for: a directory walked with `--recursive`, or a
+    /// glob in `file_list`. A file named on the command line is formatted whatever this says,
+    /// because asking for a file by name is not a search.
+    #[must_use]
+    pub fn excluded(&self, path: &Path) -> bool {
+        if self.exclude.is_empty() {
+            return false;
+        }
+        let path = path.to_string_lossy().replace('\\', "/");
+        let mut at = path.trim_start_matches("./");
+        loop {
+            if self.exclude.iter().any(|p| path_matches(p, at)) {
+                return true;
+            }
+            match at.rsplit_once('/') {
+                Some((head, _)) if !head.is_empty() => at = head,
+                _ => return false,
+            }
+        }
     }
 
     /// The configuration for a particular file, with matching `file_rules` applied.
@@ -1274,6 +1320,22 @@ mod tests {
         assert!(!path_matches("a/*.vhd", "x/a/b/c.vhd"));
         assert!(path_matches("a/**/c.vhd", "a/c.vhd"));
         assert!(Config::parse("file_rules: {x.vhd: {}}").is_err());
+    }
+
+    #[test]
+    fn exclude_covers_a_directory_and_everything_under_it() {
+        let cfg = Config::parse("speja: {exclude: [generated, vendor/**, ./out/]}").unwrap();
+        assert!(cfg.excluded(Path::new("generated/gen.vhd")));
+        assert!(cfg.excluded(Path::new("modules/fifo/generated/deep/gen.vhd")));
+        assert!(cfg.excluded(Path::new("vendor/ip/core.vhd")));
+        assert!(cfg.excluded(Path::new("out/build.vhd")));
+        assert!(!cfg.excluded(Path::new("src/generator.vhd")));
+        assert!(!cfg.excluded(Path::new("src/core.vhd")));
+        // A file whose name happens to match is excluded too: a pattern is about a path.
+        assert!(cfg.excluded(Path::new("src/generated")));
+        // Nothing configured, nothing excluded, and no walking of the path to find that out.
+        assert!(!Config::default().excluded(Path::new("generated/gen.vhd")));
+        assert!(Config::parse("speja: {exclude: generated}").is_err());
     }
 
     #[test]

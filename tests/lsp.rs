@@ -1437,3 +1437,42 @@ fn context_clauses_can_be_sorted_from_the_editor() {
         "{edited}"
     );
 }
+
+/// A file under `speja: exclude` gets no diagnostics at all.
+///
+/// Exclude is for generated and vendored sources: code nobody edits and nobody will fix. Leaving
+/// its squiggles in the Problems panel would be the whole point of the setting missed, and the
+/// author would learn to ignore a panel that is mostly noise.
+#[test]
+fn an_excluded_file_is_left_alone_by_the_server() {
+    let source = "entity e is port (a : in bit); end;\n";
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("speja.yaml"),
+        "speja:\n  exclude: [generated]\n",
+    )
+    .expect("write config");
+    std::fs::create_dir(dir.path().join("generated")).expect("mkdir");
+
+    let edited = dir.path().join("core.vhd");
+    std::fs::write(&edited, source).expect("write");
+    let vendored = dir.path().join("generated/gen.vhd");
+    std::fs::write(&vendored, source).expect("write");
+
+    let diagnostics = |file: &std::path::Path| {
+        let uri = file_uri(file);
+        Session::start()
+            .talk(&[did_open(&uri, source)], 1)
+            .iter()
+            .find(|m| m["method"] == "textDocument/publishDiagnostics")
+            .expect("diagnostics")["params"]["diagnostics"]
+            .as_array()
+            .expect("a list")
+            .len()
+    };
+    assert!(
+        diagnostics(&edited) > 0,
+        "the same source outside the excluded directory"
+    );
+    assert_eq!(diagnostics(&vendored), 0);
+}

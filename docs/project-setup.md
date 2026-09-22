@@ -56,6 +56,30 @@ what makes cross-file rules possible: `speja lint src/one.vhd` can still report 
 Files outside the map are analysed on their own. They get only the rules that need no resolution,
 and are reported as unanalysed rather than silently passing.
 
+## Leaving directories alone
+
+Generated and vendored sources are not written by hand and will not be fixed by hand. Naming them
+in `speja.yaml` keeps speja out:
+
+```yaml
+speja:
+  exclude:
+    - generated
+    - vendor/**
+    - '**/build'
+```
+
+A pattern is matched against each file's path and against every directory above it, so `generated`
+covers everything under any `generated` directory, at any depth. A relative pattern matches at any
+depth because a project's generated code is usually one directory per module rather than one per
+repository.
+
+This is about speja going looking. A directory walked with `--recursive`, a glob in `file_list`,
+and every file the editor opens are all searches, and an excluded file gets no diagnostics, no
+quick fixes and no formatting on save. Naming the file on the command line is not a search:
+`speja --fix generated/gen.vhd` formats it, because a tool that ignores the file you just typed is
+a tool you end up fighting.
+
 ## Telling RTL from testbenches
 
 A testbench is written to different rules than hardware: an unused signal in a stimulus process

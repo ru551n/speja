@@ -1132,3 +1132,33 @@ fn a_range_fix_never_deletes_code() {
         }
     }
 }
+
+/// `speja: exclude` keeps a walk out of a generated directory, and naming the file overrides it.
+///
+/// The two halves are one decision. Exclude is about speja going looking: a `--recursive` walk
+/// should not reformat vendored or generated sources nobody edits. Typing the path is not
+/// looking, and a tool that ignores a file the user just named is a tool the user fights.
+#[test]
+fn excluded_directories_are_walked_past_but_can_still_be_named() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write(dir.path(), "speja.yaml", "speja:\n  exclude: [generated]\n");
+    std::fs::create_dir(dir.path().join("generated")).expect("mkdir");
+    let src = write(dir.path(), "core.vhd", UNFORMATTED);
+    let generated = write(dir.path(), "generated/generated.vhd", UNFORMATTED);
+
+    let out = vsg_in(dir.path(), &["-f", ".", "--recursive", "--fix"], "");
+    assert_eq!(std::fs::read_to_string(&src).unwrap(), FORMATTED);
+    assert_eq!(
+        std::fs::read_to_string(&generated).unwrap(),
+        UNFORMATTED,
+        "the walk entered an excluded directory: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    vsg_in(
+        dir.path(),
+        &["-f", generated.to_str().unwrap(), "--fix"],
+        "",
+    );
+    assert_eq!(std::fs::read_to_string(&generated).unwrap(), FORMATTED);
+}

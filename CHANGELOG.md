@@ -21,6 +21,9 @@ reports are that version's. `speja --version` prints the same thing.
   own clauses, and a new library sorts into the order `source.organizeImports` uses, `ieee` and
   `std` first, then everything else alphabetically, then `work` last, separated from the block it
   precedes.
+* **`speja: exclude` leaves directories alone.** Generated and vendored sources get no
+  diagnostics, no quick fixes and no formatting, and a `--recursive` walk passes them by. Naming
+  such a file on the command line still formats it.
 * **And the fix it will not apply is still offered**, marked `(may change behaviour)`. It is
   never the preferred action and never reached by fix-all or format-on-save, which are built from
   the entry point `--fix` uses and never ask for unsafe fixes. An amber underline with no action
