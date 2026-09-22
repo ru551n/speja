@@ -117,6 +117,24 @@ instantiation.
 **Extract to constant / signal** turns a selected expression into a declaration before `begin` and
 replaces the selection with its name. It edits the document the selection was made in.
 
+**Declare signal / variable / constant** is offered on a name the analyser could not resolve, and
+offers only the declarations that are legal where the cursor is: a variable inside a process or a
+subprogram, a signal outside one, a constant in both. The declaration goes in the declarative part
+that can hold it, which for a variable is the process's own and for a signal the architecture's,
+and the type is left selected as `std_logic` so typing over it costs one keystroke.
+
+**Declare N signals for this port map** is the same thing for a whole instantiation: every actual
+the map names that nothing has declared yet, with each port's type and the instance's generic
+values substituted.
+
+**Add N missing when choices** appears on a `case` over an enumeration and writes a `when` arm for
+each literal the case does not cover. The literals come from the selector's declaration, so the
+signal does not have to be the thing under the cursor.
+
+**Insert state machine over x** appears instead when the `case` selects on a name that does not
+exist yet, which is what half-written state machine looks like. It asks for the states, declares
+the enumeration and the signal, and writes the arms.
+
 **VHDL Design** is a tree in the Explorer of every entity in the workspace, expanding through its
 architectures into the instances they contain, each resolved to the entity it instantiates. It
 appears once the workspace holds VHDL.

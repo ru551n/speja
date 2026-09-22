@@ -52,7 +52,7 @@ for (const directory of [workspace, join(workspace, "other"), join(workspace, ".
 const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
-const ENTITIES = 47;   // includes layout.vhd, the formatting fixture
+const ENTITIES = 48;   // includes layout.vhd and declare.vhd, the editing fixtures
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -173,6 +173,54 @@ architecture rtl of fsm is
   );
 
 begin
+
+end architecture rtl;
+`);
+
+// Declarations that do not exist yet: a name used in the architecture, a name used in a process,
+// a port map whose actuals are undeclared, and a `case` over a signal nobody has declared. Each
+// one is a lightbulb the author should find where they are already typing.
+write("declare.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity declare_me is
+  port (
+    clk : in    std_logic;
+    go  : in    std_logic
+  );
+end entity declare_me;
+
+architecture rtl of declare_me is
+
+  type phase_t is (arm, fire, wait_ack);
+
+  signal phase : phase_t := arm;
+
+begin
+
+  u_fifo : entity work.fifo
+    port map (
+      clk  => clk,
+      rst  => reset_n,
+      din  => data_in,
+      dout => data_out
+    );
+
+  p_main : process (clk) is
+  begin
+    if rising_edge(clk) then
+      scratch := go;
+      held <= go;
+      case phase is
+        when arm =>
+          null;
+      end case;
+      case sequencer is
+        when others =>
+          null;
+      end case;
+    end if;
+  end process;
 
 end architecture rtl;
 `);

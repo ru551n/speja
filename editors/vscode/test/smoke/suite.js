@@ -490,6 +490,135 @@ exports.run = async function run() {
       }
     }
 
+    // 14. The declarations an author would otherwise type out: an object that does not exist,
+    // every signal a port map wants, and the two halves of a state machine. Each is offered
+    // where the cursor already is, and only where it is legal.
+    {
+      const decl = await vscode.workspace.openTextDocument(at("declare.vhd"));
+      await vscode.window.showTextDocument(decl);
+      const text = decl.getText().split("\n");
+      const lineOf = (pattern) => text.findIndex((l) => pattern.test(l));
+      const actionsOn = async (line, column) => {
+        const p = new vscode.Position(line, column);
+        return (
+          (await limit(
+            vscode.commands.executeCommand(
+              "vscode.executeCodeActionProvider",
+              decl.uri,
+              new vscode.Range(p, p),
+            ),
+            30000,
+            `code actions on line ${line + 1}`,
+          )) || []
+        ).map((a) => a.title);
+      };
+
+      // Wait for the server to have an opinion about the file at all.
+      await until(
+        async () => (await symbols("declare_me")).some((s) => /^entity/i.test(s.name)),
+        30000,
+        "the server to read declare.vhd",
+      );
+
+      // A signal assignment in a process: the signal belongs to the architecture, the variable
+      // to the process, and both are legal here.
+      const held = lineOf(/held <= go;/);
+      const onHeld = await actionsOn(held, text[held].indexOf("held") + 1);
+      check(
+        onHeld.includes("Declare variable held") && onHeld.includes("Declare constant held"),
+        "inside a process, a variable is offered and a signal is not",
+        onHeld.join(" | "),
+      );
+      check(!onHeld.includes("Declare signal held"), "a signal is not declarable in a process");
+
+      // The port map's actuals.
+      const portMap = lineOf(/rst  => reset_n/);
+      const onMap = await actionsOn(portMap, text[portMap].indexOf("reset_n") + 1);
+      check(
+        onMap.some((t) => /^Declare \d+ signals? for this port map$/.test(t)),
+        "a port map offers to declare every actual it names",
+        onMap.join(" | "),
+      );
+
+      // A case over an enumeration with one arm written: the rest are offered.
+      const known = lineOf(/case phase is/);
+      const onKnown = await actionsOn(known, text[known].indexOf("phase") + 1);
+      check(
+        onKnown.some((t) => /^Add 2 missing when choices$/.test(t)),
+        "a case over an enum offers the choices it has not covered",
+        onKnown.join(" | "),
+      );
+
+      // A case over a name that does not exist: the state machine itself is offered.
+      const unknown = lineOf(/case sequencer is/);
+      const onUnknown = await actionsOn(unknown, text[unknown].indexOf("sequencer") + 1);
+      check(
+        onUnknown.includes("Insert state machine over sequencer"),
+        "a case over an undeclared name offers to make it a state machine",
+        onUnknown.join(" | "),
+      );
+      check(
+        !onUnknown.some((t) => /missing when choices/.test(t)),
+        "and does not pretend to know its states",
+      );
+
+      // Applying them: a title is not a feature. The arms have to land inside the case and the
+      // declaration in the declarative part of the process, not wherever the cursor was.
+      const armAction = (
+        await limit(
+          vscode.commands.executeCommand(
+            "vscode.executeCodeActionProvider",
+            decl.uri,
+            new vscode.Range(
+              new vscode.Position(known, text[known].indexOf("phase") + 1),
+              new vscode.Position(known, text[known].indexOf("phase") + 1),
+            ),
+          ),
+          30000,
+          "the when-choices action",
+        )
+      ).find((a) => /missing when choices/.test(a.title));
+      await vscode.workspace.applyEdit(armAction.edit);
+      const filled = decl.getText().split("\n");
+      const endCase = filled.findIndex((l, i) => i > known && /end case;/.test(l));
+      const arms = filled.slice(known, endCase).join("\n");
+      check(
+        /when fire =>/.test(arms) && /when wait_ack =>/.test(arms),
+        "the missing choices are written inside the case",
+        JSON.stringify(arms.slice(0, 80)),
+      );
+
+      const declaredLine = filled.findIndex((l) => /held <= go;/.test(l));
+      const heldAction = (
+        await limit(
+          vscode.commands.executeCommand(
+            "vscode.executeCodeActionProvider",
+            decl.uri,
+            new vscode.Range(
+              new vscode.Position(declaredLine, filled[declaredLine].indexOf("held") + 1),
+              new vscode.Position(declaredLine, filled[declaredLine].indexOf("held") + 1),
+            ),
+          ),
+          30000,
+          "the declare-variable action",
+        )
+      ).find((a) => a.title === "Declare variable held");
+      await vscode.commands.executeCommand(
+        heldAction.command.command,
+        ...heldAction.command.arguments,
+      );
+      await wait(500);
+      const withVariable = decl.getText().split("\n");
+      const processLine = withVariable.findIndex((l) => /p_main : process/.test(l));
+      const processBegin = withVariable.findIndex((l, i) => i > processLine && /^\s*begin\b/.test(l));
+      const between = withVariable.slice(processLine + 1, processBegin).join("\n");
+      check(
+        /variable held :/.test(between),
+        "the variable is declared in the process, above its begin",
+        JSON.stringify(between),
+      );
+    }
+
     out("done");
   } catch (error) {
     out("HARNESS ERROR: " + (error && error.stack ? error.stack : error));

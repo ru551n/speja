@@ -52,32 +52,37 @@ function splitTop(text: string, sep: string): string[] {
 }
 
 function parseIface(text: string): Iface[] {
-  return splitTop(text, ";").map((item) => {
-    const eq = item.indexOf(":=");
-    const def = eq >= 0 ? item.slice(eq + 2).trim() : undefined;
-    const lhs = (eq >= 0 ? item.slice(0, eq) : item).trim();
-    const colon = lhs.indexOf(":");
-    const name = lhs
-      .slice(0, colon)
-      .replace(/^\s*(signal|constant|variable)\s+/i, "")
-      .trim();
-    let rest = lhs.slice(colon + 1).trim();
-    const dm = /^(in|out|inout|buffer|linkage)\b\s*/i.exec(rest);
-    if (dm) rest = rest.slice(dm[0].length);
-    return {
-      name,
-      dir: dm ? dm[1].toLowerCase() : undefined,
-      type: rest.replace(/\s+/g, " ").trim(),
-      def,
-    };
-  }).filter((i) => i.name && i.type);
+  return splitTop(text, ";")
+    .map((item) => {
+      const eq = item.indexOf(":=");
+      const def = eq >= 0 ? item.slice(eq + 2).trim() : undefined;
+      const lhs = (eq >= 0 ? item.slice(0, eq) : item).trim();
+      const colon = lhs.indexOf(":");
+      const name = lhs
+        .slice(0, colon)
+        .replace(/^\s*(signal|constant|variable)\s+/i, "")
+        .trim();
+      let rest = lhs.slice(colon + 1).trim();
+      const dm = /^(in|out|inout|buffer|linkage)\b\s*/i.exec(rest);
+      if (dm) rest = rest.slice(dm[0].length);
+      return {
+        name,
+        dir: dm ? dm[1].toLowerCase() : undefined,
+        type: rest.replace(/\s+/g, " ").trim(),
+        def,
+      };
+    })
+    .filter((i) => i.name && i.type);
 }
 
 /**
  * Parse the entity declaration that `textDocument/hover` returns.
  * `library` comes from the workspace symbol's containerName.
  */
-export function parseEntityHover(hover: string, library = "work"): EntityIface | null {
+export function parseEntityHover(
+  hover: string,
+  library = "work",
+): EntityIface | null {
   const m = /\bentity\s+(\w+)\s+is\b/i.exec(hover);
   if (!m) return null;
   const g = clause(hover, "generic");
@@ -96,20 +101,34 @@ export function parseEnumHover(hover: string): EnumType | null {
   if (!m) return null;
   const body = clause(hover.slice(m.index), "is");
   if (body === null) return null;
-  const literals = splitTop(body, ",").map((s) => s.trim()).filter(Boolean);
-  if (!literals.length || literals.some((l) => !/^('.'|\w+)$/.test(l))) return null;
+  const literals = splitTop(body, ",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!literals.length || literals.some((l) => !/^('.'|\w+)$/.test(l)))
+    return null;
   return { name: m[1], literals };
 }
 
 const pad = (xs: string[]) => Math.max(0, ...xs.map((x) => x.length));
 
 /** Actuals that look like identifiers but never name a signal. */
-const NOT_A_SIGNAL = new Set(["open", "others", "null", "unaffected", "inertial"]);
+const NOT_A_SIGNAL = new Set([
+  "open",
+  "others",
+  "null",
+  "unaffected",
+  "inertial",
+]);
 
-function assocList(items: Iface[], actual: (i: Iface) => string, indent: string): string[] {
+function assocList(
+  items: Iface[],
+  actual: (i: Iface) => string,
+  indent: string,
+): string[] {
   const w = pad(items.map((i) => i.name));
   return items.map(
-    (i, n) => `${indent}${i.name.padEnd(w)} => ${actual(i)}${n < items.length - 1 ? "," : ""}`,
+    (i, n) =>
+      `${indent}${i.name.padEnd(w)} => ${actual(i)}${n < items.length - 1 ? "," : ""}`,
   );
 }
 
@@ -129,7 +148,10 @@ export interface InstanceOptions {
 }
 
 /** Instantiation of an entity, formals mapped to like-named actuals. */
-export function renderInstance(e: EntityIface, opts: InstanceOptions = {}): string {
+export function renderInstance(
+  e: EntityIface,
+  opts: InstanceOptions = {},
+): string {
   const i = opts.indent ?? "  ";
   const label = opts.label ?? `i_${e.name}`;
   const generics = opts.skipDefaultedGenerics
@@ -157,7 +179,10 @@ export function renderInstance(e: EntityIface, opts: InstanceOptions = {}): stri
 }
 
 /** Replace generic names in a type mark with the values used in the generic map. */
-export function substituteGenerics(type: string, values: Map<string, string>): string {
+export function substituteGenerics(
+  type: string,
+  values: Map<string, string>,
+): string {
   let out = type;
   for (const [name, value] of values)
     out = out.replace(new RegExp(`\\b${name}\\b`, "gi"), value);
@@ -180,7 +205,10 @@ export interface SignalOptions {
  * substituted. A port typed by an unconstrained array resolved through the actual
  * needs elaboration, which vhdl_ls does not expose; such a type lands as written.
  */
-export function renderSignals(ports: Iface[], opts: SignalOptions = {}): string {
+export function renderSignals(
+  ports: Iface[],
+  opts: SignalOptions = {},
+): string {
   const indent = opts.indent ?? "  ";
   const declared = new Set(
     [...(opts.existing ?? [])].map((s) => s.toLowerCase()),
@@ -193,7 +221,8 @@ export function renderSignals(ports: Iface[], opts: SignalOptions = {}): string 
     const actual = opts.actuals?.get(p.name.toLowerCase()) ?? p.name;
     const key = actual.toLowerCase();
     // An actual that is an expression, a slice or `open` is not a signal to declare.
-    if (!/^[a-z]\w*$/i.test(actual) || NOT_A_SIGNAL.has(actual.toLowerCase())) continue;
+    if (!/^[a-z]\w*$/i.test(actual) || NOT_A_SIGNAL.has(actual.toLowerCase()))
+      continue;
     if (declared.has(key) || seen.has(key)) continue;
     seen.add(key);
     rows.push([actual, substituteGenerics(p.type, generics)]);
@@ -201,11 +230,16 @@ export function renderSignals(ports: Iface[], opts: SignalOptions = {}): string 
 
   if (!rows.length) return "";
   const w = pad(rows.map(([n]) => n));
-  return rows.map(([n, t]) => `${indent}signal ${n.padEnd(w)} : ${t};`).join("\n");
+  return rows
+    .map(([n, t]) => `${indent}signal ${n.padEnd(w)} : ${t};`)
+    .join("\n");
 }
 
 /** formal => actual pairs of a port map, keyed by the formals vhdl_ls reported. */
-export function readActuals(portMapText: string, formals: string[]): Map<string, string> {
+export function readActuals(
+  portMapText: string,
+  formals: string[],
+): Map<string, string> {
   const out = new Map<string, string>();
   for (const f of formals) {
     const m = new RegExp(`\\b${f}\\s*=>\\s*([^,)]+)`, "i").exec(portMapText);
@@ -329,10 +363,7 @@ export function contextClauseEdit(
   const lib = library.toLowerCase();
 
   let start = unitLine;
-  while (
-    start > 0 &&
-    /^\s*(library\b|use\b|--|\s*$)/i.test(lines[start - 1])
-  )
+  while (start > 0 && /^\s*(library\b|use\b|--|\s*$)/i.test(lines[start - 1]))
     start--;
 
   const region = lines.slice(start, unitLine);
@@ -343,7 +374,9 @@ export function contextClauseEdit(
 
   const hasLibrary =
     IMPLICIT_LIBRARIES.has(lib) ||
-    region.some((l) => new RegExp(`^\\s*library\\b[^;]*\\b${lib}\\b`, "i").test(l));
+    region.some((l) =>
+      new RegExp(`^\\s*library\\b[^;]*\\b${lib}\\b`, "i").test(l),
+    );
 
   if (!pkg && hasLibrary) return null;
 
@@ -363,7 +396,8 @@ export function contextClauseEdit(
     const [rb, nb] = rank(b);
     return ra !== rb ? ra < rb : na < nb;
   };
-  const useOf = (l: string) => /^\s*use\s+([A-Za-z]\w*)\s*\.\s*([A-Za-z]\w*)/i.exec(l);
+  const useOf = (l: string) =>
+    /^\s*use\s+([A-Za-z]\w*)\s*\.\s*([A-Za-z]\w*)/i.exec(l);
   const libOf = (l: string) => /^\s*library\s+([A-Za-z]\w*)/i.exec(l);
 
   let line = unitLine;
@@ -373,7 +407,12 @@ export function contextClauseEdit(
     let at = -1;
     region.forEach((l, i) => {
       const u = useOf(l);
-      if (u && u[1].toLowerCase() === lib && u[2].toLowerCase() < pkg.toLowerCase()) at = i;
+      if (
+        u &&
+        u[1].toLowerCase() === lib &&
+        u[2].toLowerCase() < pkg.toLowerCase()
+      )
+        at = i;
       else if (at < 0 && libOf(l)?.[1].toLowerCase() === lib) at = i;
     });
     if (at >= 0) line = start + at + 1;
@@ -426,20 +465,31 @@ export interface Association {
  * ponytail: named association only. Positional association is not recognised,
  * and a formal appearing inside an actual expression could mislead the search.
  */
-export function readAssociations(text: string, formals: string[]): Association[] {
+export function readAssociations(
+  text: string,
+  formals: string[],
+): Association[] {
   const out: Association[] = [];
   for (const f of formals) {
     const m = new RegExp(`\\b${f}\\s*=>\\s*([^,)]+)`, "i").exec(text);
     if (!m) continue;
     const actual = m[1].trimEnd();
     const start = m.index + m[0].length - m[1].length;
-    out.push({ formal: f, actual: actual.trim(), start, end: start + actual.length });
+    out.push({
+      formal: f,
+      actual: actual.trim(),
+      start,
+      end: start + actual.length,
+    });
   }
   return out.sort((a, b) => a.start - b.start);
 }
 
 /** Formals of `ports` that the port map does not associate. */
-export function missingFormals(ports: Iface[], associated: Iterable<string>): Iface[] {
+export function missingFormals(
+  ports: Iface[],
+  associated: Iterable<string>,
+): Iface[] {
   const have = new Set([...associated].map((s) => s.toLowerCase()));
   return ports.filter((p) => !have.has(p.name.toLowerCase()));
 }
@@ -491,7 +541,8 @@ export interface ClauseLine {
 /** The context clause preceding the design unit at `unitLine`. */
 export function contextClause(lines: string[], unitLine: number): ClauseLine[] {
   let start = unitLine;
-  while (start > 0 && /^\s*(library\b|use\b|--|\s*$)/i.test(lines[start - 1])) start--;
+  while (start > 0 && /^\s*(library\b|use\b|--|\s*$)/i.test(lines[start - 1]))
+    start--;
 
   const out: ClauseLine[] = [];
   for (let i = start; i < unitLine; i++) {
@@ -500,7 +551,10 @@ export function contextClause(lines: string[], unitLine: number): ClauseLine[] {
       out.push({
         index: i,
         kind: "library",
-        names: lib[1].split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+        names: lib[1]
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean),
       });
       continue;
     }
@@ -553,9 +607,10 @@ export function portMapShape(text: string): PortMapShape | null {
   while (insertAt > open + 1 && /\s/.test(text[insertAt - 1])) insertAt--;
 
   const lastLine = text.lastIndexOf("\n", insertAt - 1);
-  const indent = hasEntries && lastLine >= 0
-    ? /^\s*/.exec(text.slice(lastLine + 1))![0]
-    : "    ";
+  const indent =
+    hasEntries && lastLine >= 0
+      ? /^\s*/.exec(text.slice(lastLine + 1))![0]
+      : "    ";
   return { insertAt, hasEntries, indent };
 }
 
@@ -579,4 +634,86 @@ export function compareCandidates(
     compareLibraries(a.library, b.library) ||
     a.pkg.toLowerCase().localeCompare(b.pkg.toLowerCase())
   );
+}
+
+// --- declarations and case statements ---------------------------------------
+
+/** What an object declaration may be, at the point the cursor sits. */
+export type ObjectKind = "signal" | "variable" | "constant";
+
+/**
+ * The kinds of declaration legal where the cursor is, most likely first.
+ *
+ * A variable belongs to a process or a subprogram and nowhere else in a design; a signal is the
+ * opposite, an architecture's own and never a process's. A constant is legal in both. Offering
+ * only the legal ones is the difference between a menu and a quiz.
+ */
+export function declarableKinds(inSequentialPart: boolean): ObjectKind[] {
+  return inSequentialPart ? ["variable", "constant"] : ["signal", "constant"];
+}
+
+/** A one-line object declaration, with the type left as a tab stop for the editor. */
+export function renderDeclaration(
+  kind: ObjectKind,
+  name: string,
+  indent = "  ",
+  type = "std_logic",
+): string {
+  const value = kind === "constant" ? ` := \${2:'0'}` : "";
+  return `${indent}${kind} ${name} : \${1:${type}}${value};`;
+}
+
+/** The selector of a `case` statement: the `x` of `case x is`. */
+export function caseSelector(line: string): string | null {
+  const m = /^\s*case\b\s*(\?\?)?\s*(.+?)\s+is\b/i.exec(
+    line.replace(/--.*$/, ""),
+  );
+  return m ? m[2].trim() : null;
+}
+
+/** The choices a `case` body already covers, lower-cased. `others` counts as covering nothing. */
+export function coveredChoices(body: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of body.replace(/--.*$/gm, "").matchAll(/\bwhen\b([^=]*)=>/gi))
+    for (const choice of m[1].split("|"))
+      if (
+        /^\s*[a-z]\w*\s*$/i.test(choice) &&
+        choice.trim().toLowerCase() !== "others"
+      )
+        out.add(choice.trim().toLowerCase());
+  return out;
+}
+
+/** The enum literals a `case` body has no `when` for, in declaration order. */
+export function missingChoices(body: string, literals: string[]): string[] {
+  const covered = coveredChoices(body);
+  return literals.filter((l) => !covered.has(l.toLowerCase()));
+}
+
+/** `when` arms for each choice, each with a `null;` to be replaced. */
+export function renderWhenChoices(
+  choices: string[],
+  indent = "      ",
+): string {
+  return choices
+    .map((c) => `${indent}when ${c} =>\n${indent}  null;\n`)
+    .join("\n");
+}
+
+/**
+ * The type and signal a `case` over a name that does not exist yet needs.
+ *
+ * The `when` arms go where the author already put the case statement, so only the two
+ * declarations are generated here: enough to make the state machine they started writing real.
+ */
+export function renderStateDeclarations(
+  typeName: string,
+  signal: string,
+  states: string[],
+  indent = "  ",
+): { type: string; declaration: string } {
+  return {
+    type: `${indent}type ${typeName} is (${states.join(", ")});`,
+    declaration: `${indent}signal ${signal} : ${typeName} := ${states[0]};`,
+  };
 }

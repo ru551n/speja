@@ -33,6 +33,10 @@ Each one reads what it writes back from VHDL-LS. None of them parses VHDL.
 * **Create State Machine from Enum Type**.
 * **Add Library and Use Clause for Symbol**, also as a quick fix on an unresolved name.
 * **Inlay hints** for each port's direction and type in a port or generic map.
+* **Declare signal, variable or constant** for an unresolved name, offering only what is legal
+  where the cursor is, and **Declare N signals for this port map** for a whole instantiation.
+* **Add missing when choices** for a `case` over an enumeration, and **Insert state machine** when
+  the case selects on a name that does not exist yet.
 * **Map missing ports**, **Declare Entity as Component**, **Extract to constant or signal**,
   **Remove Unused Use Clauses**, a references **CodeLens** on entities, and **signature help** in
   a port map.

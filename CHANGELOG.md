@@ -21,6 +21,12 @@ reports are that version's. `speja --version` prints the same thing.
   own clauses, and a new library sorts into the order `source.organizeImports` uses, `ieee` and
   `std` first, then everything else alphabetically, then `work` last, separated from the block it
   precedes.
+* **Declarations offered where you are typing.** A name the analyser cannot resolve offers to be
+  declared as a signal, a variable or a constant, whichever are legal at that point, and the
+  declaration goes in the declarative part that can hold it. A port map offers to declare every
+  actual it names at once.
+* **A `case` that is a state machine.** Over an enumeration, the `when` arms it does not cover;
+  over a name that does not exist yet, the enumeration, the signal and the arms together.
 * **`speja: exclude` leaves directories alone.** Generated and vendored sources get no
   diagnostics, no quick fixes and no formatting, and a `--recursive` walk passes them by. Naming
   such a file on the command line still formats it.
