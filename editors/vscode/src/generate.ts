@@ -228,6 +228,9 @@ export function renderSignals(
   const rows: [string, string][] = [];
 
   for (const p of ports) {
+    // Given a map, only what it names: a port it leaves out has no actual to declare yet, and
+    // "Map missing ports" is the action that gives it one.
+    if (opts.actuals && !opts.actuals.has(p.name.toLowerCase())) continue;
     const actual = opts.actuals?.get(p.name.toLowerCase()) ?? p.name;
     const key = actual.toLowerCase();
     // An actual that is an expression, a slice or `open` is not a signal to declare.
@@ -766,6 +769,61 @@ const IEEE_PREFERENCE: Record<string, number> = {
 };
 
 /**
+ * Whether `use library.pkg.all` can make anything visible. The `ieee` generic packages cannot:
+ * `float_generic_pkg` and `fixed_generic_pkg` exist to be instantiated, and a use clause naming
+ * one directly is not what anyone typing `to_unsigned` means, however well the name matches.
+ */
+export function usablePackage(library: string, pkg: string): boolean {
+  return !(library.toLowerCase() === "ieee" && /_generic_pkg$/i.test(pkg));
+}
+
+/** How much a package is wanted, lower first: the ranking both the lightbulb and completion use. */
+export function useRank(library: string, pkg: string): number {
+  return library.toLowerCase() === "ieee"
+    ? (IEEE_PREFERENCE[pkg.toLowerCase()] ?? 1)
+    : 0;
+}
+
+/**
+ * Whether the word being typed is a name being declared rather than one being used.
+ *
+ * A new port, generic or parameter at the start of its element, or the name after `signal`,
+ * `constant`, `function` and the rest. Nothing is imported for a name that does not exist yet:
+ * typing `cl` for a new port called `clk` is not a request for `clamp` from some package.
+ * `before` is the source up to the cursor.
+ */
+export function declaresName(before: string): boolean {
+  const code = before.replace(/--[^\n]*/g, "");
+  if (
+    /(^|[\s;(])(signal|variable|constant|type|subtype|alias|file|function|procedure|component|entity|architecture|package|attribute|units)\s+[A-Za-z]\w*$/i.test(
+      code,
+    )
+  )
+    return true;
+  let depth = 0;
+  for (let i = code.length - 1; i >= 0; i--) {
+    const ch = code[i];
+    if (ch === ")") depth++;
+    else if (ch === "(") {
+      if (depth > 0) {
+        depth--;
+        continue;
+      }
+      const head = code.slice(0, i);
+      const list =
+        /(\bport|\bgeneric|\b(function|procedure)\s+[A-Za-z]\w*)\s*$/i.test(
+          head,
+        );
+      if (!list) return false;
+      const tail = code.slice(i + 1);
+      const element = tail.slice(tail.lastIndexOf(";") + 1);
+      return /^\s*([A-Za-z]\w*\s*,\s*)*[A-Za-z]\w*$/.test(element);
+    }
+  }
+  return false;
+}
+
+/**
  * Order the packages offered for an unresolved name, most likely wanted first.
  *
  * Alphabetical put `NUMERIC_BIT` above `numeric_std` for `unsigned`, and the top row of a
@@ -775,11 +833,10 @@ export function compareUseCandidates(
   a: { library: string; pkg: string },
   b: { library: string; pkg: string },
 ): number {
-  const wanted = (c: { library: string; pkg: string }) =>
-    c.library.toLowerCase() === "ieee"
-      ? (IEEE_PREFERENCE[c.pkg.toLowerCase()] ?? 1)
-      : 0;
-  return wanted(a) - wanted(b) || compareCandidates(a, b);
+  return (
+    useRank(a.library, a.pkg) - useRank(b.library, b.pkg) ||
+    compareCandidates(a, b)
+  );
 }
 
 /** Order candidate packages for any list shown to the user. */

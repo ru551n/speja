@@ -859,15 +859,14 @@ exports.run = async function run() {
 
       // Every actual of a port map at once.
       check(
-        !!(await actionFor(/rst  => reset_n/, "reset_n", "Declare 3 signals for this port map")),
-        "the port-map action is there to apply",
+        !!(await actionFor(/rst  => reset_n/, "reset_n", "Declare 2 signals for this port map")),
+        "the port-map action counts only the undeclared actuals the map names",
       );
       const declarations = between(/^architecture rtl/, /^begin\b/);
       check(
-        ["data_in", "data_out", "empty"].every((n) =>
-          new RegExp(`signal ${n} `).test(declarations),
-        ),
-        "and declares every actual the map names, with the port's type",
+        ["data_in", "data_out"].every((n) => new RegExp(`signal ${n} `).test(declarations)) &&
+          !/signal empty\b/.test(declarations),
+        "and declares them with the port's type, not the port the map leaves out",
         JSON.stringify(declarations.trim()),
       );
 
@@ -1240,9 +1239,11 @@ exports.run = async function run() {
         "an entity accepted after a label starts at `entity`, the label is not written twice",
         fifoEntity ? JSON.stringify(text(fifoEntity).split("\n")[0]) : "no entity item",
       );
+      // The editor ranks by how well the typed text matches the match text, before any sort
+      // key, so the match text follows the form being typed and the list is re-asked for.
       check(
-        !!fifoEntity && /entity \w+\.fifo/.test(fifoEntity.filterText || ""),
-        "and matches on library and name, the way Ctrl+P matches a path",
+        !!fifoEntity && fifoEntity.filterText === "fifo",
+        "with nothing typed after the colon, the entity matches on its bare name",
         fifoEntity && fifoEntity.filterText,
       );
       if (fifoEntity) {
@@ -1277,10 +1278,15 @@ exports.run = async function run() {
       // `i_b : other.` narrows to that library, and brings its library clause.
       const b = await typeLine("  i_b : other.");
       const onLibrary = ours(await itemsAt(b, 14));
+      // Every entity is returned and the editor's fuzzy matcher narrows them, so `myl.fi` finds
+      // mylib.fifo as well as `mylib.fi` does; what matters is that the match text now carries
+      // the library, so `other.` matches only other's.
       check(
-        onLibrary.length > 0 && onLibrary.every((i) => /other\./.test(i.detail)) && onLibrary.some((i) => name(i) === "leaf"),
-        "a library and a dot offer only that library's entities",
-        onLibrary.map((i) => i.detail).join(" | ") || "nothing",
+        onLibrary.some((i) => name(i) === "leaf") &&
+          onLibrary.every((i) => /^\w+\.\w+$/.test(i.filterText || "")) &&
+          onLibrary.filter((i) => /^other\./.test(i.filterText)).every((i) => /other\./.test(i.detail)),
+        "after a library and a dot, the entities match on library and name",
+        onLibrary.map((i) => i.filterText).slice(0, 5).join(" | ") || "nothing",
       );
       const leaf = onLibrary.find((i) => name(i) === "leaf");
       check(
@@ -1309,6 +1315,144 @@ exports.run = async function run() {
       // What was written is VHDL, the actuals aside.
       const bad = (await settle(uri)).filter((d) => /Unexpected|expected/i.test(d.message));
       check(bad.length === 0, "and the server parses what was written", bad.map((d) => d.message).join(" | ") || "clean");
+    }
+
+    // 22. The lightbulb on every unresolved name in a file built to have one of each kind, with
+    // the whole menu written out for review and checked against what it should say.
+    {
+      const doc = await vscode.workspace.openTextDocument(at("audit.vhd"));
+      await vscode.window.showTextDocument(doc);
+      await until(async () => (await symbols("audit")).some((x) => /^entity 'audit'/i.test(x.name)), 30000, "audit.vhd");
+      await wait(3000);
+      const menus = new Map();
+      for (const d of vscode.languages.getDiagnostics(doc.uri).filter((x) => x.code === "unresolved")) {
+        const nm = doc.getText(d.range);
+        const p = new vscode.Position(d.range.start.line, d.range.start.character + 1);
+        const acts = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", doc.uri, new vscode.Range(p, p))) || [];
+        const titles = acts.map((a) => `${a.title}${a.isPreferred ? "*" : ""}`).filter((t) => !/^(Fix|Explain)$/.test(t));
+        menus.set(nm, titles);
+        out(`AUDIT menu L${d.range.start.line + 1} ${nm}: ${titles.join(" | ")}`);
+      }
+      const menu = (nm) => menus.get(nm) || [];
+      const ours = (nm) => menu(nm).filter((t) => /^(Add use|Declare)/.test(t));
+      const exactly = (nm, want, why) =>
+        check(JSON.stringify(ours(nm)) === JSON.stringify(want), why, ours(nm).join(" | ") || "nothing");
+
+      exactly("c_depth", ["Add use work.audit_pkg.all*"], "a package constant: the use clause, from `work`, preferred, and nothing else");
+      exactly("t_mode", ["Add use work.audit_pkg.all*"], "a package type: the use clause only");
+      exactly("clamp", ["Add use work.audit_pkg.all*"], "a package function: the use clause, not a signal called `clamp`");
+      exactly("m_idle", ["Add use work.audit_pkg.all*"], "a package enumeration literal: the use clause only");
+      exactly("t_nowhere", [], "a type nobody declares, in a type position: no object declaration stands in for it");
+      exactly("value", ["Declare signal value", "Declare constant value"],
+        "a name that is only another entity's port is declared, never `use`d from that entity");
+      exactly("field_a", ["Declare signal field_a", "Declare constant field_a"], "a record field name is not importable on its own");
+      exactly("limit", ["Declare signal limit", "Declare constant limit"], "a parameter name of a package function is not importable");
+      exactly("rst_x", ["Declare signal rst_x"], "a name in a sensitivity list can only be a signal");
+      exactly("clkk", [], "a formal that is not a port of the entity is a typo, not a signal to declare");
+      const busy = menu("busy_x");
+      check(new Set(busy).size === busy.length, "a name used twice on a line gets one menu without repeats", busy.join(" | "));
+      check([...menus.values()].flat().every((t) => t.trim().length > 0 && !/undefined|null|NaN/.test(t)),
+        "no menu entry is empty or carries a placeholder");
+    }
+
+    // 23. What typing offers. Every row every provider returns, VHDL-LS's included, is written
+    // out for each case, to be ranked the way the editor ranks them: VS Code's own fuzzy scorer,
+    // then its comparator. A real keystroke test needs the window to hold keyboard focus, which a
+    // desktop session does not promise, so the ranking is reproduced rather than observed. What
+    // is checked here is the invariant that makes our row rank first: its match text starts with
+    // what was typed, and its sort key wins a tie.
+    {
+      const cases = [
+        ["audit.vhd", /count <= clamp/, "      cou"],
+        ["audit.vhd", /some_out <= typo_sig/, "  p_x : pro"],
+        ["audit.vhd", /some_out <= typo_sig/, "  g_x : fo"],
+        ["audit.vhd", /some_out <= typo_sig/, "  i_x : fif"],
+        ["audit.vhd", /some_out <= typo_sig/, "  i_x : myl.fi"],
+        ["audit.vhd", /some_out <= typo_sig/, "  i_x : other.le"],
+        ["audit.vhd", /some_out <= typo_sig/, "  i_x : entity other.le"],
+        ["audit.vhd", /some_out <= typo_sig/, "  fif"],
+        ["audit.vhd", /some_out <= typo_sig/, "  som"],
+        ["inst.vhd", /^end architecture/, "  i_c : fif"],
+        ["audit.vhd", /some_out <= typo_sig/, "  i_c : fif"],
+        ["audit.vhd", /count <= clamp/, "      count <= to_uns"],
+        ["audit.vhd", /^  port \($/, "    cl"],
+      ];
+      const dump = [];
+      for (const [file, anchor, text] of cases) {
+        const doc = await vscode.workspace.openTextDocument(at(file));
+        const ed = await vscode.window.showTextDocument(doc);
+        const original = doc.getText();
+        const line = original.split("\n").findIndex((l) => anchor.test(l));
+        await ed.edit((e) => e.insert(new vscode.Position(line + (/port \(/.test(original.split("\n")[line]) ? 1 : 0), 0), text + "\n"));
+        const row = line + (/port \(/.test(original.split("\n")[line]) ? 1 : 0);
+        const pos = new vscode.Position(row, text.length);
+        const list = (await vscode.commands.executeCommand("vscode.executeCompletionItemProvider", doc.uri, pos, undefined, 400)) || { items: [] };
+        const items = list.items.map((c) => {
+          const r = c.range && (c.range.inserting || c.range);
+          return {
+            label: typeof c.label === "string" ? c.label : c.label.label,
+            filterText: c.filterText,
+            sortText: c.sortText,
+            kind: c.kind,
+            start: r ? r.start.character : undefined,
+            detail: c.detail,
+            insert: (c.insertText && (c.insertText.value || String(c.insertText)) || "").split("\n")[0],
+            ours: /^instantiate|\./.test(c.detail || "") && (/^instantiate/.test(c.detail || "") || c.kind === vscode.CompletionItemKind.Function || c.kind === vscode.CompletionItemKind.Constant),
+          };
+        });
+        dump.push({ file, text, column: text.length, incomplete: !!list.isIncomplete, items });
+        const whole = new vscode.WorkspaceEdit();
+        whole.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), original);
+        await vscode.workspace.applyEdit(whole);
+      }
+      fs.writeFileSync(process.env.VSGRS_RESULTS.replace(/results\.txt$/, "completions.json"), JSON.stringify(dump, null, 1));
+      const caseOf = (file, text) => dump.find((d) => d.file === file && d.text === text);
+      // The typed text VS Code matches our row against: from the row's range start to the cursor.
+      const wordFor = (c, it) => c.text.slice(it.start ?? c.column, c.column).trimStart().toLowerCase();
+      const leads = (c, pred) => {
+        const it = c.items.find(pred);
+        return !!it && (it.filterText || it.label).toLowerCase().startsWith(wordFor(c, it)) && /^0_/.test(it.sortText || "");
+      };
+      const inst = (lib, n) => (i) => i.detail === `instantiate ${lib}.${n}`;
+      for (const [text, lib, n] of [
+        ["  i_x : fif", "mylib", "fifo"],
+        ["  i_x : myl.fi", "mylib", "fifo"],
+        ["  i_x : other.le", "other", "leaf"],
+        ["  i_x : entity other.le", "other", "leaf"],
+        ["  fif", "mylib", "fifo"],
+      ]) {
+        const c = caseOf("audit.vhd", text);
+        check(
+          !!c && (text.includes("myl.") ? !!c.items.find(inst(lib, n)) : leads(c, inst(lib, n))),
+          `typing ${JSON.stringify(text.trim())} puts ${lib}.${n} in the top tier`,
+          c && JSON.stringify((c.items.find(inst(lib, n)) || {}).filterText),
+        );
+      }
+      const inFile = caseOf("inst.vhd", "  i_c : fif");
+      check(
+        !!inFile && inFile.items.some((i) => i.detail === "instantiate component fifo" && /^0_0_/.test(i.sortText)),
+        "a component declared in the file sorts ahead of the entity of the same name",
+      );
+      const foreign = caseOf("audit.vhd", "  i_c : fif");
+      check(!!foreign && !foreign.items.some((i) => /instantiate component/.test(i.detail || "")),
+        "a component declared in another file is never offered");
+      const inProc = caseOf("audit.vhd", "      cou");
+      check(!!inProc && !inProc.items.some((i) => /^instantiate/.test(i.detail || "")),
+        "inside a process nothing offers to instantiate");
+      const imp = caseOf("audit.vhd", "      count <= to_uns");
+      const importRows = imp ? imp.items.filter((i) => /^ieee\./i.test(i.detail || "")) : [];
+      const best = [...importRows].sort((a, b) => (a.sortText < b.sortText ? -1 : 1))[0];
+      check(
+        importRows.length > 0 &&
+          importRows.every((i) => !/generic_pkg/i.test(i.detail) && i.label === "to_unsigned") &&
+          /numeric_std/i.test(best.detail),
+        "an import typed in lower case is offered in lower case, numeric_std first, no generic packages",
+        importRows.map((i) => `${i.label}:${i.detail}`).join(" | "),
+      );
+      const port = caseOf("audit.vhd", "    cl");
+      check(!!port && !port.items.some((i) => /\.\w+_pkg$|^work\./i.test(i.detail || "")),
+        "a new port's name is not offered an import",
+        port && port.items.filter((i) => /_pkg/i.test(i.detail || "")).map((i) => i.detail).join(" | "));
     }
 
     out("done");

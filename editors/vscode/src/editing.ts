@@ -14,10 +14,14 @@ import {
   typeOfLiteral,
   compareCandidates,
   compareUseCandidates,
+  declaresName,
+  usablePackage,
+  useRank,
   contextClause,
   contextClauseEdit,
   designatorOf,
   instantiationContext,
+  InstantiationContext,
   missingFormals,
   parseEntityHover,
   parseEnumHover,
@@ -151,52 +155,34 @@ async function componentsIn(uri: vscode.Uri): Promise<ComponentDecl[]> {
 }
 
 /**
- * Every entity and every component declaration in the workspace, for completion.
- *
- * Built by asking each file for its symbols, which is what the picker already does, and kept
- * for a while because completion asks on every keystroke and the answer does not change between
- * two of them. A save throws it away.
+ * Every entity in the workspace, for completion: `projectEntities`, kept because completion asks
+ * on every keystroke while an instantiation is typed. Once built, a list older than thirty
+ * seconds, or one a save has made stale, is still served while a fresh one is built behind it:
+ * rebuilding in line would stall one keystroke in every thirty for as long as reading every file
+ * takes. Only the very first list of a session is waited for.
  *
  * ponytail: a TTL and a save hook, not a file watcher; per-file invalidation if a project gets
- * big enough for the rebuild to be felt.
+ * big enough for the rebuild itself to matter.
  */
-let designIndexCache: {
-  builtAt: number;
-  entities: Sym[];
-  components: ComponentDecl[];
-} | null = null;
-const DESIGN_INDEX_TTL = 30_000;
+let entityCache: { builtAt: number; entities: Sym[] } | null = null;
+let rebuilding: Promise<void> | null = null;
 
-async function designIndex(): Promise<{
-  entities: Sym[];
-  components: ComponentDecl[];
-}> {
-  if (
-    designIndexCache &&
-    Date.now() - designIndexCache.builtAt < DESIGN_INDEX_TTL
-  )
-    return designIndexCache;
-  const files = await vscode.workspace.findFiles(
-    "**/*.{vhd,vhdl}",
-    "**/node_modules/**",
-  );
-  const entities: Sym[] = [];
-  const components: ComponentDecl[] = [];
-  for (let at = 0; at < files.length; at += 8) {
-    const batch = files.slice(at, at + 8);
-    const [e, c] = await Promise.all([
-      Promise.all(batch.map(entitiesIn)),
-      Promise.all(batch.map(componentsIn)),
-    ]);
-    entities.push(...e.flat());
-    components.push(...c.flat());
-  }
-  designIndexCache = { builtAt: Date.now(), entities, components };
-  return designIndexCache;
+async function cachedEntities(): Promise<Sym[]> {
+  const rebuild = () =>
+    (rebuilding ??= projectEntities()
+      .then((entities) => {
+        entityCache = { builtAt: Date.now(), entities };
+      })
+      .finally(() => {
+        rebuilding = null;
+      }));
+  if (!entityCache) await rebuild();
+  else if (Date.now() - entityCache.builtAt > 30_000) void rebuild();
+  return entityCache?.entities ?? [];
 }
 
 function forgetDesignIndex(): void {
-  designIndexCache = null;
+  if (entityCache) entityCache.builtAt = 0;
 }
 
 async function entitiesIn(uri: vscode.Uri): Promise<Sym[]> {
@@ -429,19 +415,36 @@ async function findDeclaringPackages(name: string): Promise<UseCandidate[]> {
   const syms = (await workspaceSymbols(name)) ?? [];
   const out: UseCandidate[] = [];
   const seen = new Set<string>();
+  const packages = new Map<string, boolean>();
 
   for (const s of syms) {
     if ((designatorOf(s.name) ?? "").toLowerCase() !== name.toLowerCase())
       continue;
+    // VHDL-LS files an entity's ports under `library.entity`, the same shape as a package's
+    // contents. `use mylib.counter.all` names nothing a use clause can reach, and offering it
+    // for every undeclared `value` or `count` is what made the offers look random.
+    if (s.kind === vscode.SymbolKind.Interface) continue;
     const parts = (s.containerName ?? "").split(".");
     if (parts.length < 2) continue;
     const [library, pkg] = parts;
     const key = `${library}.${pkg}`.toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key) || !usablePackage(library, pkg)) continue;
+    if (!packages.has(key)) packages.set(key, await isPackage(library, pkg));
+    if (!packages.get(key)) continue;
     seen.add(key);
     out.push({ library, pkg, describes: s.name });
   }
   return out.sort(compareUseCandidates);
+}
+
+/** Whether `library.name` is a package, as opposed to an entity or anything else with contents. */
+async function isPackage(library: string, name: string): Promise<boolean> {
+  return ((await workspaceSymbols(name)) ?? []).some(
+    (s) =>
+      /^package\b/i.test(s.name) &&
+      identOf(s.name).toLowerCase() === name.toLowerCase() &&
+      libraryOf(s).toLowerCase() === library.toLowerCase(),
+  );
 }
 
 /** First line of the design unit the position belongs to. */
@@ -541,12 +544,16 @@ async function addUseClause(): Promise<void> {
 
   const unitLine = await designUnitLine(doc, editor.selection.active);
   const lines = doc.getText().split("\n");
+  // The file's own library is `work`, as the lightbulb and completion write it.
+  const own = (await libraryOfFile(doc.uri))?.toLowerCase();
 
   const usable = candidates
-    .map((c) => ({
-      c,
-      edit: contextClauseEdit(lines, unitLine, c.library, c.pkg),
-    }))
+    .map((candidate) => {
+      const library =
+        candidate.library.toLowerCase() === own ? "work" : candidate.library;
+      const c = { ...candidate, library };
+      return { c, edit: contextClauseEdit(lines, unitLine, library, c.pkg) };
+    })
     .filter((x) => x.edit !== null) as { c: UseCandidate; edit: ContextEdit }[];
 
   if (!usable.length) {
@@ -1416,7 +1423,7 @@ class ImportCompletion extends vscode.CompletionItem {
     readonly candidate: UseCandidate,
     readonly doc: vscode.TextDocument,
     readonly unitLine: number,
-    label: string,
+    label: string | vscode.CompletionItemLabel,
     kind: vscode.CompletionItemKind,
   ) {
     super(label, kind);
@@ -1435,105 +1442,166 @@ const vhdlCompletions: vscode.CompletionItemProvider = {
       .text.slice(0, position.character);
     if (/--/.test(lineToCursor)) return [];
 
-    // What is being typed decides what is offered. A label and a colon want an instantiation
-    // and nothing else, from every library, or from the one just named; a bare word wants that
-    // too, with a label supplied, and also the names from packages the file cannot see yet.
-    const context = instantiationContext(lineToCursor);
-    if (!context) return [];
-    const wordish = context.kind === "word";
-    if (wordish && !context.library && context.typed.length < 2) return [];
-    // `clk : in` in a port clause and `x : t` in a record look like labels. An instantiation is a
-    // concurrent statement: below the architecture's `begin`, outside any process.
-    if (
-      context.kind === "label" &&
-      (architectureBegin(document, position) === null ||
-        sequentialHome(document, position) !== null)
-    )
-      return [];
-
     const unitLine = await designUnitLine(document, position);
-    const replace = new vscode.Range(
-      new vscode.Position(position.line, context.from),
-      position,
-    );
     const items: vscode.CompletionItem[] = [];
-    const { entities, components } = await designIndex();
+    // An instantiation is a concurrent statement: below the architecture's `begin`, outside any
+    // process or subprogram. Elsewhere `clk : in` is a port and `cou` is a signal being typed,
+    // and an instantiation offered there is one accepted by accident.
+    const concurrent =
+      architectureBegin(document, position) !== null &&
+      sequentialHome(document, position) === null;
 
-    for (const s of entities) {
-      const name = identOf(s.name);
-      const lib = libraryOf(s);
-      if (context.library && lib.toLowerCase() !== context.library) continue;
-      const item = new InstanceCompletion(
-        s,
-        { label: name, description: `instantiate ${lib}.${name}` },
-        document,
-        unitLine,
-        context.kind === "label",
+    // What is being typed decides what is offered. A label and a colon want an instantiation,
+    // from every library or from the one being named; a bare word at the start of a statement
+    // wants that too, with a label supplied.
+    const context = instantiationContext(lineToCursor);
+    const instantiating =
+      context !== null &&
+      concurrent &&
+      (context.kind === "label" ||
+        context.typed.includes(".") ||
+        context.typed.length >= 2);
+    if (context && instantiating) await instantiations(context);
+
+    // Anywhere an identifier is being typed, it can be a name from a package the design unit
+    // cannot see yet, offered with the use clause that makes it visible. Not after a label and a
+    // colon, where what comes next is an instantiation or a keyword.
+    const wordRange = document.getWordRangeAtPosition(position);
+    const prefix = wordRange
+      ? document.getText(wordRange.with(undefined, position))
+      : "";
+    const before = document.getText(
+      new vscode.Range(
+        new vscode.Position(Math.max(0, position.line - 200), 0),
+        position,
+      ),
+    );
+    if (
+      prefix.length >= 2 &&
+      context?.kind !== "label" &&
+      !declaresName(before)
+    )
+      await imports(prefix);
+
+    // Incomplete only while an instantiation is being typed, so the match text can follow the
+    // form it takes; an import list is filtered by the editor as usual.
+    return new vscode.CompletionList(items, instantiating);
+
+    async function instantiations(
+      context: InstantiationContext,
+    ): Promise<void> {
+      const replace = new vscode.Range(
+        new vscode.Position(position.line, context.from),
+        position,
       );
-      item.detail = `instantiate ${lib}.${name}`;
-      // The whole of what was typed after the colon is replaced, and the matcher sees all of
-      // it: `fi`, `mylib.fi` and `entity mylib.fi` all find `entity mylib.fifo`, the way a
-      // few letters find a file in the Ctrl+P picker.
-      item.range = replace;
-      item.filterText = `entity ${lib}.${name}`;
-      // Above everything VHDL-LS offers. In this position its rows are the language's keywords
-      // and the file's signals, and neither is what a label and a colon are for.
-      item.sortText = `0_${name}`;
-      items.push(item);
-    }
 
-    // A component declared in the file, or anywhere in the workspace, is instantiated by its
-    // bare name. Only when no library was named: a component has none.
-    if (!context.library) {
-      const seen = new Set<string>();
-      for (const c of components) {
-        if (seen.has(c.name.toLowerCase())) continue;
-        seen.add(c.name.toLowerCase());
-        const item = new ComponentCompletion(
-          c,
-          { label: c.name, description: "instantiate component" },
-          context.kind === "label",
-        );
-        item.detail = `instantiate component ${c.name}`;
-        item.range = replace;
-        item.filterText = c.name;
-        item.sortText = `0_${c.name}`;
-        items.push(item);
+      // The editor ranks by how well what was typed matches, before any sort order, and VHDL-LS
+      // has rows of its own here (`fifo_inst: entity work.fifo`). So the text matched against is
+      // the form being typed: `fif` against `fifo`, `myl.fi` against `mylib.fifo`, `entity o.le`
+      // against `entity other.leaf`. The list is incomplete, so the editor asks again as the form
+      // changes, and each of those is a prefix match that ranks with the best.
+      const typed = context.typed.toLowerCase();
+      const matchText = (lib: string, name: string) =>
+        typed.startsWith("entity ") || typed === "entity"
+          ? `entity ${lib}.${name}`
+          : typed.includes(".")
+            ? `${lib}.${name}`
+            : name;
+
+      if (concurrent) {
+        const entities = await cachedEntities();
+        for (const s of entities) {
+          const name = identOf(s.name);
+          const lib = libraryOf(s);
+          const item = new InstanceCompletion(
+            s,
+            { label: name, description: `instantiate ${lib}.${name}` },
+            document,
+            unitLine,
+            context.kind === "label",
+          );
+          item.detail = `instantiate ${lib}.${name}`;
+          item.range = replace;
+          item.filterText = matchText(lib, name);
+          item.sortText = `0_${name}`;
+          items.push(item);
+        }
+
+        // A component is instantiated by its bare name, and only one declared in this file can
+        // be: a component declared somewhere else is not visible here, and instantiating it is an
+        // error the server reports as soon as it is accepted.
+        if (!typed.includes(".") && !typed.startsWith("entity")) {
+          for (const c of await componentsIn(document.uri)) {
+            const item = new ComponentCompletion(
+              c,
+              { label: c.name, description: "instantiate component" },
+              context.kind === "label",
+            );
+            item.detail = `instantiate component ${c.name}`;
+            item.range = replace;
+            item.filterText = c.name;
+            // Declaring a component says it is the one to instantiate: first among equals.
+            item.sortText = `0_0_${c.name}`;
+            items.push(item);
+          }
+        }
       }
     }
 
-    if (!wordish || context.library) return items;
+    async function imports(prefix: string): Promise<void> {
+      const syms = (await workspaceSymbols(prefix)) ?? [];
+      const visible = visiblePackages(document.getText().split("\n"), unitLine);
+      const seen = new Set<string>();
+      const packages = new Map<string, boolean>();
+      const own = syms.length
+        ? (await libraryOfFile(document.uri))?.toLowerCase()
+        : undefined;
+      for (const s of syms) {
+        if (isEntitySymbol(s) || s.kind === vscode.SymbolKind.Interface)
+          continue;
+        const designator = designatorOf(s.name);
+        const parts = (s.containerName ?? "").split(".");
+        if (!designator || parts.length < 2) continue;
+        const [library, pkg] = parts;
+        if (visible.has(`${library}.${pkg}`.toLowerCase())) continue;
+        if (!usablePackage(library, pkg)) continue;
+        const key = `${designator}:${library}.${pkg}`.toLowerCase();
+        if (seen.has(key)) continue;
+        const pkgKey = `${library}.${pkg}`.toLowerCase();
+        if (!packages.has(pkgKey))
+          packages.set(pkgKey, await isPackage(library, pkg));
+        if (!packages.get(pkgKey)) continue;
+        seen.add(key);
 
-    // A bare word can also be a name from a package the design unit has not made visible.
-    const syms = (await workspaceSymbols(context.typed)) ?? [];
-    const visible = visiblePackages(document.getText().split("\n"), unitLine);
-    const seen = new Set<string>();
-    for (const s of syms) {
-      if (isEntitySymbol(s)) continue;
-      const designator = designatorOf(s.name);
-      const parts = (s.containerName ?? "").split(".");
-      if (!designator || parts.length < 2) continue;
-      const [library, pkg] = parts;
-      if (visible.has(`${library}.${pkg}`.toLowerCase())) continue;
-      const key = `${designator}:${library}.${pkg}`.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      const item = new ImportCompletion(
-        { library, pkg, describes: s.name },
-        document,
-        unitLine,
-        designator,
-        completionKindOf(s.kind),
-      );
-      item.detail = `${library}.${pkg}`;
-      item.documentation = new vscode.MarkdownString(
-        `${s.name}\n\nAdds \`use ${library}.${pkg}.all;\``,
-      );
-      item.sortText = `zzy_${library}_${designator}`;
-      items.push(item);
+        // In the case the author is typing in. The editor scores case-sensitively, so
+        // `TO_UNSIGNED` from NUMERIC_STD lost to `to_unsigned` from a generic package on a
+        // lower-case keystroke, and VHDL does not care which one is written.
+        const name =
+          prefix === prefix.toUpperCase() && prefix !== prefix.toLowerCase()
+            ? designator.toUpperCase()
+            : prefix === prefix.toLowerCase()
+              ? designator.toLowerCase()
+              : designator;
+        // What accepting it writes: the file's own library is `work`.
+        const shown = library.toLowerCase() === own ? "work" : library;
+        const item = new ImportCompletion(
+          { library, pkg, describes: s.name },
+          document,
+          unitLine,
+          { label: name, description: `${shown}.${pkg}` },
+          completionKindOf(s.kind),
+        );
+        item.insertText = name;
+        item.filterText = name;
+        item.detail = `${shown}.${pkg}`;
+        item.documentation = new vscode.MarkdownString(
+          `${s.name}\n\nAdds \`use ${shown}.${pkg}.all;\``,
+        );
+        // Equal scores then fall to this: the package people mean before the ones they do not.
+        item.sortText = `zzy_${useRank(library, pkg)}_${library}_${pkg}_${name}`;
+        items.push(item);
+      }
     }
-    return items;
   },
 
   async resolveCompletionItem(item) {
@@ -1592,10 +1660,17 @@ const vhdlCompletions: vscode.CompletionItemProvider = {
     }
 
     if (item instanceof ImportCompletion) {
+      // The file's own library is `work`, as the quick fix writes it.
+      const own = (await libraryOfFile(item.doc.uri))?.toLowerCase();
+      const library =
+        item.candidate.library.toLowerCase() === own
+          ? "work"
+          : item.candidate.library;
+      item.detail = `${library}.${item.candidate.pkg}`;
       const edit = contextClauseEdit(
         item.doc.getText().split("\n"),
         item.unitLine,
-        item.candidate.library,
+        library,
         item.candidate.pkg,
       );
       if (edit)
@@ -1692,17 +1767,27 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         d.code === "unresolved" && range.intersection(d.range) !== undefined,
     );
 
+    // A package the file's own library holds is `work.pkg`, with no library clause: that is how
+    // hdl-modules and tsfpga write it, and how an instantiation from the same library is written.
+    const ownLibrary = underCursor.length
+      ? (await libraryOfFile(document.uri))?.toLowerCase()
+      : undefined;
+    const exported = new Set<vscode.Diagnostic>();
+
     for (const diagnostic of underCursor) {
       const name = document.getText(diagnostic.range);
       if (!/^[A-Za-z]\w*$/.test(name)) continue;
       const unitLine = await designUnitLine(document, diagnostic.range.start);
 
       const candidates = await findDeclaringPackages(name);
+      if (candidates.length) exported.add(diagnostic);
       for (const c of candidates) {
-        const edit = contextClauseEdit(lines, unitLine, c.library, c.pkg);
+        const library =
+          c.library.toLowerCase() === ownLibrary ? "work" : c.library;
+        const edit = contextClauseEdit(lines, unitLine, library, c.pkg);
         if (!edit) continue;
         const action = new vscode.CodeAction(
-          `Add use ${c.library}.${c.pkg}.all`,
+          `Add use ${library}.${c.pkg}.all`,
           vscode.CodeActionKind.QuickFix,
         );
         action.edit = applyContextEdit(document, edit);
@@ -1720,18 +1805,44 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
     for (const diagnostic of underCursor) {
       const name = document.getText(diagnostic.range);
       if (!/^[A-Za-z]\w*$/.test(name)) continue;
+      // A name a package exports is that package's, and the use clause above is the fix.
+      // Declaring a local object of the same name would shadow it, which nobody asks for by
+      // accident: `clamp` is a function and `m_idle` an enumeration literal, not a signal.
+      if (exported.has(diagnostic)) continue;
+      // Where a type goes, `x : t` or `array (...) of t`, the name is a type, and no object
+      // declaration can stand in for one.
+      const before = document
+        .lineAt(diagnostic.range.start.line)
+        .text.slice(0, diagnostic.range.start.character)
+        .replace(/--.*$/, "");
+      if (
+        /(:\s*(in|out|inout|buffer|linkage)?|\bof|\bsubtype\s+\w+\s+is)\s*$/i.test(
+          before,
+        )
+      )
+        continue;
+      // Before `=>` in a map it is the formal, the other entity's port or generic. A local
+      // object of that name changes nothing; the spelling is what is wrong.
+      const after = document
+        .lineAt(diagnostic.range.end.line)
+        .text.slice(diagnostic.range.end.character);
+      if (/^\s*=>/.test(after)) continue;
       // Connected to a port it is a signal, to a generic a constant, and nothing else is
       // offered: a constant on a port or a signal on a generic is not a choice, it is an error.
+      // A sensitivity list takes signals and nothing else.
       const actual = await actualOf(document, name, diagnostic.range.start);
+      const sensitivity = /\bprocess\s*\([^)]*$/i.test(before);
       const kinds: ObjectKind[] = actual
         ? [actual.role === "port" ? "signal" : "constant"]
-        : declarableKinds(
-            sequentialHome(document, diagnostic.range.start) !== null,
-            assignmentKind(
-              document.lineAt(diagnostic.range.start.line).text,
-              name,
-            ),
-          );
+        : sensitivity
+          ? ["signal"]
+          : declarableKinds(
+              sequentialHome(document, diagnostic.range.start) !== null,
+              assignmentKind(
+                document.lineAt(diagnostic.range.start.line).text,
+                name,
+              ),
+            );
       const type =
         actual?.type ??
         (await inferredType(document, name, diagnostic.range.start));
@@ -1896,7 +2007,8 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         actions.push(action);
       }
     }
-    return actions;
+    const titles = new Set<string>();
+    return actions.filter((a) => !titles.has(a.title) && titles.add(a.title));
   },
 };
 

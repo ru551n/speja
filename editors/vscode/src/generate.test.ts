@@ -76,6 +76,16 @@ assert.equal(
 );
 // `open` is not an identifier to declare.
 assert.ok(!renderSignals(e.ports, { actuals }).includes("open"));
+// A port the map leaves out has no actual yet, and is not declared under its own name.
+assert.equal(
+  renderSignals(e.ports, {
+    actuals: readActuals(
+      "port map (din => data_in)",
+      e.ports.map((p) => p.name),
+    ),
+  }),
+  "  signal data_in : std_logic_vector(g_width - 1 downto 0);",
+);
 
 const en = parseEnumHover("type state_t is (idle, run, done);");
 assert.ok(en);
@@ -483,6 +493,8 @@ import {
   renderWhenChoices,
   comparePackages,
   compareUseCandidates,
+  usablePackage,
+  declaresName,
 } from "./generate.ts";
 
 // The operator settles what the name is; a process assigns to the architecture's signals too.
@@ -674,5 +686,28 @@ assert.ok(comparePackages("osvvm", "std_logic_1164", "numeric_std") > 0);
     ["numeric_std", "own_pkg", "NUMERIC_BIT", "std_logic_arith"],
   );
 }
+
+// A generic package is instantiated, not used.
+assert.equal(usablePackage("ieee", "float_generic_pkg"), false);
+assert.equal(usablePackage("IEEE", "fixed_generic_pkg"), false);
+assert.equal(usablePackage("ieee", "numeric_std"), true);
+assert.equal(usablePackage("mylib", "my_generic_pkg"), true);
+
+// A name being declared is not a name to import.
+assert.equal(declaresName("entity e is\n  port (\n    cl"), true);
+assert.equal(declaresName("  port (\n    clk : in std_logic;\n    da"), true);
+assert.equal(declaresName("  port (clk, rs"), true);
+assert.equal(declaresName("  generic (\n    wid"), true);
+assert.equal(declaresName("  function f (va"), true);
+assert.equal(declaresName("  signal co"), true);
+assert.equal(declaresName("  constant c_de"), true);
+// A use is still a use: a type, a default value, a port map actual, an expression.
+assert.equal(declaresName("  port (\n    clk : in std_l"), false);
+assert.equal(declaresName("  signal count : unsig"), false);
+assert.equal(declaresName("  port map (\n    clk => cl"), false);
+assert.equal(declaresName("  u : entity work.x port map (cl"), false);
+assert.equal(declaresName("      count <= to_uns"), false);
+assert.equal(declaresName("      x <= f(a, to_uns"), false);
+assert.equal(declaresName("  generic map (\n    width => c_wi"), false);
 
 console.log("generate.test.ts: ok");

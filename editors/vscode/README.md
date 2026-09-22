@@ -24,11 +24,12 @@ It is two things, and only one of them needs anything else installed:
 
 ## Editing actions
 
-Each one reads what it writes back from VHDL-LS. None of them parses VHDL.
+Each one reads what it writes back from VHDL-LS. The one exception is a `case` statement being
+typed, which does not analyse yet, so its enumeration is read from the declarations in the file.
 
-* **Instantiate Entity**, from a picker or as you type: `i_x : ` lists every entity and component
-  in the project, `i_x : lib.` one library's, matched the way Ctrl+P matches, with the library
-  clause the instantiation needs.
+* **Instantiate Entity**, from a picker or as you type: `i_x : ` lists every entity in the
+  project and every component declared in the file, `i_x : lib.` one library's, matched the way
+  Ctrl+P matches, with the library clause the instantiation needs.
 * **Declare Signals for Port Map**, with the port's type and the generic's value substituted.
 * **Create State Machine from Enum Type**.
 * **Add Library and Use Clause for Symbol**, also as a quick fix on an unresolved name.

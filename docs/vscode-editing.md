@@ -60,20 +60,30 @@ the one the language server analysed the entity in, not a guess.
 The same thing is offered as a completion, and it follows what you type rather than waiting for
 a particular keystroke:
 
-* `i_fifo : ` and the list opens on every entity in every library of the project, and every
-  component declaration, each reading `fifo    instantiate mylib.fifo`. Accept one and the
-  instantiation lands after your label: `entity mylib.fifo`, the generic map, the port map, as a
-  snippet you tab through. The label you typed is not written twice.
-* `i_fifo : other.` narrows the list to that library, and accepting adds `library other;` if the
-  file does not have it.
-* `fi` on a line of its own, or `other.`, does the same and supplies the label.
-* A component is instantiated by its bare name, with no `entity` and no library.
+* `i_fifo : ` and the list opens on every entity in every library of the project, each reading
+  `fifo    instantiate mylib.fifo`. Accept one and the instantiation lands after your label:
+  `entity work.fifo` (or `entity other.leaf` from another library), the generic map, the port
+  map, as a snippet you tab through. The label you typed is not written twice.
+* `i_fifo : fif`, `i_fifo : myl.fi`, `i_fifo : other.le` and `i_fifo : entity other.le` all find
+  what they look like, by the editor's own fuzzy matching, the one Ctrl+P uses for file names.
+  Accepting from another library adds `library other;` if the file lacks it.
+* `fif` at the start of a statement does the same and supplies the label.
+* A component declared in this file is offered too, instantiated by its bare name with no
+  `entity` and no library, and ranked above an entity of the same name: declaring the component
+  says it is the one meant. A component declared in another file is not offered, because it is
+  not visible here and instantiating it is an error.
 
-Matching is the editor's own fuzzy matching, the one Ctrl+P uses for file names, against the
-whole of `entity mylib.fifo`: `fi`, `myl.fi` and `entity mylib.fi` all find it. The rows sort
-above everything VHDL-LS puts in the list, because at a label and a colon its rows are keywords
-and signals and neither is what you are typing. Nothing of this appears inside a port clause or a
-process, where `x : ` is a declaration.
+The editor ranks a list by how well what you typed matches each row before it looks at any sort
+order, and VHDL-LS puts rows of its own in the same list (`fifo_inst: entity work.fifo`, which
+would write a second label after yours). So the text each row is matched against follows the form
+you are typing: `fif` against `fifo`, `myl.fi` against `mylib.fifo`, `entity other.le` against
+`entity other.leaf`. Each is a prefix match, the best score there is, and a tie goes to the
+speja row. This was checked by ranking the rows every provider returned with VS Code's own scorer
+and comparator, not by reading the list.
+
+Nothing of this appears inside a process or a subprogram, or anywhere before the architecture's
+`begin`: typing `cou` in a process completes the signal `count`, and `clk : ` in a port clause is
+a declaration, not an instantiation.
 
 The list is built by asking every VHDL file in the workspace for its symbols, kept for thirty
 seconds and rebuilt after a save, so the first list in a session can take a moment on a large
@@ -111,6 +121,25 @@ takes it without asking: for `unsigned` that is `ieee.numeric_std`, with `numeri
 and the Synopsys `std_logic_arith` last, where a package a codebase is trying to leave belongs.
 A project's own package is never ranked below a deprecated one. Alphabetical order put
 `NUMERIC_BIT` on top, and the top row of a lightbulb is the one that gets accepted.
+
+Only packages are offered. VHDL-LS files an entity's ports under `library.entity`, the same
+shape as a package's contents, so an undeclared `value` used to be offered `use mylib.counter.all`
+because some entity has a port called `value`. The generic `ieee` packages (`float_generic_pkg`,
+`fixed_generic_pkg`) are left out too: they exist to be instantiated, and a use clause naming one
+is not what anyone means. A package in the file's own library is written as `use work.pkg.all`,
+with no library clause, which is how hdl-modules and tsfpga write it and how an instantiation
+from the same library is written.
+
+A name a package exports is offered its use clause and nothing else: no "Declare signal clamp"
+beside "Add use work.audit_pkg.all", because a local object of that name would shadow the
+package's.
+
+The same names are offered as completions while you type, with the use clause added on accepting.
+They come in the case you are typing in, `to_unsigned` for `to_uns` and `TO_UNSIGNED` for
+`TO_UNS`: the editor scores case-sensitively, and the upper-case `TO_UNSIGNED` from NUMERIC_STD
+used to lose to a lower-case one from a generic package. No import is offered where a name is
+being declared, such as a new port, a parameter, or the name after `signal`: typing `cl` for a
+new port called `clk` is not a request for `clamp`.
 
 Picking one inserts the `use` clause after the existing context clause, adding `library ieee;`
 only if it is not already there, and only for the design unit the cursor is in. Packages that are
@@ -188,7 +217,13 @@ yet gets its `begin` written along with the declaration.
 
 **Declare N signals for this port map** is the same thing for a whole instantiation: every actual
 the map names that nothing has declared yet, with each port's type and the instance's generic
-values substituted.
+values substituted. A port the map leaves out has no actual to declare; **Map N missing ports**
+gives it one first.
+
+No declaration is offered where one would not help: for a type in a type position
+(`variable v : t_nowhere`), for a formal before `=>` (a misspelt port of the other entity, where
+the spelling is what is wrong), or for a package's name. A name in a sensitivity list is offered
+as a signal only.
 
 **Write the N states of x** appears as soon as `case x` is on the line, before `is`, before any
 arm, before `end case`. It writes the `is`, an arm for each of the type's literals and the

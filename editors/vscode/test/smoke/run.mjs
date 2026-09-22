@@ -53,7 +53,7 @@ const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
 // `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
-const ENTITIES = 57;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
+const ENTITIES = 58;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -470,6 +470,87 @@ architecture rtl of inst_here is
   end component fifo;
 
 begin
+
+end architecture rtl;
+`);
+
+// The audit: a package exporting one of each kind of thing, and a file that uses names in every
+// position an author puts one. What the lightbulb offers at each of them is the check.
+write("audit_pkg.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+package audit_pkg is
+
+  constant c_depth : positive := 16;
+
+  type t_mode is (m_idle, m_run);
+
+  type t_rec is record
+    field_a : std_logic;
+  end record t_rec;
+
+  function clamp (value : natural; limit : natural) return natural;
+
+end package audit_pkg;
+
+package body audit_pkg is
+
+  function clamp (value : natural; limit : natural) return natural is
+  begin
+    if value > limit then
+      return limit;
+    end if;
+    return value;
+  end function clamp;
+
+end package body audit_pkg;
+`);
+
+write("audit.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity audit is
+  port (
+    clk : in    std_logic;
+    go  : in    std_logic
+  );
+end entity audit;
+
+architecture rtl of audit is
+
+  signal count : natural;
+  signal depth_bus : std_logic_vector(c_depth - 1 downto 0);
+  signal mode : t_mode;
+
+begin
+
+  p_main : process (clk) is
+    variable v_tmp : t_nowhere;
+  begin
+    if rising_edge(clk) then
+      count <= clamp(count, 3);
+      value <= go;
+      field_a <= go;
+      limit <= go;
+      lane_valid <= go;
+      busy_x <= busy_x and go;
+      if m_idle = m_run then
+        null;
+      end if;
+    end if;
+  end process;
+
+  some_out <= typo_sig;
+
+  p_sens : process (clk, rst_x) is
+  begin
+    null;
+  end process;
+
+  u_typo : entity work.fifo
+    port map (
+      clkk => clk
+    );
 
 end architecture rtl;
 `);

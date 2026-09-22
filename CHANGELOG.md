@@ -3,6 +3,30 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## 0.14.1
+
+**Targets VSG 3.35.**
+
+* **Only packages are offered as use clauses.** VHDL-LS files an entity's ports under
+  `library.entity`, so an undeclared `value` or `count` was offered `use mylib.counter.all`, a use
+  clause of an entity. The generic `ieee` packages are left out as well.
+* **A package in the file's own library is `use work.pkg.all`**, in the lightbulb, the palette
+  command and completion alike, with no library clause.
+* **A package's name is not offered as a local declaration.** `clamp` is offered its use clause,
+  not "Declare signal clamp" beside it.
+* **No declaration where it would not help**: a type in a type position, a formal before `=>`, or
+  a name in a sensitivity list other than as a signal.
+* **"Declare N signals for this port map" counts only what the map names.** A port the map leaves
+  out is no longer declared under its own name; "Map N missing ports" gives it an actual first.
+* **Import completion is ranked and cased the way you type.** `to_uns` completes `to_unsigned`
+  from NUMERIC_STD first, in lower case, where it used to offer a generic package's first; and
+  nothing is imported where a name is being declared, such as a new port.
+* **Import completion works mid-expression again**, `x <= to_uns`, not only on a line of its own.
+* **Instantiation completion ranks first where it should and nowhere else.** The row's match text
+  follows what you type (`fif`, `myl.fi`, `other.le`, `entity other.le`), so it outranks
+  VHDL-LS's own instantiation rows, which would write a second label. Nothing offers to
+  instantiate inside a process, and a component declared in another file is no longer offered.
+
 ## 0.14.0
 
 **Targets VSG 3.35.**
