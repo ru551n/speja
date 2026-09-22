@@ -29,7 +29,7 @@ use crate::analysis::design::{find, text_of};
 /// Where an `ieee` package sorts among its siblings.
 ///
 /// Not alphabetical: `std_logic_1164` declares the types the rest are built on, and every VHDL
-/// codebase worth copying writes it first. Counted across hdl-modules, tsfpga, VUnit and one
+/// codebase worth copying writes it first. Counted across hdl-modules, tsfpga, `VUnit` and one
 /// private design, it leads `numeric_std` between seven and twenty-two times as often as it
 /// follows it, and it opens the `ieee` block in the large majority of files. `fixed_pkg` and
 /// `math_real` appear on both sides in numbers too small to mean anything, so they sort
