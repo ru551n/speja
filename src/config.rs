@@ -226,8 +226,7 @@ static PRAGMA_RULES: [crate::rules::RuleInfo; 4] = [
 ];
 
 /// File names looked up by [`discover`], in order of preference.
-pub const CONFIG_FILE_NAMES: [&str; 4] =
-    ["speja.yaml", ".speja.yaml", "speja.json", ".speja.json"];
+pub const CONFIG_FILE_NAMES: [&str; 4] = ["speja.yaml", ".speja.yaml", "speja.json", ".speja.json"];
 
 /// The nearest configuration file in `dir` or its ancestors.
 pub fn discover(dir: &Path) -> Option<PathBuf> {

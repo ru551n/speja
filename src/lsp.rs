@@ -14,6 +14,8 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use speja::Config;
+use speja::analysis;
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::{self, Result};
 use tower_lsp_server::ls_types::{
@@ -28,8 +30,6 @@ use tower_lsp_server::ls_types::{
     TextDocumentSyncKind, TextEdit, Uri, WorkspaceEdit,
 };
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
-use speja::Config;
-use speja::analysis;
 
 /// One open document, as the editor currently has it.
 struct Document {
@@ -786,10 +786,7 @@ impl LanguageServer for Backend {
         // is updated rather than overwritten behind their back.
         if self.client.apply_edit(edit).await.is_err() {
             self.client
-                .log_message(
-                    MessageType::ERROR,
-                    "speja: the waiver could not be written",
-                )
+                .log_message(MessageType::ERROR, "speja: the waiver could not be written")
                 .await;
             return Ok(None);
         }
