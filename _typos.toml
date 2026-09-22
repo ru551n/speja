@@ -1,5 +1,13 @@
 # Spelling of user-visible text (`typos`, and the `extras` job in CI).
 
+[default]
+# The completion cases in the smoke suite are what an author has typed so far, `fo` on the way
+# to `for`, `som` on the way to `some_out`: half-typed words on purpose. Only those table rows
+# are exempt, not the words themselves.
+extend-ignore-re = [
+    '\[\s*"(audit|inst)\.vhd",\s*/[^/\n]+/,\s*"[^"\n]*"\s*\]',
+]
+
 [default.extend-words]
 # The EDA vendor, and the pragma prefix VSG matches on.
 synopsys = "synopsys"
