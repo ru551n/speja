@@ -163,6 +163,47 @@ assert.deepEqual(contextClauseEdit(twoLibraries, 6, "ieee", "numeric_std"), {
   text: "use ieee.numeric_std.all;\n",
 });
 
+// A name used in the architecture belongs in the entity's context clause, which the architecture
+// inherits. Starting a second one between `end entity` and `architecture` is legal VHDL and not
+// where anyone looks for it.
+{
+  const file = [
+    "library ieee;",
+    "use ieee.std_logic_1164.all;",
+    "",
+    "entity foo is",
+    "end entity foo;",
+    "",
+    "architecture rtl of foo is",
+    "begin",
+    "end architecture rtl;",
+  ];
+  assert.deepEqual(contextClauseEdit(file, 6, "mylib", "counter_pkg"), {
+    line: 2,
+    text: "\nlibrary mylib;\nuse mylib.counter_pkg.all;\n",
+  });
+  // And an ieee package joins the block that is already there rather than starting one.
+  assert.deepEqual(contextClauseEdit(file, 6, "ieee", "numeric_std"), {
+    line: 2,
+    text: "use ieee.numeric_std.all;\n",
+  });
+  // An entity with a context clause of its own still gets its own.
+  const two = [
+    "library ieee;",
+    "use ieee.std_logic_1164.all;",
+    "",
+    "entity foo is",
+    "end entity foo;",
+    "",
+    "library osvvm;",
+    "",
+    "architecture rtl of foo is",
+    "begin",
+    "end architecture rtl;",
+  ];
+  assert.equal(contextClauseEdit(two, 8, "osvvm", "randompkg")?.line, 7);
+}
+
 // Appended after the last block, a new library still gets a blank line above it: two libraries
 // running together stop reading as two groups.
 {

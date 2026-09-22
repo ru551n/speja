@@ -1012,6 +1012,14 @@ exports.run = async function run() {
           "after ieee, with a blank line so the two libraries stay two groups",
           JSON.stringify(text.split("\n").slice(0, 5).join("\n")),
         );
+        // The name is used in the architecture, which has no context clause of its own. The
+        // clause belongs in the entity's, which the architecture inherits, not in a second one
+        // wedged between `end entity` and `architecture`.
+        check(
+          libraryAt < text.indexOf("entity needs_pkg"),
+          "and above the entity, not between it and the architecture that used the name",
+          JSON.stringify(text.slice(0, 120)),
+        );
         const unresolved = vscode.languages
           .getDiagnostics(needs.uri)
           .filter((d) => d.code === "unresolved");

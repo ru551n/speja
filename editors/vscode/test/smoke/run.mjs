@@ -414,9 +414,19 @@ use ieee.std_logic_1164.all;
 
 entity needs_pkg is
   port (
-    count : out   std_logic_vector(c_counter_width - 1 downto 0)
+    count : out   std_logic_vector(7 downto 0)
   );
 end entity needs_pkg;
+
+architecture rtl of needs_pkg is
+
+  signal held : natural;
+
+begin
+
+  held <= c_counter_width;
+
+end architecture rtl;
 `);
 
 // A use clause that nothing needs, beside one that is needed.

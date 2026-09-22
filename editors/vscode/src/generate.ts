@@ -383,11 +383,39 @@ export function contextClauseEdit(
 ): ContextEdit | null {
   const lib = library.toLowerCase();
 
-  let start = unitLine;
-  while (start > 0 && /^\s*(library\b|use\b|--|\s*$)/i.test(lines[start - 1]))
-    start--;
+  const isClause = (l: string) => /^\s*(library|use)\b/i.test(l);
+  const isAbove = (l: string) => /^\s*(library\b|use\b|--|\s*$)/i.test(l);
 
-  const region = lines.slice(start, unitLine);
+  let start = unitLine;
+  while (start > 0 && isAbove(lines[start - 1])) start--;
+
+  // The line the clause goes before. Usually the design unit itself, but an architecture or a
+  // package body has no context clause of its own: it inherits its primary unit's, further up
+  // the file. Starting a second one between `end entity` and `architecture` is legal VHDL and
+  // not where anyone looks for it, so the one that is already there is extended instead.
+  //
+  // Only for a secondary unit. A second entity in the file inherits nothing, and reusing the
+  // first one's clause would make a name visible where it is not.
+  const secondary = /^\s*(architecture|package\s+body)\b/i.test(
+    lines[unitLine] ?? "",
+  );
+  let anchor = unitLine;
+  if (secondary && !lines.slice(start, unitLine).some(isClause)) {
+    let last = -1;
+    for (let i = unitLine - 1; i >= 0; i--) {
+      if (isClause(lines[i])) {
+        last = i;
+        break;
+      }
+    }
+    if (last >= 0) {
+      anchor = last + 1;
+      start = anchor;
+      while (start > 0 && isAbove(lines[start - 1])) start--;
+    }
+  }
+
+  const region = lines.slice(start, anchor);
   if (pkg) {
     const isUse = new RegExp(`^\\s*use\\s+${lib}\\s*\\.\\s*${pkg}\\s*\\.`, "i");
     if (region.some((l) => isUse.test(l))) return null;
@@ -421,7 +449,7 @@ export function contextClauseEdit(
     /^\s*use\s+([A-Za-z]\w*)\s*\.\s*([A-Za-z]\w*)/i.exec(l);
   const libOf = (l: string) => /^\s*library\s+([A-Za-z]\w*)/i.exec(l);
 
-  let line = unitLine;
+  let line = anchor;
   if (pkg && hasLibrary) {
     // Last `use` of this library that still sorts before the new package, else just after the
     // `library` clause itself.
@@ -438,7 +466,7 @@ export function contextClauseEdit(
     });
     if (at >= 0) line = start + at + 1;
   }
-  if (line === unitLine) {
+  if (line === anchor) {
     // A whole new library block, or no context clause to join. Place it before the first library
     // that sorts after it, so the file stays in the order organizeImports would put it in.
     let at = -1;
@@ -456,10 +484,10 @@ export function contextClauseEdit(
       region.forEach((l, i) => {
         if (/^\s*(library|use)\b/i.test(l)) lastClause = i;
       });
-      line = lastClause >= 0 ? start + lastClause + 1 : unitLine;
+      line = lastClause >= 0 ? start + lastClause + 1 : anchor;
     }
   }
-  const indent = /^\s*/.exec(lines[unitLine] ?? "")![0];
+  const indent = /^\s*/.exec(lines[anchor] ?? lines[unitLine] ?? "")![0];
 
   let text = "";
   // A whole new library block appended after another one needs a blank line above it just as
@@ -474,7 +502,7 @@ export function contextClauseEdit(
   if (!hasLibrary) text += `${indent}library ${library};\n`;
   if (pkg) text += `${indent}use ${library}.${pkg}.all;\n`;
   // Keep a blank line between the clause and the design unit it precedes.
-  if (line === unitLine && (lines[unitLine] ?? "").trim()) text += "\n";
+  if (line === anchor && (lines[anchor] ?? "").trim()) text += "\n";
   // And between a whole new library block and the one it was placed in front of, so the groups
   // stay groups rather than running together.
   else if (!hasLibrary && libOf(lines[line] ?? "")) text += "\n";

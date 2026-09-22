@@ -30,6 +30,9 @@ reports are that version's. `speja --version` prints the same thing.
   declaration goes in the declarative part that can hold it. Inside a generate or a block, which
   declare signals of their own, both that scope and the architecture are offered. A port map
   offers to declare every actual it names at once.
+* **A use clause for a name used in an architecture goes in the entity's context clause**, which
+  the architecture inherits, rather than in a second one wedged between `end entity` and
+  `architecture`. A second entity in the file still gets its own.
 * **A new library block gets a blank line above it.** Adding a use clause for a package in
   another library appended `library mylib;` straight under the `ieee` block, so two groups read
   as one.
