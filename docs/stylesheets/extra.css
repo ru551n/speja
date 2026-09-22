@@ -1,0 +1,25 @@
+/* A speja mark at the top of the navigation sidebar.
+ *
+ * The header logo is small by design and shares its row with the site title and the search box,
+ * so it does not read as branding. This puts the compass above the menu, where a reader looking
+ * at the navigation sees it.
+ *
+ * It is a ::before on the sidebar's inner wrapper, which encloses the <nav>, so nothing about
+ * Material's navigation markup has to be overridden. Desktop only: below this width the sidebar
+ * becomes a drawer that already shows the logo in its title row, and a second one would be a
+ * duplicate.
+ */
+@media screen and (min-width: 76.25em) {
+  .md-sidebar--primary .md-sidebar__inner::before {
+    content: "";
+    display: block;
+    height: 5.6rem;
+    margin: 0.4rem 0 1.2rem;
+    background: url("../assets/speja-logo.png") no-repeat center / contain;
+  }
+
+  /* The navy compass disappears on the dark palette, so the light-on-transparent one takes over. */
+  [data-md-color-scheme="slate"] .md-sidebar--primary .md-sidebar__inner::before {
+    background-image: url("../assets/speja-logo-dark.png");
+  }
+}
