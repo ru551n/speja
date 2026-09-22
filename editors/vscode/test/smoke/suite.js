@@ -555,6 +555,15 @@ exports.run = async function run() {
         unresolved.map((d) => `${d.source}/${d.severity}`).join(", "),
       );
 
+      // Two unresolved names on one line: the cursor picks one, and the other is left alone.
+      const pair = lineOf(/held <= flag_a and flag_b;/);
+      const onFlagA = await actionsOn(pair, text[pair].indexOf("flag_a") + 1);
+      check(
+        onFlagA.includes("Declare signal flag_a") && !onFlagA.some((t) => /flag_b/.test(t)),
+        "only the name under the cursor is offered a declaration",
+        onFlagA.join(" | "),
+      );
+
       // A generate declares signals of its own, so both scopes are offered, nearest first.
       const lane = lineOf(/lane_out <= lane_valid;/);
       const onLane = await actionsOn(lane, text[lane].indexOf("lane_out") + 1);
@@ -765,6 +774,20 @@ exports.run = async function run() {
         /signal gate_out :/.test(block) && /^\s*begin\b/m.test(block),
         "and opens the block's declarative part with a begin of its own",
         JSON.stringify(block),
+      );
+
+      // On the right of an assignment, the target says what the name is: `tally <= step`
+      // makes `step` whatever `tally` is.
+      check(
+        !!(await actionFor(/tally <= step;/, "step", "Declare signal step")),
+        "a name on the right of an assignment can be declared",
+      );
+      check(
+        /signal step : std_logic_vector\(3 downto 0\);/.test(apply.getText()),
+        "and takes the type of the target on the left",
+        JSON.stringify(
+          apply.getText().split("\n").find((l) => /signal step/.test(l)) ?? "missing",
+        ),
       );
 
       // One actual on its own takes the type of the port it feeds, not a placeholder.
@@ -1052,6 +1075,44 @@ exports.run = async function run() {
           unresolved.map((d) => needs.getText(d.range)).join(", ") || "none left",
         );
       }
+    }
+
+    // 20. The testbed's own files, verbatim. The same actions that pass above do not appear
+    // there, so the difference is in the file rather than in the feature.
+    {
+      const demo = await vscode.workspace.openTextDocument(at("tb_demo.vhd"));
+      await vscode.window.showTextDocument(demo);
+      await until(
+        async () => (await symbols("declare_demo")).some((s) => /^entity/i.test(s.name)),
+        30000,
+        "the server to read the testbed demo",
+      );
+      await wait(2500);
+      const text = demo.getText().split("\n");
+      const mapLine = text.findIndex((l) => /rst\s*=> sys_rst/.test(l));
+      const p = new vscode.Position(mapLine, text[mapLine].indexOf("sys_rst") + 1);
+      const titles = (
+        (await limit(
+          vscode.commands.executeCommand(
+            "vscode.executeCodeActionProvider",
+            demo.uri,
+            new vscode.Range(p, p),
+          ),
+          30000,
+          "code actions in the testbed port map",
+        )) || []
+      ).map((a) => a.title);
+      out("INFO  testbed port map offers: " + (titles.join(" | ") || "nothing"));
+      const syms = await documentSymbols(demo.uri);
+      const flat = [];
+      const walk = (list) => list.forEach((x) => { flat.push(x.name); walk(x.children || []); });
+      walk(syms);
+      out("INFO  testbed symbols: " + flat.join(", "));
+      check(
+        titles.some((t) => /signals? for this port map/.test(t)),
+        "the testbed's own port map offers to declare its actuals",
+        titles.join(" | ") || "nothing",
+      );
     }
 
     out("done");

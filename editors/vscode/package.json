@@ -107,12 +107,6 @@
         "category": "speja"
       },
       {
-        "command": "speja.waiveWithReason",
-        "title": "Waive a Finding...",
-        "category": "speja",
-        "enablement": "false"
-      },
-      {
         "command": "speja.instantiateEntity",
         "title": "VHDL: Instantiate Entity",
         "category": "VHDL"

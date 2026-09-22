@@ -10,7 +10,6 @@
 //! implementation of anything, so a diagnostic in an editor is a diagnostic on the command line.
 
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -20,15 +19,12 @@ use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::{self, Result};
 use tower_lsp_server::ls_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
-    CodeActionProviderCapability, CodeActionResponse, CreateFile, CreateFileOptions, Diagnostic,
-    DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentChangeOperation,
-    DocumentChanges, DocumentFormattingParams, DocumentRangeFormattingParams,
-    ExecuteCommandOptions, ExecuteCommandParams, InitializeParams, InitializeResult,
-    InitializedParams, Location, MessageType, NumberOrString, OneOf,
-    OptionalVersionedTextDocumentIdentifier, Position, Range, ResourceOp, ServerCapabilities,
-    ServerInfo, TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
-    WorkspaceEdit,
+    CodeActionProviderCapability, CodeActionResponse, Diagnostic, DiagnosticRelatedInformation,
+    DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentRangeFormattingParams,
+    InitializeParams, InitializeResult, InitializedParams, Location, MessageType, NumberOrString,
+    OneOf, Position, Range, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Uri, WorkspaceEdit,
 };
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
@@ -93,124 +89,6 @@ fn waivers_for(path: &Path, name: &str) -> crate::waivers::Waivers {
         .unwrap_or_default()
 }
 
-/// The command an editor runs to record a waiver. The client collects the reason and calls it.
-const WAIVE_COMMAND: &str = "speja.applyWaiver";
-
-/// The command a code action asks the *client* to run, which prompts for a reason before
-/// calling [`WAIVE_COMMAND`]. A client that has not registered it does nothing, which is why
-/// the reason is never invented here.
-const WAIVE_PROMPT: &str = "speja.waiveWithReason";
-
-/// How much of the code a waiver covers.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Scope {
-    /// This rule, this file, this line.
-    Line,
-    /// This rule, anywhere in this file.
-    File,
-    /// This rule, anywhere at all.
-    Everywhere,
-}
-
-impl Scope {
-    fn from(name: &str) -> Option<Scope> {
-        match name {
-            "line" => Some(Scope::Line),
-            "file" => Some(Scope::File),
-            "everywhere" => Some(Scope::Everywhere),
-            _ => None,
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Scope::Line => "line",
-            Scope::File => "file",
-            Scope::Everywhere => "everywhere",
-        }
-    }
-
-    fn title(self, rule: &str) -> String {
-        match self {
-            Scope::Line => format!("Waive {rule} on this line..."),
-            Scope::File => format!("Waive {rule} in this file..."),
-            Scope::Everywhere => format!("Waive {rule} everywhere..."),
-        }
-    }
-}
-
-/// One waiver, in the YAML the command line already reads and `--generate_waivers` writes.
-///
-/// The file glob is the source path relative to the waiver file, so a waiver written from the
-/// editor matches when the command line reports that file from the project root.
-fn waiver_entry(scope: Scope, rule: &str, file: &str, line: u32, reason: &str) -> String {
-    let quote = |text: &str| text.replace('\'', "''");
-    let mut entry = format!("  - rule: {rule}\n");
-    if scope != Scope::Everywhere {
-        let _ = writeln!(entry, "    files: '{}'", quote(file));
-    }
-    if scope == Scope::Line {
-        let _ = writeln!(entry, "    lines: [{line}]");
-    }
-    // A reason is the point of a waiver rather than a formality, so it is written as given and
-    // never invented. One line: a multi-line reason would need block scalars to stay valid.
-    let _ = writeln!(
-        entry,
-        "    reason: {}",
-        reason.replace(['\n', '\r'], " ").trim()
-    );
-    entry
-}
-
-/// Where a waiver should be written, and what to add to it.
-///
-/// An existing file is appended to. When a project has none, one is created at the workspace
-/// root, which is where a waiver file governs the whole project.
-fn waiver_edit(
-    path: &Path,
-    root: Option<&Path>,
-    name: &str,
-    scope: Scope,
-    rule: &str,
-    line: u32,
-    reason: &str,
-) -> Option<(PathBuf, bool, Position, String)> {
-    let target = waiver_file(path, name)
-        .or_else(|| root.map(|root| root.join(name)))
-        .or_else(|| path.parent().map(|dir| dir.join(name)))?;
-    let existing = std::fs::read_to_string(&target).ok();
-    // The glob is relative to the waiver file: `src/fifo.vhd` beside a waiver at the root.
-    let relative = target
-        .parent()
-        .and_then(|dir| path.strip_prefix(dir).ok())
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/");
-    let entry = waiver_entry(scope, rule, &relative, line, reason);
-
-    let Some(text) = existing else {
-        return Some((
-            target,
-            true,
-            Position::new(0, 0),
-            format!(
-                "# Waivers accepted from the editor. Each entry says why a violation is allowed\n                 # to stay; `speja --waivers <this file>` then stops reporting it.\nwaivers:\n{entry}"
-            ),
-        ));
-    };
-    // A file with no `waivers:` key yet needs one, or the entry belongs to nothing.
-    let lines = u32::try_from(text.lines().count()).unwrap_or(u32::MAX);
-    let at = Position::new(lines, 0);
-    let needs_key = !text.lines().any(|l| l.trim_start().starts_with("waivers:"));
-    let prefix = if text.is_empty() || text.ends_with('\n') {
-        String::new()
-    } else {
-        "\n".to_owned()
-    };
-    let key = if needs_key { "waivers:\n" } else { "" };
-    Some((target, false, at, format!("{prefix}{key}{entry}")))
-}
-
 /// The configuration that applies to a file, found the way the command line finds it: the
 /// nearest `speja.yaml` (or `.json`) in its directory or an ancestor.
 fn config_for(path: &Path) -> std::result::Result<Config, String> {
@@ -244,28 +122,6 @@ fn path_of(uri: &Uri) -> PathBuf {
         .unwrap_or(path);
     // Percent-encoding is how a space or a `#` survives a URI; the filesystem wants it back.
     percent_decode(path).into()
-}
-
-/// A path as a `file:` URI: the inverse of [`path_of`], for naming a file the editor has not
-/// opened. Percent-encodes anything a URI may not carry literally.
-fn uri_of(path: &Path) -> Option<Uri> {
-    let text = path.display().to_string().replace('\\', "/");
-    let mut encoded = String::from("file://");
-    if !text.starts_with('/') {
-        // `C:/dir/x.vhd` is `file:///C:/dir/x.vhd`.
-        encoded.push('/');
-    }
-    for c in text.chars() {
-        if matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '/' | '-' | '.' | '_' | '~' | ':') {
-            encoded.push(c);
-        } else {
-            let mut buffer = [0u8; 4];
-            for byte in c.encode_utf8(&mut buffer).as_bytes() {
-                let _ = write!(encoded, "%{byte:02X}");
-            }
-        }
-    }
-    encoded.parse().ok()
 }
 
 /// `%20` and friends, decoded. Anything that is not a valid escape is left as it was.
@@ -732,10 +588,6 @@ impl LanguageServer for Backend {
                 )),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_range_formatting_provider: Some(OneOf::Left(true)),
-                execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec![WAIVE_COMMAND.to_owned()],
-                    ..ExecuteCommandOptions::default()
-                }),
                 code_action_provider: Some(CodeActionProviderCapability::Options(
                     CodeActionOptions {
                         code_action_kinds: Some(vec![
@@ -809,97 +661,6 @@ impl LanguageServer for Backend {
         self.client.publish_diagnostics(uri, Vec::new(), None).await;
     }
 
-    /// Record a waiver. The client has collected the reason; this writes the entry.
-    async fn execute_command(
-        &self,
-        params: ExecuteCommandParams,
-    ) -> Result<Option<serde_json::Value>> {
-        if params.command != WAIVE_COMMAND {
-            return Ok(None);
-        }
-        let Some(argument) = params.arguments.first() else {
-            return Ok(None);
-        };
-        let text = |key: &str| argument.get(key).and_then(serde_json::Value::as_str);
-        let (Some(uri), Some(rule), Some(reason), Some(scope)) = (
-            text("uri").and_then(|u| u.parse::<Uri>().ok()),
-            text("rule").map(str::to_owned),
-            text("reason").map(str::to_owned),
-            text("scope").and_then(Scope::from),
-        ) else {
-            return Ok(None);
-        };
-        let line = u32::try_from(
-            argument
-                .get("line")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(1),
-        )
-        .unwrap_or(1);
-
-        let path = path_of(&uri);
-        let name = self.waivers.read().await.clone();
-        let root = self.root.read().await.clone();
-        let Some((target, new_file, at, addition)) = tokio::task::spawn_blocking(move || {
-            waiver_edit(&path, root.as_deref(), &name, scope, &rule, line, &reason)
-        })
-        .await
-        .ok()
-        .flatten() else {
-            return Ok(None);
-        };
-
-        let Some(target_uri) = uri_of(&target) else {
-            return Ok(None);
-        };
-        let mut operations = Vec::new();
-        if new_file {
-            operations.push(DocumentChangeOperation::Op(ResourceOp::Create(
-                CreateFile {
-                    uri: target_uri.clone(),
-                    options: Some(CreateFileOptions {
-                        overwrite: Some(false),
-                        ignore_if_exists: Some(true),
-                    }),
-                    annotation_id: None,
-                },
-            )));
-        }
-        operations.push(DocumentChangeOperation::Edit(TextDocumentEdit {
-            text_document: OptionalVersionedTextDocumentIdentifier {
-                uri: target_uri,
-                version: None,
-            },
-            edits: vec![OneOf::Left(TextEdit {
-                range: Range::new(at, at),
-                new_text: addition,
-            })],
-        }));
-        let edit = WorkspaceEdit {
-            document_changes: Some(DocumentChanges::Operations(operations)),
-            ..WorkspaceEdit::default()
-        };
-        // The editor applies it, so the change is undoable and a waiver file the user has open
-        // is updated rather than overwritten behind their back.
-        if self.client.apply_edit(edit).await.is_err() {
-            self.client
-                .log_message(MessageType::ERROR, "speja: the waiver could not be written")
-                .await;
-            return Ok(None);
-        }
-        // Re-analyse: the finding just waived should stop being reported without another edit.
-        let open = self
-            .documents
-            .read()
-            .await
-            .get(&uri)
-            .map(|d| (d.text.clone(), d.version));
-        if let Some((text, version)) = open {
-            self.publish(uri, text, version).await;
-        }
-        Ok(None)
-    }
-
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let Some(text) = self
@@ -913,7 +674,6 @@ impl LanguageServer for Backend {
         };
         let range = params.range;
         let wanted = params.context.only.clone();
-        let diagnostics = params.context.diagnostics.clone();
         let path = path_of(&uri);
         let actions = tokio::task::spawn_blocking({
             let uri = uri.clone();
@@ -999,35 +759,6 @@ impl LanguageServer for Backend {
                             edit: Some(workspace_edit(&uri, lsp_edits(&text, &edits))),
                             ..CodeAction::default()
                         }));
-                    }
-                }
-
-                // A waiver for each finding under the cursor, at each scope. These carry a
-                // command rather than an edit: the reason has to come from a person, and the
-                // client is the only side that can ask for one.
-                if allows(&CodeActionKind::QUICKFIX) {
-                    for diagnostic in &diagnostics {
-                        let Some(NumberOrString::String(rule)) = &diagnostic.code else {
-                            continue;
-                        };
-                        for scope in [Scope::Line, Scope::File, Scope::Everywhere] {
-                            actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                                title: scope.title(rule),
-                                kind: Some(CodeActionKind::QUICKFIX),
-                                diagnostics: Some(vec![diagnostic.clone()]),
-                                command: Some(tower_lsp_server::ls_types::Command {
-                                    title: scope.title(rule),
-                                    command: WAIVE_PROMPT.to_owned(),
-                                    arguments: Some(vec![serde_json::json!({
-                                        "uri": uri.as_str(),
-                                        "rule": rule,
-                                        "line": diagnostic.range.start.line + 1,
-                                        "scope": scope.name(),
-                                    })]),
-                                }),
-                                ..CodeAction::default()
-                            }));
-                        }
                     }
                 }
 

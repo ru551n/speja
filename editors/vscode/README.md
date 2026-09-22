@@ -19,8 +19,6 @@ It is two things, and only one of them needs anything else installed:
   points at each driver, a combinational loop at each signal on it.
 * **Quick fixes** for findings that carry one, and **Fix All** for the document.
 * **Format Document**, and format on save.
-* **Waive a finding**, on the line, in the file or everywhere, with a reason that is written to the
-  project's waiver file.
 * **Sort library and use clauses** as a source action: `ieee` first, then alphabetical, `work`
   last.
 

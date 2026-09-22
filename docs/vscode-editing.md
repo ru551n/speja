@@ -57,8 +57,10 @@ in, that is `work`. From any other library it is that library's name, and the `l
 that makes the name visible is added with it, after the existing context clause. The library is
 the one the language server analysed the entity in, not a guess.
 
-The same thing is offered as a completion while you type an entity name, as a snippet you can tab
-through.
+The same thing is offered as a completion while you type an entity name: two characters in, the
+list has a row reading `counter    instantiate mylib.counter`, directly under the bare `counter`
+that VHDL-LS offers. Accept the labelled one and the whole instantiation lands as a snippet you tab
+through; accept the bare one and you get the word.
 
 **Declare Signals for Port Map** takes the instantiation under the cursor and declares every
 actual that does not exist yet, with the port's type, before the enclosing `begin`. Generics used
@@ -131,7 +133,8 @@ prompted it is inside a process.
 The type comes from where the name is used. An actual in a port map takes the type of the port it
 feeds, with the instance's generics substituted, so `rst => sys_rst` declares `sys_rst` as
 `std_logic` and `din => data_in` as `std_logic_vector(8 - 1 downto 0)`. An assignment from a
-single name takes that name's type, and from a literal the type the literal says: `'0'` is a
+single name takes that name's type, on either side of the operator, so `tally <= step` makes
+`step` whatever `tally` is; from a literal it is the type the literal says: `'0'` is a
 `std_logic`, `true` a `boolean`, `42` a `natural`, `10 ns` a `time`. Anything that needs thinking
 about, an expression or a bit string that could be three different vector types, is left as
 `std_logic` selected in the editor, so typing over it costs one keystroke. A wrong type written

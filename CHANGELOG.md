@@ -30,6 +30,14 @@ reports are that version's. `speja --version` prints the same thing.
   declaration goes in the declarative part that can hold it. Inside a generate or a block, which
   declare signals of their own, both that scope and the architecture are offered. A port map
   offers to declare every actual it names at once.
+* **Only the name under the cursor is offered a declaration or a use clause.** On a line with two
+  unresolved names, asking about one no longer offers fixes for the other.
+* **The instantiation completion is labelled and no longer sorted last.** It reads
+  `counter    instantiate mylib.counter`, beside the bare word VHDL-LS offers, instead of below
+  everything.
+* **The waiver entries are gone from the lightbulb.** Three per finding, ahead of every fix, left
+  the fix itself off the bottom of the menu. The server still reads the waiver file; writing one
+  is a command-line job (`--generate_waivers`) or a text editor's.
 * **The type of a declaration is inferred.** An actual in a port map takes the port's type with
   generics substituted; an assignment takes the type of the name or literal on the right. Only
   what cannot be worked out is left as a placeholder to type over.

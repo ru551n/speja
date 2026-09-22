@@ -53,7 +53,7 @@ const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
 // `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
-const ENTITIES = 54;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
+const ENTITIES = 56;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -238,6 +238,7 @@ begin
     if rising_edge(clk) then
       scratch := go;
       held <= go;
+      held <= flag_a and flag_b;
       case phase is
         when arm =>
           null;
@@ -266,6 +267,8 @@ end entity apply_me;
 
 architecture rtl of apply_me is
 
+  signal tally : std_logic_vector(3 downto 0);
+
 begin
 
   u_fifo : entity work.fifo
@@ -292,6 +295,7 @@ begin
   begin
     if rising_edge(clk) then
       scratch := go;
+      tally <= step;
       case sequencer is
         when others =>
           null;
@@ -431,6 +435,10 @@ begin
 
 end architecture rtl;
 `);
+
+// The testbed's own files, verbatim, because the actions that work here did not work there.
+writeFileSync(join(workspace, "tb_demo.vhd"), '-- Everything that offers to declare something for you. Each name below is deliberately missing.\n--\n--  * `sys_clk`, `sys_rst`, `sample`: actuals of the port map that nothing declares. Put the\n--    cursor in the map and press Ctrl+. for "Declare 3 signals for this port map", which writes\n--    all of them with the port\'s type, the generic\'s value substituted.\n--  * `busy`: assigned with `<=`, so a signal is offered. Inside a process, but a signal still\n--    belongs to the architecture, and that is where it lands.\n--  * `tmp`: assigned with `:=`, so a variable is offered, in the process\'s own declarations.\n--  * `lane_hit`: used inside a generate, which declares signals of its own. Both the generate\n--    and the architecture are offered, nearest first.\n--  * `phase`: a case over an enumeration with one arm written. "Add 2 missing when choices".\nlibrary ieee;\n  use ieee.std_logic_1164.all;\n  use ieee.numeric_std.all;\n\nentity declare_demo is\n  port (\n    clk : in std_logic;\n    go : in std_logic;\n    done : out std_logic\n  );\nend entity declare_demo;\n\narchitecture rtl of declare_demo is\n\n  type t_phase is (arm, fire, recover);\n\n  signal phase : t_phase := arm;\n\nbegin\n\n  u_counter : entity work.counter\n    generic map (\n      width => 8\n    )\n    port map (\n      clk => sys_clk,\n      rst => sys_rst,\n      value => sample\n    );\n\n  g_lanes : for i in 0 to 3 generate\n    signal lane_valid : std_logic;\n  begin\n    lane_valid <= go;\n    lane_hit <= lane_valid;\n  end generate g_lanes;\n\n  p_main : process (clk) is\n  begin\n\n    if rising_edge(clk) then\n      tmp := go;\n      busy <= go;\n\n      case phase is\n        when arm =>\n\n          null;\n      end case;\n\n    end if;\n  end process;\n\n  done <= go;\n\nend architecture rtl;\n');
+writeFileSync(join(workspace, "tb_counter_unit.vhd"), "-- Formatted the way speja formats, and free of lint findings. Opening this should show nothing\n-- at all: an empty report means it proved nothing was wrong, not that it stayed quiet.\nlibrary ieee;\n  use ieee.std_logic_1164.all;\n  use ieee.numeric_std.all;\n\nentity counter is\n  generic (\n    width : positive := 8\n  );\n  port (\n    clk   : in    std_logic;\n    rst   : in    std_logic;\n    value : out   unsigned(width - 1 downto 0)\n  );\nend entity counter;\n\narchitecture rtl of counter is\n\n  signal count : unsigned(width - 1 downto 0);\n\nbegin\n\n  tick : process (clk) is\n  begin\n\n    if rising_edge(clk) then\n      if (rst = '1') then\n        count <= (others => '0');\n      else\n        count <= count + 1;\n      end if;\n    end if;\n\n  end process tick;\n\n  value <= count;\n\nend architecture rtl;\n");
 
 // A use clause that nothing needs, beside one that is needed.
 write("clauses.vhd", `library ieee;

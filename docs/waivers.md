@@ -51,8 +51,9 @@ passed together.
   hiding. Without it a run only prints how many violations were waived.
 * A waiver never hides a syntax error or an internal error; those are not violations.
 
-## From the editor
+## In the editor
 
-In an editor that runs the [language server](lsp.md), a finding offers to be waived on its line, in
-its file or everywhere, asks why, and writes the entry to `speja-waivers.yaml`. Pass that file to
-`--waivers` in CI and the editor and the command line agree about what has been accepted.
+The [language server](lsp.md) reads the project's waiver file, `speja-waivers.yaml` by default and
+`speja.waiverFile` in VS Code, so a finding the project has accepted is not underlined. Waivers are
+written by hand, or with `--generate_waivers`; the editor does not offer to write them, because a
+lightbulb menu with three waiver entries per finding buried the fixes that mattered.

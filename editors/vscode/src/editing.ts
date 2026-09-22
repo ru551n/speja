@@ -1060,6 +1060,19 @@ async function inferredType(
   }
 
   const line = doc.lineAt(at.line).text.replace(/--.*$/, "");
+
+  // On the right of an assignment, the target says what this has to be: `tally <= step` makes
+  // `step` whatever `tally` is. Both sides of the operator, because a name is undeclared as
+  // often when it is read as when it is written.
+  const target = /^\s*([A-Za-z]\w*)\s*(?:\([^)]*\))?\s*(?:<=|:=)/.exec(line);
+  if (target && target[1].toLowerCase() !== name.toLowerCase()) {
+    const type = await typeAt(
+      doc,
+      new vscode.Position(at.line, line.indexOf(target[1]) + 1),
+    );
+    if (type) return type;
+  }
+
   const assigned = new RegExp(
     `^\\s*${name}\\s*(\\([^)]*\\))?\\s*(?:<=|:=)\\s*(.+?)\\s*;?\\s*$`,
     "i",
@@ -1071,15 +1084,18 @@ async function inferredType(
   if (!/^[A-Za-z]\w*$/.test(expression)) return undefined;
   // A name on the right: whatever the server says that one is.
   const column = line.indexOf(expression, line.indexOf(name) + name.length);
-  const hover = await hoverText(
-    doc.uri,
-    new vscode.Position(at.line, column + 1),
-  );
-  const type =
-    /:\s*(?:in|out|inout|buffer)?\s*([A-Za-z]\w*(?:\s*\([^)]*\))?)/.exec(
-      hover,
-    )?.[1];
-  return type?.trim();
+  return typeAt(doc, new vscode.Position(at.line, column + 1));
+}
+
+/** The type of whatever is at `position`, as the server's declaration of it spells it. */
+async function typeAt(
+  doc: vscode.TextDocument,
+  position: vscode.Position,
+): Promise<string | undefined> {
+  const hover = await hoverText(doc.uri, position);
+  return /:\s*(?:in|out|inout|buffer)?\s*([A-Za-z]\w*(?:\s*\([^)]*\))?)/
+    .exec(hover)?.[1]
+    ?.trim();
 }
 
 /**
@@ -1212,7 +1228,7 @@ async function enumOfSelector(
 class InstanceCompletion extends vscode.CompletionItem {
   constructor(
     readonly sym: Sym,
-    label: string,
+    label: string | vscode.CompletionItemLabel,
     readonly doc: vscode.TextDocument,
     readonly unitLine: number,
   ) {
@@ -1260,10 +1276,19 @@ const vhdlCompletions: vscode.CompletionItemProvider = {
     for (const s of syms) {
       if (isEntitySymbol(s)) {
         const name = identOf(s.name);
-        const item = new InstanceCompletion(s, name, document, unitLine);
+        // VHDL-LS offers the bare name too, and two rows that both read `counter` are a coin
+        // toss. This one says what it does beside the name, and sorts with the bare word rather
+        // than at the bottom of a list VHDL-LS fills with hundreds of its own: `zzz_` put the
+        // instantiation last, below everything, which is where nobody found it.
+        const item = new InstanceCompletion(
+          s,
+          { label: name, description: `instantiate ${libraryOf(s)}.${name}` },
+          document,
+          unitLine,
+        );
         item.detail = `instantiate ${libraryOf(s)}.${name}`;
         item.filterText = name;
-        item.sortText = `zzz_${name}`;
+        item.sortText = name;
         items.push(item);
         continue;
       }
@@ -1419,9 +1444,16 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
     const actions: vscode.CodeAction[] = [];
     const lines = document.getText().split("\n");
 
-    for (const diagnostic of context.diagnostics.filter(
-      (d) => d.code === "unresolved",
-    )) {
+    // Only the name under the cursor. The editor hands over every diagnostic that touches the
+    // requested range, and on a line with two unresolved names that is both of them: asking
+    // about one and being offered declarations for the other is what "the wrong symbol" feels
+    // like from the keyboard.
+    const underCursor = context.diagnostics.filter(
+      (d) =>
+        d.code === "unresolved" && range.intersection(d.range) !== undefined,
+    );
+
+    for (const diagnostic of underCursor) {
       const name = document.getText(diagnostic.range);
       if (!/^[A-Za-z]\w*$/.test(name)) continue;
       const unitLine = await designUnitLine(document, diagnostic.range.start);
@@ -1442,9 +1474,7 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
     // A name the analyser could not resolve is either missing an import, offered above, or
     // missing a declaration. Which declarations are legal depends on where the cursor is, so
     // only those are offered: a variable inside a process, a signal outside one.
-    for (const diagnostic of context.diagnostics.filter(
-      (d) => d.code === "unresolved",
-    )) {
+    for (const diagnostic of underCursor) {
       const name = document.getText(diagnostic.range);
       if (!/^[A-Za-z]\w*$/.test(name)) continue;
       const kinds = declarableKinds(

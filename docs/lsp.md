@@ -29,8 +29,7 @@ giving. A test asserts each of those is absent.
 | `textDocument/publishDiagnostics` | the style rules and the lint layer, with `relatedInformation` |
 | `textDocument/formatting` | one edit for the whole document |
 | `textDocument/rangeFormatting` | the selected lines only, the rest untouched |
-| `textDocument/codeAction` | a quick fix per fixable finding, `source.fixAll`, a waiver for each finding, and `source.organizeImports` |
-| `workspace/executeCommand` | `speja.applyWaiver`, which writes a waiver the client has collected a reason for |
+| `textDocument/codeAction` | a quick fix per fixable finding, `source.fixAll`, and `source.organizeImports` |
 
 ## Formatting a selection
 
