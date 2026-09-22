@@ -24,7 +24,7 @@ jobs:
       pull-requests: write     # suggestions and the summary comment
     steps:
       - uses: actions/checkout@v6
-      - uses: ru551n/speja@v0.14.0
+      - uses: ru551n/speja@v0.14.1
         with:
           args: -c vsg.yaml --recursive src
 ```

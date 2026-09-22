@@ -182,7 +182,7 @@ Warnings-NG. Every [report format](https://speja.readthedocs.io/en/latest/report
 anywhere.
 
 ```yaml
-- uses: ru551n/speja@v0.14.0
+- uses: ru551n/speja@v0.14.1
   with:
     args: --recursive src
 ```
