@@ -474,6 +474,7 @@ import {
   declarableKinds,
   assignmentKind,
   renderDeclaration,
+  instantiationContext,
   typeOfLiteral,
   caseSelector,
   enumFromSource,
@@ -568,6 +569,70 @@ assert.match(
   renderWhenChoices(["done"], "  "),
   /^ {2}when done =>\n {4}null;\n$/,
 );
+
+// What the author is in the middle of typing, for instantiation completion.
+assert.deepEqual(instantiationContext("  i_x : "), {
+  kind: "label",
+  library: undefined,
+  typed: "",
+  from: 8,
+});
+assert.deepEqual(instantiationContext("  i_x : mylib."), {
+  kind: "label",
+  library: "mylib",
+  typed: "mylib.",
+  from: 8,
+});
+assert.deepEqual(instantiationContext("  i_x : entity mylib.fi"), {
+  kind: "label",
+  library: "mylib",
+  typed: "entity mylib.fi",
+  from: 8,
+});
+assert.deepEqual(instantiationContext("  i_x:fi"), {
+  kind: "label",
+  library: undefined,
+  typed: "fi",
+  from: 6,
+});
+assert.deepEqual(instantiationContext("  fi"), {
+  kind: "word",
+  library: undefined,
+  typed: "fi",
+  from: 2,
+});
+assert.deepEqual(instantiationContext("  other."), {
+  kind: "word",
+  library: "other",
+  typed: "other.",
+  from: 2,
+});
+// Two words before the colon is a declaration, not a label; a finished statement is nothing.
+assert.equal(instantiationContext("  signal x : "), null);
+assert.equal(instantiationContext("  x <= y;"), null);
+assert.equal(instantiationContext(""), null);
+
+// A component is instantiated by bare name, and a label already typed is not written twice.
+{
+  const hover =
+    "component fifo\n  generic (\n    width : positive := 8\n  );\n  port (\n    clk : in std_logic\n  );\nend component;";
+  const c = parseEntityHover(hover);
+  assert.equal(c?.kind, "component");
+  assert.equal(c?.name, "fifo");
+  assert.deepEqual(
+    c?.ports.map((p) => p.name),
+    ["clk"],
+  );
+  assert.match(
+    renderInstance(c, { omitLabel: true, indent: "" }),
+    /^fifo\n\s*generic map/,
+  );
+  assert.doesNotMatch(renderInstance(c, { indent: "" }), /entity/);
+  assert.match(
+    renderInstance(e, { omitLabel: true, indent: "" }),
+    /^entity work\.leaf/,
+  );
+}
 
 // The ieee block is not alphabetical: std_logic_1164 declares what the rest are built on, and
 // that is how hdl-modules, tsfpga and VUnit all write it.

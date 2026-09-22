@@ -57,10 +57,27 @@ in, that is `work`. From any other library it is that library's name, and the `l
 that makes the name visible is added with it, after the existing context clause. The library is
 the one the language server analysed the entity in, not a guess.
 
-The same thing is offered as a completion while you type an entity name: two characters in, the
-list has a row reading `counter    instantiate mylib.counter`, directly under the bare `counter`
-that VHDL-LS offers. Accept the labelled one and the whole instantiation lands as a snippet you tab
-through; accept the bare one and you get the word.
+The same thing is offered as a completion, and it follows what you type rather than waiting for
+a particular keystroke:
+
+* `i_fifo : ` and the list opens on every entity in every library of the project, and every
+  component declaration, each reading `fifo    instantiate mylib.fifo`. Accept one and the
+  instantiation lands after your label: `entity mylib.fifo`, the generic map, the port map, as a
+  snippet you tab through. The label you typed is not written twice.
+* `i_fifo : other.` narrows the list to that library, and accepting adds `library other;` if the
+  file does not have it.
+* `fi` on a line of its own, or `other.`, does the same and supplies the label.
+* A component is instantiated by its bare name, with no `entity` and no library.
+
+Matching is the editor's own fuzzy matching, the one Ctrl+P uses for file names, against the
+whole of `entity mylib.fifo`: `fi`, `myl.fi` and `entity mylib.fi` all find it. The rows sort
+above everything VHDL-LS puts in the list, because at a label and a colon its rows are keywords
+and signals and neither is what you are typing. Nothing of this appears inside a port clause or a
+process, where `x : ` is a declaration.
+
+The list is built by asking every VHDL file in the workspace for its symbols, kept for thirty
+seconds and rebuilt after a save, so the first list in a session can take a moment on a large
+project and the rest are immediate.
 
 **Declare Signals for Port Map** takes the instantiation under the cursor and declares every
 actual that does not exist yet, with the port's type, before the enclosing `begin`. Generics used

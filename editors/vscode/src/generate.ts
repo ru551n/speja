@@ -14,6 +14,8 @@ export interface EntityIface {
   library: string;
   generics: Iface[];
   ports: Iface[];
+  /** A component declaration is instantiated by bare name, with no `entity` and no library. */
+  kind?: "entity" | "component";
 }
 
 export interface EnumType {
@@ -83,15 +85,17 @@ export function parseEntityHover(
   hover: string,
   library = "work",
 ): EntityIface | null {
-  const m = /\bentity\s+(\w+)\s+is\b/i.exec(hover);
+  // A component's hover has no `is`: `component fifo` then the clauses, then `end component;`.
+  const m = /\b(entity|component)\s+(\w+)\b/i.exec(hover);
   if (!m) return null;
   const g = clause(hover, "generic");
   const p = clause(hover, "port");
   return {
-    name: m[1],
+    name: m[2],
     library,
     generics: g ? parseIface(g) : [],
     ports: p ? parseIface(p) : [],
+    kind: m[1].toLowerCase() === "component" ? "component" : "entity",
   };
 }
 
@@ -145,6 +149,8 @@ export interface InstanceOptions {
    * the name that needs no clause, and spelling that library out without one is an error.
    */
   library?: string;
+  /** The label is already on the line, so the instantiation starts at the entity name. */
+  omitLabel?: boolean;
 }
 
 /** Instantiation of an entity, formals mapped to like-named actuals. */
@@ -162,7 +168,11 @@ export function renderInstance(
     opts.snippet ? `\${${++stop}:${x.name}}` : x.name;
 
   const head = opts.snippet ? `\${${++stop}:${label}}` : label;
-  const out = [`${i}${head} : entity ${opts.library ?? e.library}.${e.name}`];
+  const target =
+    e.kind === "component"
+      ? e.name
+      : `entity ${opts.library ?? e.library}.${e.name}`;
+  const out = [opts.omitLabel ? `${i}${target}` : `${i}${head} : ${target}`];
   if (generics.length) {
     out.push(`${i}  generic map (`);
     out.push(...assocList(generics, actual, `${i}    `));
@@ -322,6 +332,51 @@ export function renderFsmParts(
 export function renderFsm(e: EnumType, opts: FsmOptions = {}): string {
   const { declaration, process } = renderFsmParts(e, opts);
   return `${declaration}\n\n${process}`;
+}
+
+/**
+ * What the author is in the middle of typing, read off the line up to the cursor.
+ *
+ * `label`: `i_x : `, `i_x : mylib.`, `i_x : entity mylib.fi`. The label is theirs; what comes
+ * after the colon is replaced by the instantiation, whatever of it they have typed so far.
+ * `word`: `fi`, `mylib.`, `mylib.fi` on a line of its own, where the label is still to be
+ * written and the snippet supplies one. `library` is set when they have named one, and then
+ * only that library's entities are wanted. `from` is the column the replacement starts at.
+ */
+export type InstantiationContext =
+  | { kind: "label"; library?: string; typed: string; from: number }
+  | { kind: "word"; library?: string; typed: string; from: number };
+
+export function instantiationContext(
+  lineToCursor: string,
+): InstantiationContext | null {
+  const label =
+    /^\s*[A-Za-z]\w*\s*:\s*(entity\s+)?(?:([A-Za-z]\w*)\s*\.\s*)?([A-Za-z]\w*)?$/i.exec(
+      lineToCursor,
+    );
+  if (label) {
+    const colon = lineToCursor.indexOf(":");
+    let from = colon + 1;
+    while (from < lineToCursor.length && lineToCursor[from] === " ") from++;
+    return {
+      kind: "label",
+      library: label[2]?.toLowerCase(),
+      typed: lineToCursor.slice(from),
+      from,
+    };
+  }
+  const word = /^(\s*)(?:([A-Za-z]\w*)\s*\.\s*)?([A-Za-z]\w*)?$/.exec(
+    lineToCursor,
+  );
+  if (word && (word[2] || word[3])) {
+    return {
+      kind: "word",
+      library: word[2]?.toLowerCase(),
+      typed: lineToCursor.slice(word[1].length),
+      from: word[1].length,
+    };
+  }
+  return null;
 }
 
 /** Libraries that are visible without a library clause. */

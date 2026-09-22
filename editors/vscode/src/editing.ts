@@ -17,6 +17,7 @@ import {
   contextClause,
   contextClauseEdit,
   designatorOf,
+  instantiationContext,
   missingFormals,
   parseEntityHover,
   parseEnumHover,
@@ -132,6 +133,72 @@ async function projectEntities(): Promise<Sym[]> {
 }
 
 /** The entities one file declares, as the workspace symbols the rest of this file works with. */
+/** A component declaration somewhere in the workspace, instantiable by bare name. */
+interface ComponentDecl {
+  name: string;
+  uri: vscode.Uri;
+  position: vscode.Position;
+}
+
+async function componentsIn(uri: vscode.Uri): Promise<ComponentDecl[]> {
+  return flatten(await documentSymbols(uri))
+    .filter((s) => /^component\b/i.test(s.name))
+    .map((s) => ({
+      name: identOf(s.name),
+      uri,
+      position: s.selectionRange.start,
+    }));
+}
+
+/**
+ * Every entity and every component declaration in the workspace, for completion.
+ *
+ * Built by asking each file for its symbols, which is what the picker already does, and kept
+ * for a while because completion asks on every keystroke and the answer does not change between
+ * two of them. A save throws it away.
+ *
+ * ponytail: a TTL and a save hook, not a file watcher; per-file invalidation if a project gets
+ * big enough for the rebuild to be felt.
+ */
+let designIndexCache: {
+  builtAt: number;
+  entities: Sym[];
+  components: ComponentDecl[];
+} | null = null;
+const DESIGN_INDEX_TTL = 30_000;
+
+async function designIndex(): Promise<{
+  entities: Sym[];
+  components: ComponentDecl[];
+}> {
+  if (
+    designIndexCache &&
+    Date.now() - designIndexCache.builtAt < DESIGN_INDEX_TTL
+  )
+    return designIndexCache;
+  const files = await vscode.workspace.findFiles(
+    "**/*.{vhd,vhdl}",
+    "**/node_modules/**",
+  );
+  const entities: Sym[] = [];
+  const components: ComponentDecl[] = [];
+  for (let at = 0; at < files.length; at += 8) {
+    const batch = files.slice(at, at + 8);
+    const [e, c] = await Promise.all([
+      Promise.all(batch.map(entitiesIn)),
+      Promise.all(batch.map(componentsIn)),
+    ]);
+    entities.push(...e.flat());
+    components.push(...c.flat());
+  }
+  designIndexCache = { builtAt: Date.now(), entities, components };
+  return designIndexCache;
+}
+
+function forgetDesignIndex(): void {
+  designIndexCache = null;
+}
+
 async function entitiesIn(uri: vscode.Uri): Promise<Sym[]> {
   const declared = flatten(await documentSymbols(uri)).filter(isEntitySymbol);
   return Promise.all(
@@ -1327,8 +1394,20 @@ class InstanceCompletion extends vscode.CompletionItem {
     label: string | vscode.CompletionItemLabel,
     readonly doc: vscode.TextDocument,
     readonly unitLine: number,
+    /** The label is already typed, so the snippet starts at the entity name. */
+    readonly omitLabel = false,
   ) {
     super(label, vscode.CompletionItemKind.Module);
+  }
+}
+
+class ComponentCompletion extends vscode.CompletionItem {
+  constructor(
+    readonly component: ComponentDecl,
+    label: string | vscode.CompletionItemLabel,
+    readonly omitLabel = false,
+  ) {
+    super(label, vscode.CompletionItemKind.Class);
   }
 }
 
@@ -1351,44 +1430,86 @@ class ImportCompletion extends vscode.CompletionItem {
  */
 const vhdlCompletions: vscode.CompletionItemProvider = {
   async provideCompletionItems(document, position) {
-    const wordRange = document.getWordRangeAtPosition(position);
-    const prefix = wordRange
-      ? document.getText(wordRange.with(undefined, position))
-      : "";
-    if (prefix.length < 2) return [];
+    const lineToCursor = document
+      .lineAt(position.line)
+      .text.slice(0, position.character);
+    if (/--/.test(lineToCursor)) return [];
+
+    // What is being typed decides what is offered. A label and a colon want an instantiation
+    // and nothing else, from every library, or from the one just named; a bare word wants that
+    // too, with a label supplied, and also the names from packages the file cannot see yet.
+    const context = instantiationContext(lineToCursor);
+    if (!context) return [];
+    const wordish = context.kind === "word";
+    if (wordish && !context.library && context.typed.length < 2) return [];
+    // `clk : in` in a port clause and `x : t` in a record look like labels. An instantiation is a
+    // concurrent statement: below the architecture's `begin`, outside any process.
     if (
-      /--/.test(
-        document.lineAt(position.line).text.slice(0, position.character),
-      )
+      context.kind === "label" &&
+      (architectureBegin(document, position) === null ||
+        sequentialHome(document, position) !== null)
     )
       return [];
 
-    const syms = (await workspaceSymbols(prefix)) ?? [];
     const unitLine = await designUnitLine(document, position);
-    const visible = visiblePackages(document.getText().split("\n"), unitLine);
+    const replace = new vscode.Range(
+      new vscode.Position(position.line, context.from),
+      position,
+    );
     const items: vscode.CompletionItem[] = [];
-    const seen = new Set<string>();
+    const { entities, components } = await designIndex();
 
-    for (const s of syms) {
-      if (isEntitySymbol(s)) {
-        const name = identOf(s.name);
-        // VHDL-LS offers the bare name too, and two rows that both read `counter` are a coin
-        // toss. This one says what it does beside the name, and sorts with the bare word rather
-        // than at the bottom of a list VHDL-LS fills with hundreds of its own: `zzz_` put the
-        // instantiation last, below everything, which is where nobody found it.
-        const item = new InstanceCompletion(
-          s,
-          { label: name, description: `instantiate ${libraryOf(s)}.${name}` },
-          document,
-          unitLine,
+    for (const s of entities) {
+      const name = identOf(s.name);
+      const lib = libraryOf(s);
+      if (context.library && lib.toLowerCase() !== context.library) continue;
+      const item = new InstanceCompletion(
+        s,
+        { label: name, description: `instantiate ${lib}.${name}` },
+        document,
+        unitLine,
+        context.kind === "label",
+      );
+      item.detail = `instantiate ${lib}.${name}`;
+      // The whole of what was typed after the colon is replaced, and the matcher sees all of
+      // it: `fi`, `mylib.fi` and `entity mylib.fi` all find `entity mylib.fifo`, the way a
+      // few letters find a file in the Ctrl+P picker.
+      item.range = replace;
+      item.filterText = `entity ${lib}.${name}`;
+      // Above everything VHDL-LS offers. In this position its rows are the language's keywords
+      // and the file's signals, and neither is what a label and a colon are for.
+      item.sortText = `0_${name}`;
+      items.push(item);
+    }
+
+    // A component declared in the file, or anywhere in the workspace, is instantiated by its
+    // bare name. Only when no library was named: a component has none.
+    if (!context.library) {
+      const seen = new Set<string>();
+      for (const c of components) {
+        if (seen.has(c.name.toLowerCase())) continue;
+        seen.add(c.name.toLowerCase());
+        const item = new ComponentCompletion(
+          c,
+          { label: c.name, description: "instantiate component" },
+          context.kind === "label",
         );
-        item.detail = `instantiate ${libraryOf(s)}.${name}`;
-        item.filterText = name;
-        item.sortText = name;
+        item.detail = `instantiate component ${c.name}`;
+        item.range = replace;
+        item.filterText = c.name;
+        item.sortText = `0_${c.name}`;
         items.push(item);
-        continue;
       }
+    }
 
+    if (!wordish || context.library) return items;
+
+    // A bare word can also be a name from a package the design unit has not made visible.
+    const syms = (await workspaceSymbols(context.typed)) ?? [];
+    const visible = visiblePackages(document.getText().split("\n"), unitLine);
+    const seen = new Set<string>();
+    for (const s of syms) {
+      if (isEntitySymbol(s)) continue;
       const designator = designatorOf(s.name);
       const parts = (s.containerName ?? "").split(".");
       if (!designator || parts.length < 2) continue;
@@ -1416,6 +1537,27 @@ const vhdlCompletions: vscode.CompletionItemProvider = {
   },
 
   async resolveCompletionItem(item) {
+    if (item instanceof ComponentCompletion) {
+      const c = parseEntityHover(
+        await hoverText(item.component.uri, item.component.position),
+      );
+      if (!c) return item;
+      c.kind = "component";
+      item.insertText = new vscode.SnippetString(
+        renderInstance(c, {
+          label: `i_${c.name}`,
+          indent: "",
+          snippet: true,
+          omitLabel: item.omitLabel,
+        }),
+      );
+      item.documentation = new vscode.MarkdownString().appendCodeblock(
+        renderInstance(c, { indent: "" }),
+        "vhdl",
+      );
+      return item;
+    }
+
     if (item instanceof InstanceCompletion) {
       const lib = libraryOf(item.sym);
       const e = await entityAt(
@@ -1431,6 +1573,7 @@ const vhdlCompletions: vscode.CompletionItemProvider = {
           indent: "",
           snippet: true,
           library: home.name,
+          omitLabel: item.omitLabel,
         }),
       );
       item.documentation = new vscode.MarkdownString().appendCodeblock(
@@ -1971,7 +2114,19 @@ export function registerEditingFeatures(
       hierarchy.refresh(),
     ),
 
-    vscode.languages.registerCompletionItemProvider("vhdl", vhdlCompletions),
+    // `:` and `.` open the list where an instantiation is being typed; the space after the
+    // colon is the moment the author expects it, so it is a trigger too. Anything else typed
+    // reaches the provider as ordinary completion.
+    vscode.languages.registerCompletionItemProvider(
+      "vhdl",
+      vhdlCompletions,
+      ":",
+      ".",
+      " ",
+    ),
+    vscode.workspace.onDidSaveTextDocument((d) => {
+      if (d.languageId === "vhdl") forgetDesignIndex();
+    }),
     vscode.languages.registerInlayHintsProvider("vhdl", portMapHints),
     vscode.languages.registerCodeActionsProvider("vhdl", vhdlCodeActions, {
       providedCodeActionKinds: [

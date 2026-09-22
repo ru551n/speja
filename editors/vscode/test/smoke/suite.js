@@ -1188,6 +1188,129 @@ exports.run = async function run() {
       );
     }
 
+    // 21. Instantiation the way it is typed: a label and a colon, a library and a dot, a bare
+    // word, a component. Each is offered above everything VHDL-LS puts in the list, and what
+    // is accepted lands as VHDL the server accepts.
+    {
+      const { document, shown, uri } = await open("inst.vhd");
+      await until(
+        async () => (await symbols("inst_here")).some((s) => /^entity/i.test(s.name)),
+        30000,
+        "the server to read inst.vhd",
+      );
+      const endLine = () => document.getText().split("\n").findIndex((l) => l.startsWith("end architecture"));
+      const typeLine = async (text) => {
+        const line = endLine();
+        await shown.edit((e) => e.insert(new vscode.Position(line, 0), text + "\n"));
+        return line;
+      };
+      const itemsAt = async (line, column) =>
+        (
+          (await limit(
+            vscode.commands.executeCommand(
+              "vscode.executeCompletionItemProvider",
+              uri,
+              new vscode.Position(line, column),
+              undefined,
+              2000,
+            ),
+            30000,
+            `completion on line ${line + 1}`,
+          )) || { items: [] }
+        ).items;
+      const name = (i) => i.label.label || i.label;
+      const ours = (items) => items.filter((i) => /^instantiate/.test(i.detail || ""));
+      const text = (i) => (i.insertText && (i.insertText.value || String(i.insertText))) || "";
+
+      // `i_a : ` and the list opens on entities from every library, above VHDL-LS's rows.
+      const a = await typeLine("  i_a : ");
+      const onLabel = ours(await itemsAt(a, 8));
+      check(
+        onLabel.some((i) => name(i) === "fifo") && onLabel.some((i) => name(i) === "leaf"),
+        "a label and a colon offer entities from every library",
+        onLabel.map((i) => `${name(i)}[${i.detail}]`).slice(0, 6).join(" | "),
+      );
+      check(
+        onLabel.every((i) => /^0_/.test(i.sortText || "")),
+        "and they sort above everything VHDL-LS offers",
+      );
+      const fifoEntity = onLabel.find((i) => name(i) === "fifo" && /instantiate \w+\.fifo/.test(i.detail));
+      check(
+        !!fifoEntity && fifoEntity.range.start.character === 8 && /entity work\.fifo/.test(text(fifoEntity)) && !/i_fifo/.test(text(fifoEntity)),
+        "an entity accepted after a label starts at `entity`, the label is not written twice",
+        fifoEntity ? JSON.stringify(text(fifoEntity).split("\n")[0]) : "no entity item",
+      );
+      check(
+        !!fifoEntity && /entity \w+\.fifo/.test(fifoEntity.filterText || ""),
+        "and matches on library and name, the way Ctrl+P matches a path",
+        fifoEntity && fifoEntity.filterText,
+      );
+      if (fifoEntity) {
+        await shown.insertSnippet(new vscode.SnippetString(text(fifoEntity)), fifoEntity.range);
+        const written = document.getText();
+        check(
+          /i_a : entity work\.fifo\n\s+generic map/.test(written),
+          "and accepting it writes the instantiation after the label",
+          JSON.stringify(written.split("\n").find((l) => /i_a :/.test(l))),
+        );
+      }
+
+      // Accepting an item, as the editor does: the snippet over the item's range, and the
+      // context clause it carries. Each probe is accepted before the next line is typed, so
+      // nothing half-written is left for the parse check at the end to trip on.
+      const accept = async (item) => {
+        await shown.insertSnippet(new vscode.SnippetString(text(item)), item.range);
+        for (const e of item.additionalTextEdits || [])
+          await shown.edit((b) => b.insert(e.range.start, e.newText));
+      };
+
+      // The component declared in this file, by bare name, with no `entity` and no library.
+      const c = await typeLine("  i_c : ");
+      const component = ours(await itemsAt(c, 8)).find((i) => /component/.test(i.detail || ""));
+      check(
+        !!component && /^fifo\n\s+generic map/.test(text(component)) && !/entity/.test(text(component)),
+        "a component declaration is offered and instantiated by bare name",
+        component ? JSON.stringify(text(component).split("\n").slice(0, 2).join(" ")) : "no component item",
+      );
+      if (component) await accept(component);
+
+      // `i_b : other.` narrows to that library, and brings its library clause.
+      const b = await typeLine("  i_b : other.");
+      const onLibrary = ours(await itemsAt(b, 14));
+      check(
+        onLibrary.length > 0 && onLibrary.every((i) => /other\./.test(i.detail)) && onLibrary.some((i) => name(i) === "leaf"),
+        "a library and a dot offer only that library's entities",
+        onLibrary.map((i) => i.detail).join(" | ") || "nothing",
+      );
+      const leaf = onLibrary.find((i) => name(i) === "leaf");
+      check(
+        !!leaf && /^entity other\.leaf/.test(text(leaf)) && (leaf.additionalTextEdits || []).some((e) => /library other;/.test(e.newText)),
+        "and the accepted one replaces what was typed and adds `library other;`",
+        leaf ? JSON.stringify(text(leaf).split("\n")[0]) : "no leaf",
+      );
+      if (leaf) await accept(leaf);
+
+      // A bare word still supplies the label, and a library and a dot alone list that library.
+      const w = await typeLine("  other.");
+      const onWord = ours(await itemsAt(w, 8));
+      const wordLeaf = onWord.find((i) => name(i) === "leaf" && /\$\{1:i_leaf\} : entity other\.leaf/.test(text(i)));
+      check(
+        !!wordLeaf,
+        "a bare `library.` supplies the label and the entity",
+        onWord.map((i) => JSON.stringify(text(i).split("\n")[0])).join(" | ") || "nothing",
+      );
+      if (wordLeaf) await accept(wordLeaf);
+
+      // Nothing of this inside a port clause or a process, where `x : ` is a declaration.
+      const port = document.getText().split("\n").findIndex((l) => /clk : in std_logic/.test(l));
+      const inPort = ours(await itemsAt(port, document.lineAt(port).text.indexOf(":") + 2));
+      check(inPort.length === 0, "a `name :` in a port clause is left to the server", `${inPort.length} offered`);
+
+      // What was written is VHDL, the actuals aside.
+      const bad = (await settle(uri)).filter((d) => /Unexpected|expected/i.test(d.message));
+      check(bad.length === 0, "and the server parses what was written", bad.map((d) => d.message).join(" | ") || "clean");
+    }
+
     out("done");
   } catch (error) {
     out("HARNESS ERROR: " + (error && error.stack ? error.stack : error));

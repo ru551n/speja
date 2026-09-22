@@ -30,6 +30,11 @@ reports are that version's. `speja --version` prints the same thing.
   declaration goes in the declarative part that can hold it. Inside a generate or a block, which
   declare signals of their own, both that scope and the architecture are offered. A port map
   offers to declare every actual it names at once.
+* **Instantiation as it is typed.** `i_x : ` opens the list on every entity in every library and
+  every component declaration; `i_x : lib.` narrows it to one library; a bare word still
+  supplies the label. Matching is the editor's own fuzzy matching against `entity lib.name`,
+  the rows sort above VHDL-LS's, and a component is instantiated by bare name. The label you
+  typed is not written twice.
 * **Works with the VHDL-LS the Marketplace extension embeds.** That is vhdl_ls 0.80, which gives
   an instantiation's document symbol the range of its label alone, nine characters, where 0.88
   gives it the whole statement. Every feature that read the port map out of that range read
