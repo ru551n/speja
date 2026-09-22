@@ -3,7 +3,9 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
-## Unreleased
+## 0.14.0
+
+**Targets VSG 3.35.**
 
 * **Format a selection.** The language server answers `textDocument/rangeFormatting`, so
   *Format Selection* formats the lines you picked and leaves the rest of the file alone. It works
