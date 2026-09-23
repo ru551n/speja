@@ -3,7 +3,9 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
-## Unreleased
+## 0.14.3
+
+**Targets VSG 3.35.**
 
 * **"Declare N signals for this port map" declares before the architecture's own `begin`.** It
   used the nearest `begin` above the instance, which was a process's or a function's whenever one
@@ -16,7 +18,23 @@ reports are that version's. `speja --version` prints the same thing.
 * **The "File is not formatted" finding is on the line that will change**, and says which
   disabled rule the formatter still applies. It was on the file's last line.
 * **Refactorings are returned only when asked for**, which stops a warning in the extension host
-  log on every lightbulb.
+  log on every lightbulb. The editing actions also skip their work when the editor asks for a
+  source action or the speja menu.
+* **Completing a case with `when others` puts the new choices above it.** They went after it,
+  and `others` has to be the last choice.
+* **Remove Unused Use Clauses no longer offers clauses that are in use.** A `use work.pkg.all`
+  was never counted as used, and names used only in an architecture below its entity did not
+  count toward the entity's clauses.
+* **Instantiate Entity says where an instantiation can go** before asking which entity: after
+  the architecture's `begin`, outside any process. On a line that already holds code it writes
+  the instance below it instead of replacing the code.
+* **Declare Entity as Component writes the component before the architecture's `begin`**, not
+  at the cursor line.
+* **Create State Machine from Enum Type checks where it is before asking anything**, and finds
+  the architecture's `begin` past any subprogram bodies, as the other declare actions do.
+* **Format Document, Format Selection and Sort Library and Use Clauses report the server's
+  reason** when it refuses, instead of a generic command failure. Format Selection with nothing
+  selected says so, and so does Extract Selection.
 
 ## 0.14.2
 
