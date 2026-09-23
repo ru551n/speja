@@ -14,14 +14,28 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 
 import {
+  CodeAction,
   ExtensionContext,
   OutputChannel,
+  QuickPickItem,
+  QuickPickItemKind,
+  Range,
+  StatusBarAlignment,
+  WorkspaceEdit,
   commands,
+  languages,
   window,
   workspace,
 } from "vscode";
-import { registerEditingFeatures } from "./editing";
 import {
+  editingActionsAt,
+  registerEditingFeatures,
+  runAction,
+} from "./editing";
+import {
+  CodeActionRequest,
+  DocumentFormattingRequest,
+  DocumentRangeFormattingRequest,
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
@@ -152,6 +166,214 @@ async function showVersion(context: ExtensionContext): Promise<void> {
   output?.show();
 }
 
+/**
+ * Ask speja's own server for an edit to the active VHDL file and apply it: formatting the
+ * document or the selection, or the fix-all or organize-imports source action.
+ *
+ * Going to the server rather than through `editor.action.formatDocument` means the command does
+ * what its name says even where another extension is the default VHDL formatter.
+ */
+async function serverEdit(
+  what: "document" | "selection" | "fixAll" | "sort",
+): Promise<void> {
+  const editor = window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "vhdl") return;
+  if (!client) {
+    void window.showErrorMessage("speja: the server is not running.");
+    return;
+  }
+  const document = editor.document;
+  const c2p = client.code2ProtocolConverter;
+  const p2c = client.protocol2CodeConverter;
+  const textDocument = c2p.asTextDocumentIdentifier(document);
+  const options = {
+    tabSize: Number(editor.options.tabSize) || 2,
+    insertSpaces: editor.options.insertSpaces !== false,
+  };
+  const edit = new WorkspaceEdit();
+  if (what === "document" || what === "selection") {
+    const edits =
+      what === "document"
+        ? await client.sendRequest(DocumentFormattingRequest.type, {
+            textDocument,
+            options,
+          })
+        : await client.sendRequest(DocumentRangeFormattingRequest.type, {
+            textDocument,
+            range: c2p.asRange(editor.selection),
+            options,
+          });
+    if (!edits?.length) {
+      void window.showInformationMessage("speja: already formatted.");
+      return;
+    }
+    edit.set(document.uri, await p2c.asTextEdits(edits));
+    await workspace.applyEdit(edit);
+    return;
+  }
+  const kind = what === "fixAll" ? "source.fixAll" : "source.organizeImports";
+  const whole = new Range(0, 0, document.lineCount, 0);
+  const result = await client.sendRequest(CodeActionRequest.type, {
+    textDocument,
+    range: c2p.asRange(whole),
+    context: { diagnostics: [], only: [kind] },
+  });
+  const found = result?.find((a) => "edit" in a && a.edit);
+  if (!found || !("edit" in found) || !found.edit) {
+    void window.showInformationMessage(
+      what === "fixAll"
+        ? "speja: nothing it can fix safely."
+        : "speja: the library and use clauses are already in order.",
+    );
+    return;
+  }
+  await workspace.applyEdit(await p2c.asWorkspaceEdit(found.edit));
+}
+
+/**
+ * Every quick fix at the cursor, speja's server's and the editing actions together, as a list:
+ * the lightbulb's speja entries, reachable from a key.
+ */
+async function quickFixes(): Promise<void> {
+  const editor = window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "vhdl") return;
+  const range = new Range(editor.selection.start, editor.selection.end);
+  const actions: CodeAction[] = [
+    ...(await editingActionsAt(editor.document, range)),
+  ];
+  if (client) {
+    const c2p = client.code2ProtocolConverter;
+    const diagnostics = languages
+      .getDiagnostics(editor.document.uri)
+      .filter((d) => d.source === "speja" && d.range.intersection(range));
+    const result = await client.sendRequest(CodeActionRequest.type, {
+      textDocument: c2p.asTextDocumentIdentifier(editor.document),
+      range: c2p.asRange(range),
+      context: { diagnostics: await c2p.asDiagnostics(diagnostics) },
+    });
+    for (const a of (await client.protocol2CodeConverter.asCodeActionResult(
+      result ?? [],
+    )) ?? [])
+      if (a instanceof CodeAction) actions.push(a);
+  }
+  if (!actions.length) {
+    void window.showInformationMessage("speja: nothing to fix at the cursor.");
+    return;
+  }
+  const chosen = await window.showQuickPick(
+    actions.map((a) => ({ label: a.title, action: a })),
+    { placeHolder: "speja quick fixes at the cursor" },
+  );
+  if (chosen) await runAction(chosen.action);
+}
+
+/** What the speja menu lists, in its groups. Every entry is also a palette command. */
+const MENU: [string, [string, string, string][]][] = [
+  [
+    "At the cursor",
+    [
+      [
+        "speja.quickFix",
+        "Quick Fixes at Cursor...",
+        "every speja fix for what is under the cursor",
+      ],
+      [
+        "speja.declare",
+        "Declare Name Under Cursor...",
+        "signal, variable or constant, type inferred",
+      ],
+      [
+        "speja.addUseClause",
+        "Add Use Clause...",
+        "search every package for a name",
+      ],
+      [
+        "speja.instantiateEntity",
+        "Instantiate Entity...",
+        "pick an entity, write the instantiation",
+      ],
+      [
+        "speja.declareSignals",
+        "Declare Signals for Port Map",
+        "every undeclared actual in the map",
+      ],
+      [
+        "speja.mapMissingPorts",
+        "Map Missing Ports",
+        "add the ports the map leaves out",
+      ],
+      [
+        "speja.completeCase",
+        "Complete Case Statement",
+        "write the states, or the missing choices",
+      ],
+      [
+        "speja.fsmFromEnum",
+        "Create State Machine from Enum Type",
+        "on an enumeration type",
+      ],
+      [
+        "speja.componentDeclaration",
+        "Declare Entity as Component...",
+        "for component instantiation",
+      ],
+      [
+        "speja.extractObject",
+        "Extract Selection to Constant or Signal",
+        "the selected expression",
+      ],
+    ],
+  ],
+  [
+    "The file",
+    [
+      [
+        "speja.formatDocument",
+        "Format Document",
+        "speja's formatter, whatever the default",
+      ],
+      ["speja.formatSelection", "Format Selection", "only the selected lines"],
+      ["speja.fixAll", "Fix All Findings", "every fix speja applies safely"],
+      [
+        "speja.sortUseClauses",
+        "Sort Library and Use Clauses",
+        "ieee first, work last",
+      ],
+      [
+        "speja.removeUnusedUseClauses",
+        "Remove Unused Use Clauses...",
+        "pick which ones go",
+      ],
+    ],
+  ],
+  [
+    "The server",
+    [
+      ["speja.restartServer", "Restart Server", ""],
+      ["speja.showOutput", "Show Output", ""],
+      ["speja.showVersion", "Show Server Version", ""],
+    ],
+  ],
+];
+
+/** The speja menu: every action in one list, grouped, for when the name of one escapes you. */
+async function showMenu(): Promise<void> {
+  type Item = QuickPickItem & { command?: string };
+  const items: Item[] = MENU.flatMap(([group, entries]) => [
+    { label: group, kind: QuickPickItemKind.Separator },
+    ...entries.map(([command, label, detail]) => ({
+      label,
+      description: detail,
+      command,
+    })),
+  ]);
+  const chosen = await window.showQuickPick(items, {
+    placeHolder: "speja",
+    matchOnDescription: true,
+  });
+  if (chosen?.command) await commands.executeCommand(chosen.command);
+}
+
 async function stop(): Promise<void> {
   const running = client;
   client = undefined;
@@ -168,7 +390,16 @@ export async function activate(context: ExtensionContext): Promise<void> {
     }),
     commands.registerCommand("speja.showOutput", () => output?.show()),
     commands.registerCommand("speja.showVersion", () => showVersion(context)),
-    // Offered by the server as a code action on each finding; it carries the details here.
+    commands.registerCommand("speja.showMenu", showMenu),
+    commands.registerCommand("speja.quickFix", quickFixes),
+    commands.registerCommand("speja.formatDocument", () =>
+      serverEdit("document"),
+    ),
+    commands.registerCommand("speja.formatSelection", () =>
+      serverEdit("selection"),
+    ),
+    commands.registerCommand("speja.fixAll", () => serverEdit("fixAll")),
+    commands.registerCommand("speja.sortUseClauses", () => serverEdit("sort")),
     // Which executable to run is decided at startup, so a change to it needs a restart.
     workspace.onDidChangeConfiguration(async (event) => {
       if (
@@ -183,6 +414,18 @@ export async function activate(context: ExtensionContext): Promise<void> {
   // The editing half: commands and providers built on whatever VHDL language server is
   // running. It registers its own subscriptions and does not need the speja server.
   registerEditingFeatures(context);
+
+  // The menu, one click away while a VHDL file is open.
+  const menu = window.createStatusBarItem(StatusBarAlignment.Right, 100);
+  menu.text = "$(tools) speja";
+  menu.tooltip = "speja actions";
+  menu.command = "speja.showMenu";
+  const showFor = () =>
+    window.activeTextEditor?.document.languageId === "vhdl"
+      ? menu.show()
+      : menu.hide();
+  showFor();
+  context.subscriptions.push(menu, window.onDidChangeActiveTextEditor(showFor));
   await start(context);
 }
 

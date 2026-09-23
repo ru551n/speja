@@ -218,7 +218,15 @@ yet gets its `begin` written along with the declaration.
 **Declare N signals for this port map** is the same thing for a whole instantiation: every actual
 the map names that nothing has declared yet, with each port's type and the instance's generic
 values substituted. A port the map leaves out has no actual to declare; **Map N missing ports**
-gives it one first.
+gives it one first. It is offered with the cursor anywhere on the statement's lines, including
+the indentation; a comment after an actual is not part of it; "declared" means declared in this
+architecture or its entity, not in another architecture of the same file; and when the file does
+not analyse, the instantiation is found from the text.
+
+A signal or constant goes before the `begin` of the architecture the cursor is in, found by
+reading forward from its header past any function or procedure bodies declared before it: not
+another architecture's, and not a function's. A variable goes before its own process's `begin`,
+past any procedure that process declares.
 
 No declaration is offered where one would not help: for a type in a type position
 (`variable v : t_nowhere`), for a formal before `=>` (a misspelt port of the other entity, where
@@ -250,8 +258,44 @@ a process does not go inside a process, and says so.
 architectures into the instances they contain, each resolved to the entity it instantiates. It
 appears once the workspace holds VHDL.
 
-Every command is in the command palette under **VHDL:** and is named `speja.<command>`, for
-example `speja.instantiateEntity`.
+## Every action as a command
+
+Every action above, and the server's own, is a command in the palette under **speja:**, so each
+can be bound to a key in *Keyboard Shortcuts* (`Ctrl+K Ctrl+S`, search `speja`). The lightbulb
+(`Ctrl+.`) is unchanged; these are the same actions, reachable without it.
+
+| Command | Does |
+|---|---|
+| `speja.showMenu` *Show Actions...* | every action below in one grouped list; also the **speja** item in the status bar |
+| `speja.quickFix` *Quick Fixes at Cursor...* | the lightbulb's speja entries: the server's fixes and the editing actions together |
+| `speja.declare` *Declare Name Under Cursor...* | the declare offers for the undeclared name at the cursor; applied directly when there is one |
+| `speja.addUseClause` *Add Use Clause...* | a searchable list of every package's contents, and every package by name |
+| `speja.instantiateEntity` *Instantiate Entity...* | pick an entity, write the instantiation |
+| `speja.declareSignals` *Declare Signals for Port Map* | every undeclared actual of the map at the cursor |
+| `speja.mapMissingPorts` *Map Missing Ports* | add the ports the map at the cursor leaves out |
+| `speja.completeCase` *Complete Case Statement* | write the states of `case x`, or add the missing choices |
+| `speja.fsmFromEnum` *Create State Machine from Enum Type* | on an enumeration type |
+| `speja.componentDeclaration` *Declare Entity as Component...* | for component instantiation |
+| `speja.extractObject` *Extract Selection to Constant or Signal* | the selected expression |
+| `speja.formatDocument` *Format Document* | speja's formatter, even where another is the default |
+| `speja.formatSelection` *Format Selection* | only the selected lines |
+| `speja.fixAll` *Fix All Findings* | every fix speja applies safely |
+| `speja.sortUseClauses` *Sort Library and Use Clauses* | ieee and std first, work last |
+| `speja.removeUnusedUseClauses` *Remove Unused Use Clauses...* | pick which ones go |
+
+A binding in `keybindings.json`, for example:
+
+```json
+{ "key": "ctrl+alt+s", "command": "speja.showMenu", "when": "editorLangId == vhdl" }
+```
+
+The editing commands also sit in the editor's right-click menu, under **speja**.
+
+**Add Use Clause...** opens on the name under the cursor and searches as you type, asking the
+language server's symbol index again on each keystroke, so the list is not limited to what one
+query returned. Type a function, a type or a constant to find the package that declares it, or a
+package's own name. A package already visible in the file says so. On an unresolved name the
+lightbulb offers it too, as **Search Every Package for a Use Clause...**, after the ranked offers.
 
 ## Syntax colouring
 

@@ -53,7 +53,7 @@ const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
 // `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
-const ENTITIES = 58;   // layout.vhd, declare.vhd, apply.vhd and generated/excluded.vhd included
+const ENTITIES = 60;   // every fixture entity, generated/excluded.vhd and the editing fixtures included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -551,6 +551,78 @@ begin
     port map (
       clkk => clk
     );
+
+end architecture rtl;
+`);
+
+// Where a declaration lands: two architectures of one entity, the second with a function body
+// before its begin, a commented port map, and a process that declares a procedure.
+write("sites.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity sites is
+  port (
+    clk : in    std_logic
+  );
+end entity sites;
+
+architecture first of sites is
+
+  signal data_in : std_logic_vector(7 downto 0);
+
+begin
+
+end architecture first;
+
+architecture second of sites is
+
+  function twice (a : integer) return integer is
+  begin
+    return 2 * a;
+  end function twice;
+
+begin
+
+  u_fifo : entity work.fifo
+    port map (
+      clk => clk,     -- the clock
+      rst => rst_b,   -- reset
+      din => data_in  -- the data
+    );
+
+  p_x : process (clk) is
+    procedure bump is
+    begin
+      null;
+    end procedure bump;
+  begin
+    tmp_v := 1;
+  end process;
+
+end architecture second;
+`);
+
+// An instance in a file that does not analyse: one half-typed line elsewhere.
+write("broken.vhd", `library ieee;
+use ieee.std_logic_1164.all;
+
+entity broken is
+  port (
+    clk : in    std_logic
+  );
+end entity broken;
+
+architecture rtl of broken is
+
+begin
+
+  u_fifo : entity work.fifo
+    port map (
+      clk => clk,
+      rst => rst_c
+    );
+
+  half <=
 
 end architecture rtl;
 `);

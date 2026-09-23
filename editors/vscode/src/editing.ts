@@ -15,6 +15,7 @@ import {
   compareCandidates,
   compareUseCandidates,
   declaresName,
+  ownBegin,
   usablePackage,
   useRank,
   contextClause,
@@ -387,14 +388,85 @@ async function instanceSymbols(
     });
 }
 
-/** The instantiation statement containing `position`, innermost first. */
+/**
+ * The instantiation statement containing `position`, innermost first.
+ *
+ * Whole lines count: a cursor in the indentation before the label, or past the `;`, is on the
+ * statement as far as anyone looking at it is concerned. And when the file does not analyse,
+ * VHDL-LS reports no symbols at all, so the statement is found from the text instead: a file
+ * with one half-typed line elsewhere made every instance in it invisible.
+ */
 async function instanceAt(
   doc: vscode.TextDocument,
   position: vscode.Position,
 ): Promise<vscode.DocumentSymbol | undefined> {
-  return (await instanceSymbols(doc))
-    .filter((s) => s.range.contains(position))
+  const onLines = (r: vscode.Range) =>
+    position.line >= r.start.line && position.line <= r.end.line;
+  const found = (await instanceSymbols(doc))
+    .filter((s) => onLines(s.range))
     .sort((a, b) => (a.range.contains(b.range) ? 1 : -1))[0];
+  if (found) return found;
+
+  const header =
+    /^\s*([A-Za-z]\w*)\s*:\s*(entity\b|component\b|configuration\b|(?!(process|block|for|if|case|assert|postponed|with)\b)[A-Za-z]\w*\s*($|--|generic\b|port\b))/i;
+  for (let l = position.line; l >= 0 && l > position.line - 80; l--) {
+    const text = doc.lineAt(l).text;
+    const m = header.exec(text);
+    if (!m) {
+      if (l < position.line && /;\s*(--.*)?$/.test(text)) return undefined;
+      continue;
+    }
+    const start = new vscode.Position(l, text.indexOf(m[1]));
+    const range = statementRange(doc, start);
+    if (!onLines(range) || !/\bport\s+map\b/i.test(doc.getText(range)))
+      return undefined;
+    return new vscode.DocumentSymbol(
+      `instance '${m[1]}'`,
+      "",
+      vscode.SymbolKind.Module,
+      range,
+      new vscode.Range(start, start),
+    );
+  }
+  return undefined;
+}
+
+/**
+ * Every name that is declared where `position` is: in the architecture around it, and the
+ * entity's ports and generics. Not the whole file, where a second architecture with a signal of
+ * the same name made this one's undeclared actual look declared. Without symbols, from the text.
+ */
+async function declaredNear(
+  doc: vscode.TextDocument,
+  position: vscode.Position,
+): Promise<string[]> {
+  const top = await documentSymbols(doc.uri);
+  const architecture = top.find(
+    (s) => isArchitecture(s) && s.range.contains(position),
+  );
+  if (architecture) {
+    const entity = /\bof\s+([A-Za-z]\w*)/i.exec(
+      doc.lineAt(architecture.range.start.line).text,
+    )?.[1];
+    const own = top.find(
+      (s) =>
+        isEntitySymbol(s) &&
+        identOf(s.name).toLowerCase() === entity?.toLowerCase(),
+    );
+    return [architecture, ...(own ? [own] : [])]
+      .flatMap((s) => flatten(s.children))
+      .map((s) => identOf(s.name));
+  }
+  if (top.length) return flatten(top).map((s) => identOf(s.name));
+  const names: string[] = [];
+  for (const m of doc
+    .getText()
+    .replace(/--[^\n]*/g, "")
+    .matchAll(
+      /(?:^|[;(])\s*(?:signal|constant|variable|shared\s+variable|alias)?\s*([A-Za-z][\w\s,]*?)\s*:(?!=)/gm,
+    ))
+    names.push(...m[1].split(",").map((n) => n.trim()));
+  return names;
 }
 
 // --- context clauses -------------------------------------------------------
@@ -520,65 +592,168 @@ function visiblePackages(lines: string[], unitLine: number): Set<string> {
   return out;
 }
 
+/**
+ * Add a use clause by searching every package's contents, the way Ctrl+T searches symbols.
+ *
+ * Opens on the name under the cursor when there is one, and follows what is typed: each
+ * keystroke asks the server's symbol index again, so the list is never limited to what a single
+ * query happened to return. A package can be found by its own name too. Picking a row adds its
+ * package's use clause where the context clause keeps them, from `work` for the file's own
+ * library, and a package that is already visible says so rather than being added twice.
+ */
 async function addUseClause(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return;
   const doc = editor.document;
-
-  const range = doc.getWordRangeAtPosition(editor.selection.active);
-  if (!range) {
-    vscode.window.showWarningMessage(
-      "Put the cursor on a name to make visible.",
-    );
-    return;
-  }
-  const name = doc.getText(range);
-
-  const candidates = await findDeclaringPackages(name);
-  if (!candidates.length) {
-    vscode.window.showInformationMessage(
-      `No package known to the language server declares '${name}'.`,
-    );
-    return;
-  }
-
-  const unitLine = await designUnitLine(doc, editor.selection.active);
-  const lines = doc.getText().split("\n");
-  // The file's own library is `work`, as the lightbulb and completion write it.
+  const at = editor.selection.active;
+  const word = doc.getWordRangeAtPosition(at);
+  const unitLine = await designUnitLine(doc, at);
   const own = (await libraryOfFile(doc.uri))?.toLowerCase();
+  const lines = doc.getText().split("\n");
 
-  const usable = candidates
-    .map((candidate) => {
-      const library =
-        candidate.library.toLowerCase() === own ? "work" : candidate.library;
-      const c = { ...candidate, library };
-      return { c, edit: contextClauseEdit(lines, unitLine, library, c.pkg) };
-    })
-    .filter((x) => x.edit !== null) as { c: UseCandidate; edit: ContextEdit }[];
-
-  if (!usable.length) {
-    vscode.window.showInformationMessage(`'${name}' is already visible here.`);
-    return;
-  }
-
-  const chosen =
-    usable.length === 1
-      ? usable[0]
-      : await vscode.window.showQuickPick(
-          usable.map((x) => ({
-            label: `${x.c.library}.${x.c.pkg}`,
-            description: x.c.describes,
-            detail: x.edit.text.trim().split("\n").join("  "),
-            ...x,
-          })),
-          {
-            placeHolder: `Package declaring '${name}'`,
-            matchOnDescription: true,
-          },
-        );
+  type Row = vscode.QuickPickItem & { library: string; pkg: string };
+  const pick = vscode.window.createQuickPick<Row>();
+  pick.title = "Add a use clause";
+  pick.placeholder =
+    "Type a name from any package (to_unsigned, t_state, c_width), or a package's own name";
+  pick.matchOnDescription = true;
+  let asked = 0;
+  const search = async (query: string): Promise<void> => {
+    const mine = ++asked;
+    if (query.trim().length < 2) {
+      pick.items = [];
+      return;
+    }
+    pick.busy = true;
+    const rows: Row[] = [];
+    const seen = new Set<string>();
+    const packages = new Map<string, boolean>();
+    for (const s of (await workspaceSymbols(query.trim())) ?? []) {
+      if (s.kind === vscode.SymbolKind.Interface || isEntitySymbol(s)) continue;
+      let library: string;
+      let pkg: string;
+      let name: string;
+      let what: string;
+      if (/^package\b/i.test(s.name)) {
+        library = libraryOf(s);
+        pkg = identOf(s.name);
+        name = pkg;
+        what = "the package itself";
+      } else {
+        const parts = (s.containerName ?? "").split(".");
+        const designator = designatorOf(s.name);
+        if (!designator || parts.length < 2) continue;
+        [library, pkg] = parts;
+        name = designator;
+        what = s.name;
+      }
+      if (!usablePackage(library, pkg)) continue;
+      const key = `${name}:${library}.${pkg}`.toLowerCase();
+      if (seen.has(key)) continue;
+      const packageKey = `${library}.${pkg}`.toLowerCase();
+      if (!packages.has(packageKey))
+        packages.set(packageKey, await isPackage(library, pkg));
+      if (!packages.get(packageKey)) continue;
+      seen.add(key);
+      const shown = library.toLowerCase() === own ? "work" : library;
+      const visible = contextClauseEdit(lines, unitLine, shown, pkg) === null;
+      rows.push({
+        label: name,
+        description: `${shown}.${pkg}${visible ? "   already visible" : ""}`,
+        detail: what,
+        library: shown,
+        pkg,
+      });
+    }
+    if (mine !== asked) return;
+    rows.sort(
+      (a, b) =>
+        useRank(a.library, a.pkg) - useRank(b.library, b.pkg) ||
+        a.label.localeCompare(b.label),
+    );
+    pick.items = rows;
+    pick.busy = false;
+  };
+  pick.onDidChangeValue((value) => void search(value));
+  const chosen = await new Promise<Row | undefined>((resolve) => {
+    pick.onDidAccept(() => {
+      resolve(pick.selectedItems[0]);
+      pick.hide();
+    });
+    pick.onDidHide(() => resolve(undefined));
+    pick.show();
+    if (word) pick.value = doc.getText(word);
+  });
+  pick.dispose();
   if (!chosen) return;
 
-  await vscode.workspace.applyEdit(applyContextEdit(doc, chosen.edit));
+  const edit = contextClauseEdit(
+    doc.getText().split("\n"),
+    unitLine,
+    chosen.library,
+    chosen.pkg,
+  );
+  if (!edit) {
+    vscode.window.showInformationMessage(
+      `${chosen.library}.${chosen.pkg} is already visible here.`,
+    );
+    return;
+  }
+  await vscode.workspace.applyEdit(applyContextEdit(doc, edit));
+}
+
+/**
+ * The editing actions the lightbulb offers at `range`, the same provider the lightbulb asks, so
+ * a command bound to a key and the lightbulb can never disagree about what is on offer.
+ */
+export async function editingActionsAt(
+  document: vscode.TextDocument,
+  range: vscode.Range,
+): Promise<vscode.CodeAction[]> {
+  const diagnostics = vscode.languages
+    .getDiagnostics(document.uri)
+    .filter((d) => d.range.intersection(range) !== undefined);
+  const actions = await vscode.commands.executeCommand<
+    vscode.CodeAction[] | undefined
+  >("speja.internal.editingActions", document.uri, range, diagnostics);
+  return actions ?? [];
+}
+
+/** Carry out a code action the way the lightbulb would: its edit, then its command. */
+export async function runAction(action: vscode.CodeAction): Promise<void> {
+  if (action.edit) await vscode.workspace.applyEdit(action.edit);
+  if (action.command)
+    await vscode.commands.executeCommand(
+      action.command.command,
+      ...(action.command.arguments ?? []),
+    );
+}
+
+/**
+ * One family of the lightbulb's actions at the cursor, as a command a key can be bound to.
+ * One match is applied, several are offered as a list, none says what the command needs.
+ */
+async function actionsAtCursor(family: RegExp, none: string): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "vhdl") return;
+  const range = new vscode.Range(editor.selection.start, editor.selection.end);
+  const actions = (await editingActionsAt(editor.document, range)).filter((a) =>
+    family.test(a.title),
+  );
+  if (!actions.length) {
+    vscode.window.showInformationMessage(none);
+    return;
+  }
+  const chosen =
+    actions.length === 1
+      ? actions[0]
+      : (
+          await vscode.window.showQuickPick(
+            actions.map((a) => ({ label: a.title, action: a })),
+            { placeHolder: "Which one?" },
+          )
+        )?.action;
+  if (chosen) await runAction(chosen);
 }
 
 /**
@@ -826,9 +1001,7 @@ async function declareSignals(
     if (!genericValues.has(g.name) && g.def !== undefined)
       genericValues.set(g.name, g.def);
 
-  const existing = flatten(await documentSymbols(doc.uri)).map((s) =>
-    identOf(s.name),
-  );
+  const existing = await declaredNear(doc, inst.range.start);
   const decls = renderSignals(e.ports, {
     existing,
     actuals,
@@ -1057,35 +1230,31 @@ function sequentialHome(
   return null;
 }
 
-/** The first `begin` at or below `from`. */
-function beginAt(doc: vscode.TextDocument, from: number): number | null {
-  for (let l = from; l < doc.lineCount; l++)
-    if (/^\s*begin\b/i.test(doc.lineAt(l).text)) return l;
-  return null;
-}
-
 /**
- * The architecture's own `begin`: the least indented one above the cursor.
+ * The `begin` of the architecture the cursor is in, or null when it is in none: in an entity, a
+ * package, or between two design units.
  *
- * A process or a subprogram has a `begin` of its own, and it is always indented deeper than the
- * architecture's, so the shallowest is the one that closes the declarative part a signal goes in.
+ * Found from the architecture's header, reading forward past any subprogram bodies in its
+ * declarative part. "The least indented `begin` above" picked another architecture's in a file
+ * with two, and a function's in one that is not indented.
  */
 function architectureBegin(
   doc: vscode.TextDocument,
   from: vscode.Position,
 ): number | null {
-  let best: number | null = null;
-  let shallowest = Number.POSITIVE_INFINITY;
+  const lines = doc.getText().split("\n");
   for (let l = from.line; l >= 0; l--) {
-    const text = doc.lineAt(l).text;
-    if (!/^\s*begin\b/i.test(text)) continue;
-    const width = indentOf(text).length;
-    if (width <= shallowest) {
-      shallowest = width;
-      best = l;
-    }
+    const code = lines[l].replace(/--.*$/, "");
+    if (l < from.line && /^\s*end\s+architecture\b/i.test(code)) return null;
+    if (
+      /^\s*(entity\s+\w+\s+is|package|configuration|context\s+\w+\s+is)\b/i.test(
+        code,
+      )
+    )
+      return null;
+    if (/^\s*architecture\s+\w+\s+of\b/i.test(code)) return ownBegin(lines, l);
   }
-  return best;
+  return null;
 }
 
 /**
@@ -1114,14 +1283,9 @@ function concurrentScope(
       nested -= 1;
       continue;
     }
-    // Its own `begin`, at its own indentation: a process inside it has one too, deeper.
-    const opens = new RegExp(`^${indentOf(text)}begin\\b`, "i");
-    let begin: number | null = null;
-    for (let i = l + 1; i <= from.line && i < doc.lineCount; i++)
-      if (opens.test(doc.lineAt(i).text)) {
-        begin = i;
-        break;
-      }
+    // Its own `begin`, read forward rather than matched by indentation: a process inside it
+    // has one too, and a generate with no declarations has none at all.
+    const begin = ownBegin(doc.getText().split("\n"), l, true);
     return { line: l, label: header[1], begin };
   }
   return null;
@@ -1153,7 +1317,9 @@ function declarationSite(
 
   if (kind === "variable") {
     const home = sequentialHome(doc, at);
-    const begin = home === null ? null : beginAt(doc, home);
+    // The process's or subprogram's own `begin`: a procedure it declares has one first.
+    const begin =
+      home === null ? null : ownBegin(doc.getText().split("\n"), home);
     return begin === null ? null : site(begin);
   }
   if (local) {
@@ -1447,8 +1613,10 @@ const vhdlCompletions: vscode.CompletionItemProvider = {
     // An instantiation is a concurrent statement: below the architecture's `begin`, outside any
     // process or subprogram. Elsewhere `clk : in` is a port and `cou` is a signal being typed,
     // and an instantiation offered there is one accepted by accident.
+    const statementPart = architectureBegin(document, position);
     const concurrent =
-      architectureBegin(document, position) !== null &&
+      statementPart !== null &&
+      statementPart < position.line &&
       sequentialHome(document, position) === null;
 
     // What is being typed decides what is offered. A label and a colon want an instantiation,
@@ -1798,6 +1966,21 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         actions.push(action);
       }
     }
+    // The ranked offers are what the index matched by exact name. When the package wanted is not
+    // among them, the searchable list is one step away rather than a palette command away.
+    if (
+      underCursor.some((d) => /^[A-Za-z]\w*$/.test(document.getText(d.range)))
+    ) {
+      const search = new vscode.CodeAction(
+        "Search Every Package for a Use Clause...",
+        vscode.CodeActionKind.QuickFix,
+      );
+      search.command = {
+        command: "speja.addUseClause",
+        title: search.title,
+      };
+      actions.push(search);
+    }
 
     // A name the analyser could not resolve is either missing an import, offered above, or
     // missing a declaration. Which declarations are legal depends on where the cursor is, so
@@ -1916,9 +2099,7 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         // The actuals of a port map are the signals that wire this instance to the next one,
         // and typing them out by hand is the part of instantiating an entity that is pure
         // transcription. Only the ones not already declared are counted.
-        const declared = flatten(await documentSymbols(document.uri)).map(
-          (sy) => identOf(sy.name),
-        );
+        const declared = await declaredNear(document, inst.range.start);
         const undeclared = renderSignals(resolved.entity.ports, {
           existing: declared,
           actuals: new Map(
@@ -2218,6 +2399,44 @@ export function registerEditingFeatures(
     ),
     vscode.commands.registerCommand("speja.extractObject", extractObject),
     vscode.commands.registerCommand("speja.declareObject", declareObject),
+    vscode.commands.registerCommand(
+      "speja.internal.editingActions",
+      async (
+        uri: vscode.Uri,
+        range: vscode.Range,
+        diagnostics: vscode.Diagnostic[],
+      ) => {
+        const document = await vscode.workspace.openTextDocument(uri);
+        return vhdlCodeActions.provideCodeActions(
+          document,
+          range,
+          {
+            diagnostics,
+            only: undefined,
+            triggerKind: vscode.CodeActionTriggerKind.Invoke,
+          },
+          new vscode.CancellationTokenSource().token,
+        );
+      },
+    ),
+    vscode.commands.registerCommand("speja.declare", () =>
+      actionsAtCursor(
+        /^Declare (signal|variable|constant) /,
+        "Nothing to declare here: put the cursor on a name the language server reports as undeclared.",
+      ),
+    ),
+    vscode.commands.registerCommand("speja.mapMissingPorts", () =>
+      actionsAtCursor(
+        /^Map \d+ missing ports?$/,
+        "No missing ports here: put the cursor in an instantiation whose map leaves ports out.",
+      ),
+    ),
+    vscode.commands.registerCommand("speja.completeCase", () =>
+      actionsAtCursor(
+        /^(Add \d+ missing when choices?|Write the \d+ states of )/,
+        "No case to complete here: put the cursor on a case over an enumeration.",
+      ),
+    ),
     vscode.commands.registerCommand(
       "speja.removeUnusedUseClauses",
       removeUnusedUseClauses,

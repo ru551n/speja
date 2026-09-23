@@ -3,6 +3,34 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## 0.14.2
+
+**Targets VSG 3.35.**
+
+* **Every action is a command under `speja:`**, so each can be bound to a key: Format Document,
+  Format Selection, Fix All Findings, Sort Library and Use Clauses, Quick Fixes at Cursor, Declare
+  Name Under Cursor, Map Missing Ports, Complete Case Statement, beside the ones that were there.
+  They read `speja: Instantiate Entity...` rather than `VHDL: VHDL: Instantiate Entity`. The
+  lightbulb is unchanged.
+* **A speja menu.** *speja: Show Actions...*, the **speja** item in the status bar, and a
+  **speja** submenu on right-click list every action in one place.
+* **Add Use Clause searches every package.** A searchable list of every package's contents and
+  every package by name, opening on the name under the cursor; also in the lightbulb on an
+  unresolved name, after the ranked offers.
+* **Too many blank lines say so.** Two blank lines where one belongs read "Add blank line above";
+  they read "Reduce to 1 blank line above" now.
+* **Trailing whitespace is reported on its own line.** On a blank line holding spaces, or after a
+  comment, it was reported on the line above.
+* **A new use-clause group is set off by a blank line** above and below, including `work`, which
+  has no library clause: `use work.pkg.all;` was written directly under the `ieee` block.
+* **Declarations land where they belong.** A signal goes before its own architecture's `begin`,
+  past any function bodies, not another architecture's or a function's; a variable goes before
+  its own process's `begin`, not a procedure's that the process declares.
+* **"Declare N signals for this port map" appears where it should**: with the cursor anywhere on
+  the statement, including the indentation; with a comment after an actual, which was read as
+  part of it and dropped the actual; when another architecture in the file declares a signal of
+  the same name; and in a file that does not analyse.
+
 ## 0.14.1
 
 **Targets VSG 3.35.**

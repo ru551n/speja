@@ -51,6 +51,9 @@ pub struct LayoutChange {
     pub token: String,
     /// The token as written in the source.
     pub original: String,
+    /// For a `BlankLines` change, the blank lines found in the source; `expected` is how many
+    /// there should be. Without it the message could only say "add", even about one too many.
+    pub found: usize,
 }
 
 /// The whitespace and comments between two tokens: `src` between the previous token and
@@ -83,12 +86,28 @@ fn tail(gap: &[u8]) -> usize {
 
 /// Whether a line that ends in the gap ends with spaces or tabs.
 fn trailing_whitespace(gap: &[u8]) -> bool {
-    gap.split(|&b| b == b'\n').rev().skip(1).any(|line| {
-        line.strip_suffix(b"\r")
-            .unwrap_or(line)
-            .last()
-            .is_some_and(|b| matches!(b, b' ' | b'\t'))
-    })
+    !trailing_lines(gap).is_empty()
+}
+
+/// Which lines of a gap end in spaces or tabs, counted from the gap's first line. The last piece
+/// is the next token's indentation rather than the end of a line, so it never counts.
+///
+/// A gap can hold several lines: a blank one with spaces on it, or a comment with spaces after
+/// it. Reporting the gap's first line for all of them put the finding a row or more above the
+/// whitespace it was about.
+fn trailing_lines(gap: &[u8]) -> Vec<usize> {
+    let pieces: Vec<&[u8]> = gap.split(|&b| b == b'\n').collect();
+    pieces[..pieces.len().saturating_sub(1)]
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.strip_suffix(b"\r")
+                .unwrap_or(line)
+                .last()
+                .is_some_and(|b| matches!(b, b' ' | b'\t'))
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Spaces before a comment on the same line as the previous token.
@@ -145,6 +164,7 @@ pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
         let line = before.line_col(b.text_offset()).0;
         let token = String::from_utf8_lossy(a.text().as_bytes()).into_owned();
         let original = String::from_utf8_lossy(b.text().as_bytes()).into_owned();
+        let found = std::cell::Cell::new(0);
         let mut push = |kind, key: String, rule, expected, line| {
             out.push(LayoutChange {
                 line,
@@ -154,6 +174,7 @@ pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
                 expected,
                 token: token.clone(),
                 original: original.clone(),
+                found: found.replace(0),
             });
         };
         if b.text().as_bytes() != a.text().as_bytes() && matches!(b.kind(), T::Keyword(_)) {
@@ -176,9 +197,17 @@ pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
             kind_name(&bt[i - 1])
         };
         let here = format!("{}:{}", construct(b), kind_name(b));
-        if trailing_whitespace(gb) && !trailing_whitespace(ga) {
-            let first_line = line.saturating_sub(nb).max(1);
-            push(ChangeKind::Trailing, "Trailing".into(), None, 0, first_line);
+        if !trailing_whitespace(ga) {
+            let first_line = line.saturating_sub(nb);
+            for offset in trailing_lines(gb) {
+                push(
+                    ChangeKind::Trailing,
+                    "Trailing".into(),
+                    None,
+                    0,
+                    (first_line + offset).max(1),
+                );
+            }
         }
         if has_comment(gb) || has_comment(ga) {
             if let (Some(ob), Some(oa)) = (comment_offset(gb), comment_offset(ga))
@@ -223,6 +252,7 @@ pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
             (_, 0) => push(ChangeKind::Join, format!("Join:{here}"), None, 0, line),
             (x, y) => {
                 if x != y {
+                    found.set(x - 1);
                     push(
                         ChangeKind::BlankLines,
                         format!("BlankLines:{here}"),
@@ -398,6 +428,11 @@ pub fn message(change: &LayoutChange, indent_size: usize) -> String {
         ChangeKind::LineBreak => format!("Move {token} to the next line"),
         ChangeKind::Join => format!("Move {token} to the previous line"),
         ChangeKind::BlankLines if change.expected == 0 => "Remove blank lines above".into(),
+        ChangeKind::BlankLines if change.found > change.expected => format!(
+            "Reduce to {} blank line{} above",
+            change.expected,
+            if change.expected == 1 { "" } else { "s" }
+        ),
         ChangeKind::BlankLines => "Add blank line above".into(),
         ChangeKind::Trailing => "Remove trailing whitespace".into(),
         ChangeKind::KeywordCase => format!("Change \"{}\" to \"{token}\"", change.original),
@@ -408,6 +443,41 @@ pub fn message(change: &LayoutChange, indent_size: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two blank lines where one belongs is one too many, and the message says so rather than
+    /// asking for another.
+    #[test]
+    fn too_many_blank_lines_are_reported_as_too_many() {
+        let src = "entity e is\nend entity e;\n\narchitecture rtl of e is\n\n\n  signal a : bit;\n\
+                   \nbegin\nend architecture rtl;\n";
+        let before = Parsed::new(src.as_bytes().to_vec());
+        let cfg = crate::FormatConfig::default();
+        let after = Parsed::new(crate::format_parsed(&before, &cfg).unwrap());
+        let messages: Vec<String> = layout_changes(&before, &after)
+            .iter()
+            .filter(|c| c.kind == ChangeKind::BlankLines && c.line == 7)
+            .map(|c| message(c, 2))
+            .collect();
+        assert_eq!(messages, ["Reduce to 1 blank line above"], "{messages:?}");
+    }
+
+    /// Trailing whitespace is reported on the line it is on: on a blank line with spaces, after a
+    /// comment, and at the end of a statement, each is its own finding.
+    #[test]
+    fn trailing_whitespace_is_reported_on_its_own_line() {
+        let src = "entity e is\nend entity e;\n\narchitecture rtl of e is\n\n  signal a : bit;   \n\
+                   \x20   \n  signal b : bit;\n  -- a note   \n  signal c : bit;\n\nbegin\n\n\
+                   end architecture rtl;\n";
+        let before = Parsed::new(src.as_bytes().to_vec());
+        let cfg = crate::FormatConfig::default();
+        let after = Parsed::new(crate::format_parsed(&before, &cfg).unwrap());
+        let lines: Vec<usize> = layout_changes(&before, &after)
+            .iter()
+            .filter(|c| c.kind == ChangeKind::Trailing)
+            .map(|c| c.line)
+            .collect();
+        assert_eq!(lines, [6, 7, 9], "{src}");
+    }
 
     #[test]
     fn classifies_changes() {

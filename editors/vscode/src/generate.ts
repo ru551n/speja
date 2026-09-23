@@ -547,23 +547,22 @@ export function contextClauseEdit(
   }
   const indent = /^\s*/.exec(lines[anchor] ?? lines[unitLine] ?? "")![0];
 
+  // A group is a library's clauses. This one is new when nothing in the context clause names the
+  // library yet, whether or not a `library` clause is written for it: `work` never has one, so
+  // asking "is a library clause being added" glued `use work.pkg.all;` under the ieee block.
+  const names = (l: string) =>
+    libOf(l)?.[1].toLowerCase() === lib || useOf(l)?.[1].toLowerCase() === lib;
+  const newGroup = !region.some(names);
+
   let text = "";
-  // A whole new library block appended after another one needs a blank line above it just as
-  // much as one inserted in front: without it the two libraries run together and stop reading
-  // as separate groups. Only when the line above really is a clause, not a blank already there.
-  if (
-    !hasLibrary &&
-    line > start &&
-    /^\s*(library|use)\b/i.test(lines[line - 1] ?? "")
-  )
-    text += "\n";
+  // A new group is set off by a blank line from the one above it and the one below it, so the
+  // groups stay groups. Only where the neighbour really is a clause, not a blank already there.
+  if (newGroup && line > start && isClause(lines[line - 1] ?? "")) text += "\n";
   if (!hasLibrary) text += `${indent}library ${library};\n`;
   if (pkg) text += `${indent}use ${library}.${pkg}.all;\n`;
   // Keep a blank line between the clause and the design unit it precedes.
   if (line === anchor && (lines[anchor] ?? "").trim()) text += "\n";
-  // And between a whole new library block and the one it was placed in front of, so the groups
-  // stay groups rather than running together.
-  else if (!hasLibrary && libOf(lines[line] ?? "")) text += "\n";
+  else if (newGroup && isClause(lines[line] ?? "")) text += "\n";
 
   return { line, text };
 }
@@ -586,8 +585,12 @@ export function readAssociations(
   formals: string[],
 ): Association[] {
   const out: Association[] = [];
+  // Comments are blanked, not removed, so the offsets still point into `text`: `clk => sys_clk,
+  // -- the clock` read the actual as `sys_clk -- the clock`, which is not a name, and the port
+  // map's declare action silently left it out.
+  const code = text.replace(/--[^\n]*/g, (c) => " ".repeat(c.length));
   for (const f of formals) {
-    const m = new RegExp(`\\b${f}\\s*=>\\s*([^,)]+)`, "i").exec(text);
+    const m = new RegExp(`\\b${f}\\s*=>\\s*([^,)]+)`, "i").exec(code);
     if (!m) continue;
     const actual = m[1].trimEnd();
     const start = m.index + m[0].length - m[1].length;
@@ -851,6 +854,91 @@ export function compareCandidates(
 }
 
 // --- declarations and case statements ---------------------------------------
+
+/**
+ * The `begin` that belongs to the construct whose header is on line `header`: an architecture,
+ * a process, a subprogram, a block or a generate. Null when it has none, or none yet.
+ *
+ * Found by reading forward rather than by indentation. A subprogram declared in the
+ * declarative part has a `begin` of its own, and so does one declared in a process; the first
+ * `begin` below a header is often theirs, and in a file that is not indented, or holds two
+ * architectures, "the least indented one" is often someone else's. Nested subprogram bodies
+ * are skipped by counting `is ... begin ... end` pairs; a declaration ending in `;` has no body.
+ *
+ * `statements` stops at the first concurrent statement: a generate need not have a `begin`,
+ * and without one its statement part starts straight away.
+ */
+export function ownBegin(
+  lines: string[],
+  header: number,
+  statements = false,
+): number | null {
+  let depth = 0;
+  let pending = false; // a subprogram header whose `is` or `;` has not come yet
+  let inside: string | null = null; // a record, component, protected type or units block
+  let open = 0; // parentheses, so a multi-line port list is not read as statements
+  for (let l = header + 1; l < lines.length; l++) {
+    const code = lines[l].replace(/--.*$/, "");
+    const trimmed = code.trim();
+    if (!trimmed) continue;
+    if (inside) {
+      if (new RegExp(`^end\\s+${inside}\\b`, "i").test(trimmed)) inside = null;
+      continue;
+    }
+    if (
+      /\b(is\s+record|record)\b/i.test(trimmed) &&
+      !/end\s+record/i.test(trimmed)
+    ) {
+      inside = "record";
+      continue;
+    }
+    if (/^component\b/i.test(trimmed)) {
+      inside = "component";
+      continue;
+    }
+    if (/\bprotected\b/i.test(trimmed) && !/end\s+protected/i.test(trimmed)) {
+      inside = "protected";
+      continue;
+    }
+    if (/^(pure\s+|impure\s+)?(function|procedure)\b/i.test(trimmed))
+      pending = true;
+    if (pending) {
+      const semi = code.indexOf(";");
+      const is = code.search(/\bis\b/i);
+      if (is >= 0 && (semi < 0 || is < semi)) {
+        pending = false;
+        depth += 1;
+      } else if (semi >= 0) pending = false;
+      continue;
+    }
+    for (const ch of code) open += ch === "(" ? 1 : ch === ")" ? -1 : 0;
+    if (/^begin\b/i.test(trimmed)) {
+      if (depth === 0) return l;
+      continue;
+    }
+    if (
+      depth > 0 &&
+      /^end\b/i.test(trimmed) &&
+      !/^end\s+(if|loop|case|record|units|protected|component|generate|block|process)\b/i.test(
+        trimmed,
+      )
+    ) {
+      depth -= 1;
+      continue;
+    }
+    if (depth === 0 && /^end\b/i.test(trimmed)) return null;
+    if (
+      statements &&
+      depth === 0 &&
+      open <= 0 &&
+      (/^[A-Za-z]\w*\s*:(?!=)/.test(trimmed) ||
+        /^(process|assert|with|postponed)\b/i.test(trimmed) ||
+        /<=/.test(trimmed))
+    )
+      return null;
+  }
+  return null;
+}
 
 /** What an object declaration may be, at the point the cursor sits. */
 export type ObjectKind = "signal" | "variable" | "constant";

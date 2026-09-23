@@ -74,6 +74,14 @@ assert.equal(
   renderSignals(e.ports, { existing: ["clk"], actuals }),
   "  signal data_in : std_logic_vector(g_width - 1 downto 0);",
 );
+// A comment after an actual is not part of it.
+assert.deepEqual(
+  readAssociations(
+    "port map ( -- ports\n    clk => sys_clk, -- the clock\n    din => data -- in\n  );",
+    ["clk", "din"],
+  ).map((a) => a.actual),
+  ["sys_clk", "data"],
+);
 // `open` is not an identifier to declare.
 assert.ok(!renderSignals(e.ports, { actuals }).includes("open"));
 // A port the map leaves out has no actual yet, and is not declared under its own name.
@@ -212,6 +220,63 @@ assert.deepEqual(contextClauseEdit(twoLibraries, 6, "ieee", "numeric_std"), {
     "end architecture rtl;",
   ];
   assert.equal(contextClauseEdit(two, 8, "osvvm", "randompkg")?.line, 7);
+}
+
+// A group is set off from its neighbours by a blank line whether or not a library clause is
+// written for it: `work` never has one, and three layouts glued groups together because of it.
+{
+  const apply = (lines: string[], unit: number, lib: string, pkg: string) => {
+    const e = contextClauseEdit(lines, unit, lib, pkg);
+    const out = [...lines];
+    if (e) out.splice(e.line, 0, ...e.text.replace(/\n$/, "").split("\n"));
+    return out.join("\n");
+  };
+  assert.equal(
+    apply(
+      ["library ieee;", "use ieee.std_logic_1164.all;", "", "entity e is"],
+      3,
+      "work",
+      "p",
+    ),
+    "library ieee;\nuse ieee.std_logic_1164.all;\n\nuse work.p.all;\n\nentity e is",
+  );
+  assert.equal(
+    apply(["use work.pkg.all;", "", "entity e is"], 2, "ieee", "numeric_std"),
+    "library ieee;\nuse ieee.numeric_std.all;\n\nuse work.pkg.all;\n\nentity e is",
+  );
+  assert.equal(
+    apply(
+      [
+        "library ieee;",
+        "use ieee.std_logic_1164.all;",
+        "",
+        "use work.pkg.all;",
+        "",
+        "entity e is",
+      ],
+      5,
+      "osvvm",
+      "randompkg",
+    ),
+    "library ieee;\nuse ieee.std_logic_1164.all;\n\nlibrary osvvm;\nuse osvvm.randompkg.all;\n\nuse work.pkg.all;\n\nentity e is",
+  );
+  // Joining a group adds no blank line inside it.
+  assert.equal(
+    apply(
+      [
+        "library ieee;",
+        "use ieee.std_logic_1164.all;",
+        "",
+        "use work.a_pkg.all;",
+        "",
+        "entity e is",
+      ],
+      5,
+      "work",
+      "b_pkg",
+    ),
+    "library ieee;\nuse ieee.std_logic_1164.all;\n\nuse work.a_pkg.all;\nuse work.b_pkg.all;\n\nentity e is",
+  );
 }
 
 // Appended after the last block, a new library still gets a blank line above it: two libraries
@@ -495,6 +560,7 @@ import {
   compareUseCandidates,
   usablePackage,
   declaresName,
+  ownBegin,
 } from "./generate.ts";
 
 // The operator settles what the name is; a process assigns to the architecture's signals too.
@@ -709,5 +775,90 @@ assert.equal(declaresName("  u : entity work.x port map (cl"), false);
 assert.equal(declaresName("      count <= to_uns"), false);
 assert.equal(declaresName("      x <= f(a, to_uns"), false);
 assert.equal(declaresName("  generic map (\n    width => c_wi"), false);
+
+// The `begin` a construct owns, found by reading rather than by indentation.
+{
+  const at = (src: string, header: RegExp, statements = false) => {
+    const lines = src.split("\n");
+    const b = ownBegin(
+      lines,
+      lines.findIndex((l) => header.test(l)),
+      statements,
+    );
+    return b === null ? null : b + 1; // 1-based, as read
+  };
+  // A function body in the declarative part has its own begin, before the architecture's.
+  const withFunction = `architecture rtl of e is
+  function f (a : integer) return integer is
+  begin
+    if a > 0 then
+      return a;
+    end if;
+    return 0;
+  end function f;
+  signal s : bit;
+begin
+end architecture rtl;`;
+  assert.equal(at(withFunction, /^architecture/), 10);
+  // The same, not indented at all.
+  assert.equal(at(withFunction.replace(/^ +/gm, ""), /^architecture/), 10);
+  // A function declaration without a body, over two lines, has no begin to skip.
+  assert.equal(
+    at(
+      "architecture rtl of e is\n  function f (a : integer)\n    return integer;\n  signal s : bit;\nbegin\nend architecture;",
+      /^architecture/,
+    ),
+    5,
+  );
+  // Two architectures in a file: each finds its own.
+  const two =
+    "architecture a of e is\nbegin\nend architecture;\n\narchitecture b of e is\n  signal s : bit;\nbegin\nend architecture;";
+  assert.equal(at(two, /^architecture b/), 7);
+  // A process that declares a procedure: the process's begin, not the procedure's.
+  const proc = `  p : process (clk) is
+    procedure bump (n : in integer) is
+    begin
+      null;
+    end procedure bump;
+    variable v : integer;
+  begin
+    null;
+  end process;`;
+  assert.equal(at(proc, /p : process/), 7);
+  // A record type and a component are not bodies, however many lines they take.
+  assert.equal(
+    at(
+      "architecture rtl of e is\n  type t is record\n    a : bit;\n  end record;\n  component c is\n    port (x : in bit);\n  end component;\nbegin\nend;",
+      /^architecture/,
+    ),
+    8,
+  );
+  // A generate with no declarative part has no begin; its first statement says so.
+  assert.equal(
+    at(
+      "  g : for i in 0 to 3 generate\n    x(i) <= y(i);\n  end generate;",
+      /generate$/,
+      true,
+    ),
+    null,
+  );
+  assert.equal(
+    at(
+      "g : for i in 0 to 3 generate\np : process (clk) is\nbegin\nend process;\nend generate;",
+      /generate$/,
+      true,
+    ),
+    null,
+  );
+  // And one with a declaration has its own.
+  assert.equal(
+    at(
+      "  g : for i in 0 to 3 generate\n    signal t : bit;\n  begin\n    t <= '1';\n  end generate;",
+      /generate$/,
+      true,
+    ),
+    3,
+  );
+}
 
 console.log("generate.test.ts: ok");

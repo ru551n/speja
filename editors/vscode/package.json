@@ -92,6 +92,86 @@
     },
     "commands": [
       {
+        "command": "speja.showMenu",
+        "title": "Show Actions...",
+        "category": "speja"
+      },
+      {
+        "command": "speja.quickFix",
+        "title": "Quick Fixes at Cursor...",
+        "category": "speja"
+      },
+      {
+        "command": "speja.declare",
+        "title": "Declare Name Under Cursor...",
+        "category": "speja"
+      },
+      {
+        "command": "speja.addUseClause",
+        "title": "Add Use Clause...",
+        "category": "speja"
+      },
+      {
+        "command": "speja.instantiateEntity",
+        "title": "Instantiate Entity...",
+        "category": "speja"
+      },
+      {
+        "command": "speja.declareSignals",
+        "title": "Declare Signals for Port Map",
+        "category": "speja"
+      },
+      {
+        "command": "speja.mapMissingPorts",
+        "title": "Map Missing Ports",
+        "category": "speja"
+      },
+      {
+        "command": "speja.completeCase",
+        "title": "Complete Case Statement",
+        "category": "speja"
+      },
+      {
+        "command": "speja.fsmFromEnum",
+        "title": "Create State Machine from Enum Type",
+        "category": "speja"
+      },
+      {
+        "command": "speja.componentDeclaration",
+        "title": "Declare Entity as Component...",
+        "category": "speja"
+      },
+      {
+        "command": "speja.extractObject",
+        "title": "Extract Selection to Constant or Signal",
+        "category": "speja"
+      },
+      {
+        "command": "speja.formatDocument",
+        "title": "Format Document",
+        "category": "speja"
+      },
+      {
+        "command": "speja.formatSelection",
+        "title": "Format Selection",
+        "category": "speja"
+      },
+      {
+        "command": "speja.fixAll",
+        "title": "Fix All Findings",
+        "category": "speja"
+      },
+      {
+        "command": "speja.sortUseClauses",
+        "title": "Sort Library and Use Clauses",
+        "category": "speja"
+      },
+      {
+        "command": "speja.removeUnusedUseClauses",
+        "title": "Remove Unused Use Clauses...",
+        "category": "speja"
+      },
+      {
         "command": "speja.restartServer",
         "title": "Restart Server",
         "category": "speja"
@@ -107,73 +187,18 @@
         "category": "speja"
       },
       {
-        "command": "speja.instantiateEntity",
-        "title": "VHDL: Instantiate Entity",
-        "category": "VHDL"
-      },
-      {
-        "command": "speja.declareSignals",
-        "title": "VHDL: Declare Signals for Port Map",
-        "category": "VHDL"
-      },
-      {
-        "command": "speja.fsmFromEnum",
-        "title": "VHDL: Create State Machine from Enum Type",
-        "category": "VHDL"
-      },
-      {
-        "command": "speja.addUseClause",
-        "title": "VHDL: Add Library and Use Clause for Symbol",
-        "category": "VHDL"
-      },
-      {
-        "command": "speja.componentDeclaration",
-        "title": "VHDL: Declare Entity as Component",
-        "category": "VHDL"
-      },
-      {
-        "command": "speja.removeUnusedUseClauses",
-        "title": "VHDL: Remove Unused Use Clauses",
-        "category": "VHDL"
-      },
-      {
         "command": "speja.refreshHierarchy",
         "title": "Refresh",
-        "category": "VHDL",
+        "category": "speja",
         "icon": "$(refresh)"
-      },
-      {
-        "command": "speja.extractObject",
-        "title": "VHDL: Extract Selection to Constant or Signal",
-        "category": "VHDL"
       }
     ],
     "menus": {
       "editor/context": [
         {
+          "submenu": "speja.context",
           "when": "editorLangId == vhdl",
-          "command": "speja.instantiateEntity",
-          "group": "1_modification@1"
-        },
-        {
-          "when": "editorLangId == vhdl",
-          "command": "speja.declareSignals",
-          "group": "1_modification@2"
-        },
-        {
-          "when": "editorLangId == vhdl",
-          "command": "speja.fsmFromEnum",
-          "group": "1_modification@3"
-        },
-        {
-          "when": "editorLangId == vhdl",
-          "command": "speja.addUseClause",
-          "group": "1_modification@4"
-        },
-        {
-          "when": "editorLangId == vhdl",
-          "command": "speja.componentDeclaration",
-          "group": "1_modification@5"
+          "group": "1_modification@0"
         }
       ],
       "view/title": [
@@ -185,8 +210,134 @@
       ],
       "commandPalette": [
         {
+          "command": "speja.quickFix",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.declare",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.addUseClause",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.instantiateEntity",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.declareSignals",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.mapMissingPorts",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.completeCase",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.fsmFromEnum",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.componentDeclaration",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.extractObject",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.formatDocument",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.formatSelection",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.fixAll",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.sortUseClauses",
+          "when": "editorLangId == vhdl"
+        },
+        {
+          "command": "speja.removeUnusedUseClauses",
+          "when": "editorLangId == vhdl"
+        },
+        {
           "command": "speja.refreshHierarchy",
           "when": "false"
+        }
+      ],
+      "speja.context": [
+        {
+          "command": "speja.quickFix",
+          "group": "1_cursor@0"
+        },
+        {
+          "command": "speja.declare",
+          "group": "1_cursor@1"
+        },
+        {
+          "command": "speja.addUseClause",
+          "group": "1_cursor@2"
+        },
+        {
+          "command": "speja.instantiateEntity",
+          "group": "1_cursor@3"
+        },
+        {
+          "command": "speja.declareSignals",
+          "group": "1_cursor@4"
+        },
+        {
+          "command": "speja.mapMissingPorts",
+          "group": "1_cursor@5"
+        },
+        {
+          "command": "speja.completeCase",
+          "group": "1_cursor@6"
+        },
+        {
+          "command": "speja.fsmFromEnum",
+          "group": "1_cursor@7"
+        },
+        {
+          "command": "speja.componentDeclaration",
+          "group": "1_cursor@8"
+        },
+        {
+          "command": "speja.extractObject",
+          "group": "1_cursor@9"
+        },
+        {
+          "command": "speja.formatDocument",
+          "group": "2_file@0"
+        },
+        {
+          "command": "speja.formatSelection",
+          "group": "2_file@1"
+        },
+        {
+          "command": "speja.fixAll",
+          "group": "2_file@2"
+        },
+        {
+          "command": "speja.sortUseClauses",
+          "group": "2_file@3"
+        },
+        {
+          "command": "speja.removeUnusedUseClauses",
+          "group": "2_file@4"
+        },
+        {
+          "command": "speja.showMenu",
+          "group": "3_menu@0"
         }
       ]
     },
@@ -422,7 +573,13 @@
           "when": "speja.hasVhdl"
         }
       ]
-    }
+    },
+    "submenus": [
+      {
+        "id": "speja.context",
+        "label": "speja"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",

@@ -345,13 +345,10 @@ exports.run = async function run() {
         offers.map((a) => a.title).join(" | "),
       );
 
-      cursorAt(shown, at0);
-      pick = "ieee.NUMERIC_STD";
-      await limit(vscode.commands.executeCommand("speja.addUseClause"), 30000, "addUseClause");
+      // Taking the preferred fix adds the clause once. The searchable command is section 25's.
+      await vscode.workspace.applyEdit(quick.edit);
+      await wait(300);
       const text = document.getText();
-      // The clause goes above the design unit the name is used in, which is the architecture, so
-      // a library clause that is already above its entity is repeated. That is legal, and is
-      // what "only for the design unit the cursor is in" means.
       check(/use ieee\.NUMERIC_STD\.all;/i.test(text) && (text.match(/^use ieee\.NUMERIC_STD\.all;$/gim) || []).length === 1,
         "the use clause is added once, for the chosen package",
         `${(text.match(/^library ieee;$/gm) || []).length} library clauses in the file`);
@@ -1353,6 +1350,175 @@ exports.run = async function run() {
       check(new Set(busy).size === busy.length, "a name used twice on a line gets one menu without repeats", busy.join(" | "));
       check([...menus.values()].flat().every((t) => t.trim().length > 0 && !/undefined|null|NaN/.test(t)),
         "no menu entry is empty or carries a placeholder");
+    }
+
+    // 24. Where declarations land, and when the port-map action appears.
+    {
+      const doc = await vscode.workspace.openTextDocument(at("sites.vhd"));
+      await vscode.window.showTextDocument(doc);
+      await until(async () => (await symbols("sites")).some((x) => /^entity 'sites'/i.test(x.name)), 30000, "sites.vhd");
+      await wait(3000);
+      const titlesAt = async (d, line, col) => {
+        const p = new vscode.Position(line, col);
+        return ((await vscode.commands.executeCommand("vscode.executeCodeActionProvider", d.uri, new vscode.Range(p, p))) || [])
+          .map((a) => a.title);
+      };
+      const lineOf = (d, re) => d.getText().split("\n").findIndex((l) => re.test(l));
+      const apply = async (d, line, col, title) => {
+        const p = new vscode.Position(line, col);
+        const a = ((await vscode.commands.executeCommand("vscode.executeCodeActionProvider", d.uri, new vscode.Range(p, p))) || [])
+          .find((x) => x.title === title);
+        if (!a) return false;
+        if (a.edit) await vscode.workspace.applyEdit(a.edit);
+        else await vscode.commands.executeCommand(a.command.command, ...a.command.arguments);
+        await wait(700);
+        return true;
+      };
+
+      // The cursor at column 0 of the label line, and in a commented map.
+      const label = lineOf(doc, /u_fifo : entity/);
+      const atZero = await titlesAt(doc, label, 0);
+      check(atZero.some((t) => /^Declare \d+ signals? for this port map$/.test(t)),
+        "the port-map action is offered with the cursor in the indentation", atZero.join(" | "));
+      const commented = await titlesAt(doc, lineOf(doc, /rst => rst_b/), 30);
+      const count = Number((commented.find((t) => /for this port map/.test(t)) || "").replace(/\D+/g, " ").trim().split(" ")[0] || 0);
+      // rst_b and data_in: data_in is declared only in the first architecture, and a comment on
+      // every line must not hide either.
+      check(count === 2, "a map with a comment on every line offers both its undeclared actuals", commented.join(" | "));
+      out(`INFO sites port-map offer: ${commented.find((t) => /for this port map/.test(t))}`);
+
+      // Declared through the action, the signals land in the second architecture, after the
+      // function body, before its begin: not in the first architecture, not in the function.
+      check(await apply(doc, label, 0, commented.find((t) => /for this port map/.test(t))), "and applies");
+      const text = doc.getText().split("\n");
+      const rstLine = text.findIndex((l) => /signal rst_b\b/.test(l));
+      const secondHeader = text.findIndex((l) => /^architecture second/.test(l));
+      const secondBegin = text.findIndex((l, i) => i > secondHeader && /^begin\b/.test(l));
+      const fnEnd = text.findIndex((l) => /end function twice/.test(l));
+      check(rstLine > fnEnd && rstLine < secondBegin,
+        "a signal for the second architecture is declared in it, after the function body",
+        `rst_b at ${rstLine + 1}, function ends ${fnEnd + 1}, begin ${secondBegin + 1}`);
+
+      // A variable in a process that declares a procedure goes in the process, not the procedure.
+      const tmp = lineOf(doc, /tmp_v := 1/);
+      check(await apply(doc, tmp, doc.lineAt(tmp).text.indexOf("tmp_v") + 1, "Declare variable tmp_v"), "the variable action applies");
+      const after = doc.getText().split("\n");
+      const vLine = after.findIndex((l) => /variable tmp_v\b/.test(l));
+      const procEnd = after.findIndex((l) => /end procedure bump/.test(l));
+      const pBegin = after.findIndex((l, i) => i > procEnd && /^\s*begin\b/.test(l));
+      check(vLine > procEnd && vLine < pBegin,
+        "a variable is declared in the process, after the procedure it declares",
+        `tmp_v at ${vLine + 1}, procedure ends ${procEnd + 1}, process begin ${pBegin + 1}`);
+
+      // A file that does not analyse still offers the port-map action.
+      const broken = await vscode.workspace.openTextDocument(at("broken.vhd"));
+      await vscode.window.showTextDocument(broken);
+      await wait(3000);
+      const onBroken = await titlesAt(broken, lineOf(broken, /rst => rst_c/), 10);
+      check(onBroken.some((t) => /for this port map/.test(t)),
+        "an instance in a file that does not analyse still offers its actuals", onBroken.join(" | ") || "nothing");
+    }
+
+    // 25. Every action as a command: registered, named once under `speja`, and doing what its
+    // name says from the palette, the menu and a key.
+    {
+      const pkg = JSON.parse(fs.readFileSync(path.join(process.env.VSGRS_EXT, "package.json"), "utf8"));
+      const contributed = pkg.contributes.commands;
+      const registered = new Set(await vscode.commands.getCommands(true));
+      const unregistered = contributed.filter((c) => !registered.has(c.command)).map((c) => c.command);
+      check(unregistered.length === 0, "every contributed command is registered", unregistered.join(", ") || "all");
+      check(contributed.every((c) => c.category === "speja" && !/^(VHDL|speja):/i.test(c.title)),
+        "every command sits under `speja` once, not `VHDL: VHDL:`",
+        contributed.filter((c) => c.category !== "speja" || /:/.test(c.title)).map((c) => c.title).join(" | ") || "all");
+      const inMenu = new Set(pkg.contributes.menus["speja.context"].map((m) => m.command));
+      const missingFromMenu = contributed.filter((c) => !["speja.restartServer", "speja.showOutput", "speja.showVersion", "speja.refreshHierarchy"].includes(c.command) && !inMenu.has(c.command));
+      check(missingFromMenu.length === 0, "the right-click speja menu carries every editing command",
+        missingFromMenu.map((c) => c.command).join(", ") || "all");
+
+      // Format Document through speja's own server.
+      const lay = await vscode.workspace.openTextDocument(at("audit.vhd"));
+      const layEd = await vscode.window.showTextDocument(lay);
+      const beforeFormat = lay.getText();
+      // Put the file back by content, not by `undo`, which needs the window to hold focus.
+      const restore = async () => {
+        const all = new vscode.WorkspaceEdit();
+        all.replace(lay.uri, new vscode.Range(lay.positionAt(0), lay.positionAt(lay.getText().length)), beforeFormat);
+        await vscode.workspace.applyEdit(all);
+        await wait(1500);
+      };
+      await vscode.commands.executeCommand("speja.formatDocument");
+      await wait(1500);
+      check(lay.getText() !== beforeFormat, "speja: Format Document formats the file");
+      await restore();
+
+      // The menu runs what is picked.
+      pick = "Format Document";
+      const beforeMenu = lay.getText();
+      await vscode.commands.executeCommand("speja.showMenu");
+      await wait(1500);
+      check(offeredLabels.includes("Format Selection") && offeredLabels.includes("Instantiate Entity..."),
+        "the speja menu lists the actions", offeredLabels.slice(0, 6).join(" | "));
+      check(lay.getText() !== beforeMenu, "and picking one runs it");
+      await restore();
+      pick = "fifo";
+
+      // Quick Fixes at Cursor: the server's fixes and the editing actions in one list.
+      const typoLine = lay.getText().split("\n").findIndex((l) => /some_out <= typo_sig/.test(l));
+      const typoCol = lay.lineAt(typoLine).text.indexOf("typo_sig") + 1;
+      layEd.selection = new vscode.Selection(typoLine, typoCol, typoLine, typoCol);
+      pick = "Declare signal typo_sig";
+      await vscode.commands.executeCommand("speja.quickFix");
+      await wait(1200);
+      check(offeredLabels.includes("Declare signal typo_sig") && offeredLabels.some((l) => /^Fix all speja findings$|^speja: format line/.test(l)),
+        "Quick Fixes at Cursor lists the editing actions and the server's fixes together", offeredLabels.join(" | "));
+      check(/signal typo_sig\b/.test(lay.getText()), "and runs the one picked");
+      pick = "fifo";
+
+      // Declare Name Under Cursor, from a key.
+      const busyLine = lay.getText().split("\n").findIndex((l) => /busy_x <= busy_x and go/.test(l));
+      layEd.selection = new vscode.Selection(busyLine, 7, busyLine, 7);
+      pick = "Declare signal busy_x";
+      await vscode.commands.executeCommand("speja.declare");
+      await wait(1200);
+      check(/signal busy_x\b/.test(lay.getText()), "speja: Declare Name Under Cursor declares it");
+      pick = "fifo";
+
+      // Add Use Clause, searching every package.
+      let picker = null;
+      const realCreate = vscode.window.createQuickPick;
+      vscode.window.createQuickPick = () => {
+        const on = {};
+        let value = "";
+        picker = {
+          items: [], selectedItems: [], busy: false, title: "", placeholder: "", matchOnDescription: false,
+          onDidChangeValue: (h) => (on.change = h), onDidAccept: (h) => (on.accept = h), onDidHide: (h) => (on.hide = h),
+          show() {}, hide() { if (on.hide) on.hide(); }, dispose() {},
+          get value() { return value; },
+          set value(v) { value = v; if (on.change) on.change(v); },
+          type(v) { this.value = v; },
+          accept(item) { this.selectedItems = [item]; on.accept(); },
+        };
+        return picker;
+      };
+      const clampLine = lay.getText().split("\n").findIndex((l) => /count <= clamp/.test(l));
+      layEd.selection = new vscode.Selection(clampLine, lay.lineAt(clampLine).text.indexOf("clamp") + 1, clampLine, lay.lineAt(clampLine).text.indexOf("clamp") + 1);
+      const running = vscode.commands.executeCommand("speja.addUseClause");
+      await until(async () => picker && picker.items.length > 0, 20000, "the use-clause list to fill");
+      const opened = picker.items.map((i) => `${i.label}:${i.description}`);
+      check(picker.value === "clamp" && opened.some((r) => /^clamp:work\.audit_pkg/.test(r)),
+        "Add Use Clause opens on the name under the cursor, from work", opened.join(" | "));
+      picker.type("numeric_s");
+      await until(async () => picker.items.some((i) => /numeric_std/i.test(i.label)), 20000, "packages by name");
+      check(picker.items.some((i) => /^numeric_std$/i.test(i.label) && /the package itself/.test(i.detail)),
+        "a package can be found by its own name", picker.items.slice(0, 4).map((i) => `${i.label}:${i.description}`).join(" | "));
+      picker.type("clamp");
+      await until(async () => picker.items.some((i) => i.label === "clamp"), 20000, "back to clamp");
+      picker.accept(picker.items.find((i) => i.label === "clamp"));
+      await running;
+      await wait(500);
+      vscode.window.createQuickPick = realCreate;
+      check(/^use work\.audit_pkg\.all;$/m.test(lay.getText()), "and picking a row adds its package's use clause");
+      await vscode.commands.executeCommand("workbench.action.files.revert");
     }
 
     // 23. What typing offers. Every row every provider returns, VHDL-LS's included, is written

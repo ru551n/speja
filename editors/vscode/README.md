@@ -32,7 +32,7 @@ typed, which does not analyse yet, so its enumeration is read from the declarati
   Ctrl+P matches, with the library clause the instantiation needs.
 * **Declare Signals for Port Map**, with the port's type and the generic's value substituted.
 * **Create State Machine from Enum Type**.
-* **Add Library and Use Clause for Symbol**, also as a quick fix on an unresolved name.
+* **Add Use Clause**, as a ranked quick fix on an unresolved name, or searching every package.
 * **Inlay hints** for each port's direction and type in a port or generic map.
 * **Declare signal, variable or constant** for an unresolved name, chosen by the assignment
   operator and placed in the declarative part that can hold it, including a generate's or a
@@ -43,6 +43,10 @@ typed, which does not analyse yet, so its enumeration is read from the declarati
   **Remove Unused Use Clauses**, a references **CodeLens** on entities, and **signature help** in
   a port map.
 * **VHDL Design**, a tree of every entity, through its architectures to the instances they hold.
+
+Every action is also a command under **speja:** in the palette, so any of them can be bound to a
+key, and **speja: Show Actions...** (also the **speja** item in the status bar, and the right-click
+menu) lists them all. **Add Use Clause...** is a searchable list of every package's contents.
 
 All of it is described, with examples and limits, in
 [editing VHDL in VS Code](https://speja.readthedocs.io/en/latest/vscode-editing/).
