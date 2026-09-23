@@ -242,6 +242,8 @@ begin
       case phase is
         when arm =>
           null;
+        when others =>
+          null;
       end case;
       case sequencer is
         when others =>

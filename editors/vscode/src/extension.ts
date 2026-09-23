@@ -141,13 +141,6 @@ async function start(context: ExtensionContext): Promise<void> {
   }
 }
 
-/**
- * Record a waiver for one finding, with a reason.
- *
- * The server offers the action and writes the entry; this asks the one question only a person
- * can answer. A waiver without a reason is a suppression, which is the thing waivers exist not
- * to be, so an empty answer cancels rather than writing `TODO`.
- */
 /** What the extension is, and what the server it just launched reports itself to be. */
 async function showVersion(context: ExtensionContext): Promise<void> {
   const extension = context.extension.packageJSON.version as string;
@@ -175,6 +168,19 @@ async function showVersion(context: ExtensionContext): Promise<void> {
 async function serverEdit(
   what: "document" | "selection" | "fixAll" | "sort",
 ): Promise<void> {
+  try {
+    await askServer(what);
+  } catch (error) {
+    // A file the server cannot parse is refused, and saying why beats a generic command failure.
+    void window.showErrorMessage(
+      `speja: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function askServer(
+  what: "document" | "selection" | "fixAll" | "sort",
+): Promise<void> {
   const editor = window.activeTextEditor;
   if (!editor || editor.document.languageId !== "vhdl") return;
   if (!client) {
@@ -189,6 +195,10 @@ async function serverEdit(
     tabSize: Number(editor.options.tabSize) || 2,
     insertSpaces: editor.options.insertSpaces !== false,
   };
+  if (what === "selection" && editor.selection.isEmpty) {
+    void window.showInformationMessage("speja: select the lines to format.");
+    return;
+  }
   const edit = new WorkspaceEdit();
   if (what === "document" || what === "selection") {
     const edits =
@@ -245,11 +255,14 @@ async function quickFixes(): Promise<void> {
     const diagnostics = languages
       .getDiagnostics(editor.document.uri)
       .filter((d) => d.source === "speja" && d.range.intersection(range));
-    const result = await client.sendRequest(CodeActionRequest.type, {
-      textDocument: c2p.asTextDocumentIdentifier(editor.document),
-      range: c2p.asRange(range),
-      context: { diagnostics: await c2p.asDiagnostics(diagnostics) },
-    });
+    // The editing actions stand on their own, so a server that refuses still leaves them listed.
+    const result = await client
+      .sendRequest(CodeActionRequest.type, {
+        textDocument: c2p.asTextDocumentIdentifier(editor.document),
+        range: c2p.asRange(range),
+        context: { diagnostics: await c2p.asDiagnostics(diagnostics) },
+      })
+      .catch(() => null);
     for (const a of (await client.protocol2CodeConverter.asCodeActionResult(
       result ?? [],
     )) ?? [])
@@ -266,92 +279,25 @@ async function quickFixes(): Promise<void> {
   if (chosen) await runAction(chosen.action);
 }
 
-/** What the speja menu lists, in its groups. Every entry is also a palette command. */
-const MENU: [string, [string, string, string][]][] = [
-  [
-    "At the cursor",
-    [
-      [
-        "speja.quickFix",
-        "Quick Fixes at Cursor...",
-        "every speja fix for what is under the cursor",
-      ],
-      [
-        "speja.declare",
-        "Declare Name Under Cursor...",
-        "signal, variable or constant, type inferred",
-      ],
-      [
-        "speja.addUseClause",
-        "Add Use Clause...",
-        "search every package for a name",
-      ],
-      [
-        "speja.instantiateEntity",
-        "Instantiate Entity...",
-        "pick an entity, write the instantiation",
-      ],
-      [
-        "speja.declareSignals",
-        "Declare Signals for Port Map",
-        "every undeclared actual in the map",
-      ],
-      [
-        "speja.mapMissingPorts",
-        "Map Missing Ports",
-        "add the ports the map leaves out",
-      ],
-      [
-        "speja.completeCase",
-        "Complete Case Statement",
-        "write the states, or the missing choices",
-      ],
-      [
-        "speja.fsmFromEnum",
-        "Create State Machine from Enum Type",
-        "on an enumeration type",
-      ],
-      [
-        "speja.componentDeclaration",
-        "Declare Entity as Component...",
-        "for component instantiation",
-      ],
-      [
-        "speja.extractObject",
-        "Extract Selection to Constant or Signal",
-        "the selected expression",
-      ],
-    ],
-  ],
-  [
-    "The file",
-    [
-      [
-        "speja.formatDocument",
-        "Format Document",
-        "layout and the safe fixes, as speja --fix",
-      ],
-      ["speja.formatSelection", "Format Selection", "only the selected lines"],
-      [
-        "speja.sortUseClauses",
-        "Sort Library and Use Clauses",
-        "ieee first, work last",
-      ],
-      [
-        "speja.removeUnusedUseClauses",
-        "Remove Unused Use Clauses...",
-        "pick which ones go",
-      ],
-    ],
-  ],
-  [
-    "The server",
-    [
-      ["speja.restartServer", "Restart Server", ""],
-      ["speja.showOutput", "Show Output", ""],
-      ["speja.showVersion", "Show Server Version", ""],
-    ],
-  ],
+/** What the speja menu lists, in order. Every entry is also a palette command. */
+const MENU: [string, string][] = [
+  ["speja.quickFix", "Quick Fixes at Cursor..."],
+  ["speja.declare", "Declare Name Under Cursor..."],
+  ["speja.addUseClause", "Add Use Clause..."],
+  ["speja.instantiateEntity", "Instantiate Entity..."],
+  ["speja.declareSignals", "Declare Signals for Port Map"],
+  ["speja.mapMissingPorts", "Map Missing Ports"],
+  ["speja.completeCase", "Complete Case Statement"],
+  ["speja.fsmFromEnum", "Create State Machine from Enum Type"],
+  ["speja.componentDeclaration", "Declare Entity as Component..."],
+  ["speja.extractObject", "Extract Selection to Constant or Signal"],
+  ["speja.formatDocument", "Format Document"],
+  ["speja.formatSelection", "Format Selection"],
+  ["speja.sortUseClauses", "Sort Library and Use Clauses"],
+  ["speja.removeUnusedUseClauses", "Remove Unused Use Clauses..."],
+  ["speja.restartServer", "Restart Server"],
+  ["speja.showOutput", "Show Output"],
+  ["speja.showVersion", "Show Server Version"],
 ];
 
 /**
@@ -366,6 +312,8 @@ const MENU_KIND = CodeActionKind.Empty.append("speja");
  * cursor is, so the menu is that widget, asked for speja's entries and nothing else.
  */
 async function showMenu(): Promise<void> {
+  // From the status bar or a keybinding outside the editor, the widget needs the editor focused.
+  await commands.executeCommand("workbench.action.focusActiveEditorGroup");
   await commands.executeCommand("editor.action.codeAction", {
     kind: MENU_KIND.value,
     apply: "never",
@@ -380,13 +328,11 @@ const menuActions = {
     context: { only?: CodeActionKind },
   ): CodeAction[] {
     if (!context.only || !MENU_KIND.contains(context.only)) return [];
-    return MENU.flatMap(([, entries]) =>
-      entries.map(([command, label]) => {
-        const action = new CodeAction(label, MENU_KIND);
-        action.command = { command, title: label };
-        return action;
-      }),
-    );
+    return MENU.map(([command, label]) => {
+      const action = new CodeAction(label, MENU_KIND);
+      action.command = { command, title: label };
+      return action;
+    });
   },
 };
 

@@ -669,6 +669,12 @@ exports.run = async function run() {
         "the missing choices are written inside the case",
         JSON.stringify(arms.slice(0, 80)),
       );
+      check(
+        arms.indexOf("when others") > arms.indexOf("when wait_ack") &&
+          arms.indexOf("when others") > arms.indexOf("when fire"),
+        "and above `when others`, which has to stay the last choice",
+        JSON.stringify(arms),
+      );
 
       const declaredLine = filled.findIndex((l) => /held <= go;/.test(l));
       const heldAction = (

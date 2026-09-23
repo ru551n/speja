@@ -137,7 +137,6 @@ async function projectEntities(): Promise<Sym[]> {
   return found;
 }
 
-/** The entities one file declares, as the workspace symbols the rest of this file works with. */
 /** A component declaration somewhere in the workspace, instantiable by bare name. */
 interface ComponentDecl {
   name: string;
@@ -186,6 +185,7 @@ function forgetDesignIndex(): void {
   if (entityCache) entityCache.builtAt = 0;
 }
 
+/** The entities one file declares, as the workspace symbols the rest of this file works with. */
 async function entitiesIn(uri: vscode.Uri): Promise<Sym[]> {
   const declared = flatten(await documentSymbols(uri)).filter(isEntitySymbol);
   return Promise.all(
@@ -776,11 +776,16 @@ async function removeUnusedUseClauses(): Promise<void> {
   }
 
   const stale: { line: number; text: string; label: string }[] = [];
+  // `work` is the file's own library under another name, and the index only knows the real one.
+  const own = (await libraryOfFile(doc.uri))?.toLowerCase();
+  const real = (name: string) =>
+    own && name.startsWith("work.") ? `${own}${name.slice(4)}` : name;
+  const starts = units.map((u) => u.range.start.line).sort((a, b) => a - b);
 
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Window,
-      title: "VHDL: checking context clauses",
+      title: "speja: checking use clauses",
     },
     async () => {
       for (const unit of units) {
@@ -789,8 +794,14 @@ async function removeUnusedUseClauses(): Promise<void> {
         );
         if (!clauses.length) continue;
 
-        // Identifiers written in the unit itself, each looked up once.
-        const body = doc.getText(unit.range);
+        // The unit, and the architectures or package body after it that have no context clause
+        // of their own: they inherit this one, and a name only an architecture uses is still used.
+        const from = unit.range.start.line;
+        const next = starts.find(
+          (l) => l > from && contextClause(lines, l).length > 0,
+        );
+        const end = next === undefined ? lines.length : contextStart(lines, next);
+        const body = lines.slice(from, end).join("\n").replace(/--[^\n]*/g, "");
         const words = new Set(
           [...body.matchAll(/[A-Za-z]\w*/g)].map((m) => m[0].toLowerCase()),
         );
@@ -801,7 +812,7 @@ async function removeUnusedUseClauses(): Promise<void> {
             used.add(`${c.library}.${c.pkg}`.toLowerCase());
 
         for (const clause of clauses) {
-          if (clause.names.every((n) => used.has(n))) continue;
+          if (clause.names.every((n) => used.has(real(n)))) continue;
           stale.push({
             line: clause.index,
             text: lines[clause.index],
@@ -842,6 +853,11 @@ async function removeUnusedUseClauses(): Promise<void> {
 
 // --- generating code -------------------------------------------------------
 
+/** The first line of the context clause above the unit on `unitLine`. */
+function contextStart(lines: string[], unitLine: number): number {
+  return contextClause(lines, unitLine)[0]?.index ?? unitLine;
+}
+
 /** Pick an entity from the workspace, ordered by library then name. */
 async function pickEntity(
   placeHolder: string,
@@ -873,6 +889,21 @@ async function instantiateEntity(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return;
 
+  // An instantiation is a concurrent statement: after the architecture's `begin`, and not in a
+  // process. Said before the picker, not after the author has chosen an entity and a label.
+  const cursor = editor.selection.active;
+  const begin = architectureBegin(editor.document, cursor);
+  if (
+    begin === null ||
+    cursor.line <= begin ||
+    sequentialHome(editor.document, cursor) !== null
+  ) {
+    vscode.window.showWarningMessage(
+      "An instantiation goes among an architecture's statements: put the cursor after its `begin`, outside any process.",
+    );
+    return;
+  }
+
   const picked = await pickEntity("Entity to instantiate");
   if (!picked) return;
 
@@ -898,17 +929,18 @@ async function instantiateEntity(): Promise<void> {
   if (!label) return;
 
   const line = editor.document.lineAt(editor.selection.active.line);
-  const indent = indentOf(line.text);
+  const indent = line.isEmptyOrWhitespace
+    ? indentOf(editor.document.lineAt(begin).text) + "  "
+    : indentOf(line.text);
   const unit = await designUnitLine(editor.document, editor.selection.active);
   const home = await libraryFor(editor.document, unit, lib);
   const text = renderInstance(e, { label, indent, library: home.name });
 
   await editor.edit((b) => {
-    const at = new vscode.Position(line.lineNumber, indent.length);
-    b.replace(
-      new vscode.Range(at, editor.selection.active),
-      text.trim() + "\n",
-    );
+    // On an empty line it takes the line's place; on one with code it goes below, and the code
+    // stays where it was.
+    if (line.isEmptyOrWhitespace) b.replace(line.range, text);
+    else b.insert(line.range.end, "\n" + text);
     if (home.edit)
       b.insert(new vscode.Position(home.edit.line, 0), home.edit.text);
   });
@@ -933,12 +965,16 @@ async function componentDeclaration(): Promise<void> {
     return;
   }
 
+  // In an architecture a component is a declaration, so it goes before `begin` whatever line
+  // the cursor is on. Anywhere else, a package say, it goes where the cursor is.
   const line = editor.document.lineAt(editor.selection.active.line);
+  const site = declarationSite(
+    editor.document,
+    editor.selection.active,
+    "signal",
+  ) ?? { position: new vscode.Position(line.lineNumber, 0), indent: indentOf(line.text) };
   await editor.edit((b) =>
-    b.insert(
-      new vscode.Position(line.lineNumber, 0),
-      renderComponent(e, indentOf(line.text)) + "\n",
-    ),
+    b.insert(site.position, renderComponent(e, site.indent) + "\n"),
   );
 }
 
@@ -959,7 +995,7 @@ async function declareSignals(
   const inst = await instanceAt(doc, atArg ?? editor.selection.active);
   if (!inst) {
     vscode.window.showWarningMessage(
-      "Put the cursor inside an instantiation. It is located through the VHDL language server, so the file must analyze cleanly enough for it to be reported.",
+      "Put the cursor inside an instantiation of an entity or component.",
     );
     return;
   }
@@ -1029,6 +1065,32 @@ async function fsmFromEnum(): Promise<void> {
     return;
   }
 
+  // A state machine is a process, and a process does not go inside one. Saying so is the whole
+  // help here: the search below fails for this too, but "could not find the architecture's
+  // begin" tells the author nothing about what they did. Checked before any question is asked.
+  if (sequentialHome(doc, editor.selection.active) !== null) {
+    vscode.window.showWarningMessage(
+      "A state machine is a process, and a process cannot go inside another one. Declare this " +
+        "type in the architecture instead, or fill in the states where the `case` already is.",
+    );
+    return;
+  }
+
+  // The signal is a declaration and the process a concurrent statement, so they go either side
+  // of the architecture's `begin`. Written as one block after the type, the process ended up
+  // among the declarations, which the server rejects.
+  const line = doc.lineAt(editor.selection.active.line);
+  // After the whole type, which may span several lines.
+  const declaredAt = endOfStatement(doc, line.lineNumber) + 1;
+  const begin = architectureBegin(doc, editor.selection.active);
+  if (begin === null || begin < declaredAt) {
+    vscode.window.showWarningMessage(
+      "A state machine is generated into an architecture. Put the cursor on an enumeration type declared in one.",
+    );
+    return;
+  }
+  const architectureIndent = indentOf(doc.lineAt(begin).text);
+
   const ports = flatten(await documentSymbols(doc.uri))
     .filter((s) => /^port\b/i.test(s.name))
     .map((s) => identOf(s.name));
@@ -1060,54 +1122,6 @@ async function fsmFromEnum(): Promise<void> {
       /^[a-z]\w*$/i.test(v) ? undefined : "Must be a VHDL identifier",
   });
   if (!signal) return;
-
-  // A state machine is a process, and a process does not go inside one. Saying so is the whole
-  // help here: the search below fails for this too, but "could not find the architecture's
-  // begin" tells the author nothing about what they did.
-  if (sequentialHome(doc, editor.selection.active) !== null) {
-    vscode.window.showWarningMessage(
-      "A state machine is a process, and a process cannot go inside another one. Declare this " +
-        "type in the architecture instead, or fill in the states where the `case` already is.",
-    );
-    return;
-  }
-
-  // The signal is a declaration and the process a concurrent statement, so they go either side
-  // of the architecture's `begin`. Written as one block after the type, the process ended up
-  // among the declarations, which the server rejects.
-  const line = doc.lineAt(editor.selection.active.line);
-  const architecture = flatten(await documentSymbols(doc.uri))
-    .filter(isArchitecture)
-    .find((s) => s.range.contains(editor.selection.active));
-  if (!architecture) {
-    vscode.window.showWarningMessage(
-      "A state machine is generated into an architecture. Put the cursor on an enumeration type declared in one.",
-    );
-    return;
-  }
-
-  // After the whole type, which may span several lines.
-  const declaredAt = endOfStatement(doc, line.lineNumber) + 1;
-
-  // The architecture's own `begin` is the one at its indentation: a subprogram declared above
-  // it has a `begin` of its own, deeper.
-  const architectureIndent = indentOf(
-    doc.lineAt(architecture.range.start.line).text,
-  );
-  const opens = new RegExp(`^${architectureIndent}begin\\b`, "i");
-  let begin = -1;
-  for (let l = declaredAt; l <= architecture.range.end.line; l++) {
-    if (opens.test(doc.lineAt(l).text)) {
-      begin = l;
-      break;
-    }
-  }
-  if (begin < 0) {
-    vscode.window.showWarningMessage(
-      "Could not find the `begin` of the architecture this type is declared in.",
-    );
-    return;
-  }
 
   const parts = renderFsmParts(en, {
     indent: indentOf(line.text),
@@ -1153,7 +1167,12 @@ async function extractObject(
   if (!editor) return;
   const doc = editor.document;
   const range = rangeArg ?? editor.selection;
-  if (range.isEmpty) return;
+  if (range.isEmpty) {
+    vscode.window.showInformationMessage(
+      "Select the expression to extract first.",
+    );
+    return;
+  }
   const expression = doc.getText(range).trim();
 
   const kind =
@@ -1342,15 +1361,6 @@ function declarationSite(
 }
 
 /**
- * The type a name must have, worked out from where it is used.
- *
- * An actual in a port map has the type of the port it feeds, generics substituted, which is
- * exactly what the port-map action already writes. An assignment from a single name has the type
- * of that name, and from a literal the type the literal says. Anything else is left to the
- * author, as the tab stop it already was: a wrong type inserted confidently is worse than an
- * obvious placeholder.
- */
-/**
  * What `name` is connected to, when it is an actual in an instantiation: the port or generic it
  * feeds, and so the type it has to have. A port actual is a signal and a generic actual a
  * constant; the choice of what to declare is settled by that, not offered.
@@ -1391,6 +1401,15 @@ async function actualOf(
   return null;
 }
 
+/**
+ * The type a name must have, worked out from where it is used.
+ *
+ * An actual in a port map has the type of the port it feeds, generics substituted, which is
+ * exactly what the port-map action already writes. An assignment from a single name has the type
+ * of that name, and from a literal the type the literal says. Anything else is left to the
+ * author, as the tab stop it already was: a wrong type inserted confidently is worse than an
+ * obvious placeholder.
+ */
 async function inferredType(
   doc: vscode.TextDocument,
   name: string,
@@ -1497,16 +1516,19 @@ function caseAt(
 function caseBody(
   doc: vscode.TextDocument,
   from: number,
-): { text: string; endLine: number } | null {
+): { text: string; endLine: number; othersLine?: number } | null {
   let depth = 1;
+  let othersLine: number | undefined;
   const lines: string[] = [];
   for (let l = from + 1; l < doc.lineCount; l++) {
     const text = doc.lineAt(l).text.replace(/--.*$/, "");
     if (/\bend\s+case\b/i.test(text)) {
       depth -= 1;
-      if (depth === 0) return { text: lines.join("\n"), endLine: l };
+      if (depth === 0) return { text: lines.join("\n"), endLine: l, othersLine };
     } else if (caseSelector(text)) {
       depth += 1;
+    } else if (depth === 1 && /^\s*when\s+others\b/i.test(text)) {
+      othersLine ??= l;
     }
     lines.push(text);
   }
@@ -1927,6 +1949,13 @@ const portMapHints: vscode.InlayHintsProvider = {
  */
 const vhdlCodeActions: vscode.CodeActionProvider = {
   async provideCodeActions(document, range, context) {
+    // Only the kinds asked for: VS Code drops the rest and logs a warning for each one, and asked
+    // for a source action or the speja menu, nothing here is wanted and none of it need be worked out.
+    const wants = (kind: vscode.CodeActionKind) =>
+      !context.only || context.only.contains(kind) || kind.contains(context.only);
+    const quickFixes = wants(vscode.CodeActionKind.QuickFix);
+    const extract = wants(vscode.CodeActionKind.RefactorExtract);
+    if (!quickFixes && !extract) return [];
     const actions: vscode.CodeAction[] = [];
     const lines = document.getText().split("\n");
 
@@ -1936,7 +1965,9 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
     // like from the keyboard.
     const underCursor = context.diagnostics.filter(
       (d) =>
-        d.code === "unresolved" && range.intersection(d.range) !== undefined,
+        quickFixes &&
+        d.code === "unresolved" &&
+        range.intersection(d.range) !== undefined,
     );
 
     // A package the file's own library holds is `work.pkg`, with no library clause: that is how
@@ -2072,7 +2103,7 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
       }
     }
 
-    const inst = await instanceAt(document, range.start);
+    const inst = quickFixes ? await instanceAt(document, range.start) : null;
     if (inst) {
       const resolved = await resolveInstance(document, inst);
       const text = document.getText(inst.range);
@@ -2131,7 +2162,7 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
 
     // A `case` is where a state machine starts. Which action helps depends on whether the thing
     // being selected on exists yet: fill in the states it can be in, or make it exist at all.
-    const sel = caseAt(document, range.start);
+    const sel = quickFixes ? caseAt(document, range.start) : null;
     if (sel) {
       const header = document.lineAt(sel.line);
       const at = new vscode.Position(
@@ -2151,7 +2182,13 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
         const arms = renderWhenChoices(missing, indent + "  ");
         const edit = new vscode.WorkspaceEdit();
         if (body) {
-          edit.insert(document.uri, new vscode.Position(body.endLine, 0), arms);
+          // `others` has to stay the last choice, so the new arms go above it.
+          const at = body.othersLine ?? body.endLine;
+          edit.insert(
+            document.uri,
+            new vscode.Position(at, 0),
+            body.othersLine === undefined ? arms : `${arms}\n`,
+          );
         } else {
           // Nothing written after the selector yet, so the statement is finished as well as
           // filled: `is` if it is missing, the arms, and the `end case` to close it. The text is
@@ -2180,10 +2217,6 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
 
     // Only when refactorings are wanted: asked for quick fixes, VS Code drops these and logs a
     // warning for every one, which filled the extension host log on every lightbulb.
-    const extract =
-      !context.only ||
-      context.only.contains(vscode.CodeActionKind.RefactorExtract) ||
-      vscode.CodeActionKind.RefactorExtract.contains(context.only);
     if (!range.isEmpty && extract) {
       for (const kind of ["constant", "signal"] as const) {
         const action = new vscode.CodeAction(
