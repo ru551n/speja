@@ -3,7 +3,9 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
-## Unreleased
+## 0.14.4
+
+**Targets VSG 3.35.**
 
 * **Move a signal into the block or generate that uses it.** On the declaration of a signal that
   only one block or generate body uses, the editor offers *Move signal ... into ...*, also as

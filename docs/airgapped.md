@@ -87,7 +87,7 @@ Each release has a `SHA256SUMS` file, and every file carries a build provenance 
 
 ```sh
 sha256sum -c SHA256SUMS
-gh attestation verify speja-v0.14.3-x86_64-unknown-linux-musl.tar.gz --repo ru551n/speja
+gh attestation verify speja-v0.14.4-x86_64-unknown-linux-musl.tar.gz --repo ru551n/speja
 ```
 
 The attestation ties the artifact to the workflow run and the commit that produced it, so "this

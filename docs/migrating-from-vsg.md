@@ -58,7 +58,7 @@ On GitHub, the speja action shows findings as annotations and can upload them to
 scanning ([GitHub Action](github-action.md)):
 
 ```yaml
-- uses: ru551n/speja@v0.14.3
+- uses: ru551n/speja@v0.14.4
   with:
     args: -c vsg.yaml --recursive src
 ```
@@ -78,7 +78,7 @@ repos:
         name: speja
         entry: speja --fix -c vsg.yaml
         language: python
-        additional_dependencies: [speja==0.14.3]
+        additional_dependencies: [speja==0.14.4]
         files: \.(vhd|vhdl)$
         require_serial: true
 ```
@@ -89,7 +89,7 @@ Or from this repository, which builds speja from source (hooks `speja` to check 
 ```yaml
 repos:
   - repo: https://github.com/ru551n/speja
-    rev: v0.14.3
+    rev: v0.14.4
     hooks:
       - id: speja-fix
         args: [-c, vsg.yaml]

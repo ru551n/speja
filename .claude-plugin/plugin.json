@@ -1,6 +1,6 @@
 {
   "name": "speja",
-  "version": "0.14.3",
+  "version": "0.14.4",
   "description": "VHDL formatting and static analysis: format a file the project's way, fix what is fixable, and check it is clean before committing, with the speja MCP server preconfigured.",
   "author": {
     "name": "Sebastian Hellgren"
