@@ -266,7 +266,7 @@ can be bound to a key in *Keyboard Shortcuts* (`Ctrl+K Ctrl+S`, search `speja`).
 
 | Command | Does |
 |---|---|
-| `speja.showMenu` *Show Actions...* | every action below in one grouped list; also the **speja** item in the status bar |
+| `speja.showMenu` *Show Actions...* | every action below in one menu, opened at the cursor; also the **speja** item in the status bar |
 | `speja.quickFix` *Quick Fixes at Cursor...* | the lightbulb's speja entries: the server's fixes and the editing actions together |
 | `speja.declare` *Declare Name Under Cursor...* | the declare offers for the undeclared name at the cursor; applied directly when there is one |
 | `speja.addUseClause` *Add Use Clause...* | a searchable list of every package's contents, and every package by name |

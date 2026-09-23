@@ -15,10 +15,9 @@ import { execFile } from "node:child_process";
 
 import {
   CodeAction,
+  CodeActionKind,
   ExtensionContext,
   OutputChannel,
-  QuickPickItem,
-  QuickPickItemKind,
   Range,
   StatusBarAlignment,
   WorkspaceEdit,
@@ -355,23 +354,41 @@ const MENU: [string, [string, string, string][]][] = [
   ],
 ];
 
-/** The speja menu: every action in one list, grouped, for when the name of one escapes you. */
+/**
+ * The kind the speja menu's entries carry. Not quick fixes and not refactorings, so the ordinary
+ * lightbulb never shows them: they come back only when this kind is asked for by name.
+ */
+const MENU_KIND = CodeActionKind.Empty.append("speja");
+
+/**
+ * The speja menu, at the cursor. The editor's list pickers always open at the top of the window
+ * and an extension cannot move them; the code action widget is the one menu that opens where the
+ * cursor is, so the menu is that widget, asked for speja's entries and nothing else.
+ */
 async function showMenu(): Promise<void> {
-  type Item = QuickPickItem & { command?: string };
-  const items: Item[] = MENU.flatMap(([group, entries]) => [
-    { label: group, kind: QuickPickItemKind.Separator },
-    ...entries.map(([command, label, detail]) => ({
-      label,
-      description: detail,
-      command,
-    })),
-  ]);
-  const chosen = await window.showQuickPick(items, {
-    placeHolder: "speja",
-    matchOnDescription: true,
+  await commands.executeCommand("editor.action.codeAction", {
+    kind: MENU_KIND.value,
+    apply: "never",
   });
-  if (chosen?.command) await commands.executeCommand(chosen.command);
 }
+
+/** The entries of the menu at the cursor: every action, each running its command. */
+const menuActions = {
+  provideCodeActions(
+    _document: unknown,
+    _range: unknown,
+    context: { only?: CodeActionKind },
+  ): CodeAction[] {
+    if (!context.only || !MENU_KIND.contains(context.only)) return [];
+    return MENU.flatMap(([, entries]) =>
+      entries.map(([command, label]) => {
+        const action = new CodeAction(label, MENU_KIND);
+        action.command = { command, title: label };
+        return action;
+      }),
+    );
+  },
+};
 
 async function stop(): Promise<void> {
   const running = client;
@@ -390,6 +407,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     commands.registerCommand("speja.showOutput", () => output?.show()),
     commands.registerCommand("speja.showVersion", () => showVersion(context)),
     commands.registerCommand("speja.showMenu", showMenu),
+    languages.registerCodeActionsProvider("vhdl", menuActions, {
+      providedCodeActionKinds: [MENU_KIND],
+    }),
     commands.registerCommand("speja.quickFix", quickFixes),
     commands.registerCommand("speja.formatDocument", () =>
       serverEdit("document"),

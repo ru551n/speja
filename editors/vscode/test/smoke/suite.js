@@ -1462,16 +1462,23 @@ exports.run = async function run() {
       check(lay.getText() !== beforeFormat, "speja: Format Document formats the file");
       await restore();
 
-      // The menu runs what is picked.
-      pick = "Format Document";
+      // The menu opens at the cursor: it is the code action widget asked for speja's kind, so
+      // it carries every action, and the ordinary lightbulb carries none of them.
+      const here = new vscode.Range(layEd.selection.active, layEd.selection.active);
+      const menuItems = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", lay.uri, here, "speja")) || [];
+      const menuTitles = menuItems.map((a) => a.title);
+      check(menuTitles.includes("Format Document") && menuTitles.includes("Instantiate Entity...") &&
+          menuTitles.includes("Quick Fixes at Cursor...") && !menuTitles.includes("Fix All Findings"),
+        "the speja menu at the cursor lists the actions", menuTitles.slice(0, 5).join(" | "));
+      const lightbulb = ((await vscode.commands.executeCommand("vscode.executeCodeActionProvider", lay.uri, here)) || []).map((a) => a.title);
+      check(!lightbulb.includes("Instantiate Entity...") && !lightbulb.includes("Format Document"),
+        "and the ordinary lightbulb does not", lightbulb.join(" | ") || "nothing");
       const beforeMenu = lay.getText();
-      await vscode.commands.executeCommand("speja.showMenu");
+      const entry = menuItems.find((a) => a.title === "Format Document");
+      await vscode.commands.executeCommand(entry.command.command, ...(entry.command.arguments || []));
       await wait(1500);
-      check(offeredLabels.includes("Format Selection") && offeredLabels.includes("Instantiate Entity...") && !offeredLabels.includes("Fix All Findings"),
-        "the speja menu lists the actions", offeredLabels.slice(0, 6).join(" | "));
-      check(lay.getText() !== beforeMenu, "and picking one runs it");
+      check(lay.getText() !== beforeMenu, "and picking an entry runs it");
       await restore();
-      pick = "fifo";
 
       // Quick Fixes at Cursor: the server's fixes and the editing actions in one list.
       const typoLine = lay.getText().split("\n").findIndex((l) => /some_out <= typo_sig/.test(l));

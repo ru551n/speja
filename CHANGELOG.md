@@ -8,6 +8,9 @@ reports are that version's. `speja --version` prints the same thing.
 * **"Declare N signals for this port map" declares before the architecture's own `begin`.** It
   used the nearest `begin` above the instance, which was a process's or a function's whenever one
   came first, and indented like the instance. Extract to constant or signal had the same fault.
+* **The speja menu opens at the cursor.** It is the editor's code action widget asked for speja's
+  own kind, the one menu an extension can open where the cursor is; the ordinary lightbulb does
+  not show its entries. Bind `speja.showMenu` to a key to open it while typing.
 * **Fix All is out of the speja menu**: it is the same edit as Format Document. It stays a
   palette command and the `source.fixAll` action for `codeActionsOnSave`.
 * **The "File is not formatted" finding is on the line that will change**, and says which
