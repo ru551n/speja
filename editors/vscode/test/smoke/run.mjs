@@ -53,7 +53,7 @@ const write = (name, text) => writeFileSync(join(workspace, name), text);
 
 // top, fifo, leaf, fsm, usage and clauses, and the forty below.
 // `generated/excluded.vhd` is in no library, but the server still indexes it as its own unit.
-const ENTITIES = 60;   // every fixture entity, generated/excluded.vhd and the editing fixtures included
+const ENTITIES = 61;   // every fixture entity, generated/excluded.vhd and the editing fixtures included
 
 // Two libraries. A library name of `work` in vhdl_ls.toml is silently ignored by the server, so
 // neither uses it.
@@ -308,6 +308,22 @@ begin
     end if;
   end process;
 
+end architecture rtl;
+`);
+
+// A signal only one generate uses, for the move into it (section 27).
+write("move.vhd", `entity move_demo is
+  port (
+    go : in bit
+  );
+end entity move_demo;
+
+architecture rtl of move_demo is
+  signal lane_hit : bit;
+begin
+  g_lanes : if true generate
+    lane_hit <= go;
+  end generate g_lanes;
 end architecture rtl;
 `);
 

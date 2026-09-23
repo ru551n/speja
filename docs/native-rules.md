@@ -1,6 +1,6 @@
 # Native rules in detail
 
-The twenty-two rules speja implements itself, as opposed to the resolved-semantic rules it gets from the
+The twenty-six rules speja implements itself, as opposed to the resolved-semantic rules it gets from the
 VHDL front end. Each entry says what evidence the analyser used, because that is what decides how
 far to trust a finding.
 
@@ -900,6 +900,49 @@ lint_782 | Error | 16 | 20 is outside the range 0 to 15 of 'v'
 **Limitations** literals only, on both sides. A value that is a name or an expression is not
 evaluated, and a range that depends on a generic is not either. A subtype of a subtype is not
 followed.
+
+---
+
+<a id="lint_790"></a>
+## lint_790: Signal declared wider than it is used
+
+**Detects** a signal declared in an architecture, block or generate body that is only used inside
+one block or generate body below it.
+
+**Why it matters** where a signal is declared says who it belongs to. Declared in the
+architecture and used only inside one generate, it reads as state the whole architecture shares
+when it is not. In a `for ... generate` it is worse than misleading: it is one signal shared by
+every iteration, where one per iteration was almost certainly meant.
+
+**Evidence** the signal's declaration and every occurrence of its name in the architecture, and
+the blocks and generate bodies around them.
+
+**Context** none. **Severity** advisory, off unless asked for. **Fix** the editor offers *Move
+signal into ...* on the declaration's line, as a refactoring whether or not the rule is on, and as
+the finding's quick fix when it is. A generate body with no declarative part is given one, with
+the `begin` that ends it. `--fix` does not move signals: in a `for ... generate` the move changes
+what the design means.
+
+```vhdl
+architecture rtl of dut is
+  signal lane_hit : bit;
+begin
+  g_lanes : for i in 0 to 3 generate
+    lane_hit <= q(i);
+  end generate g_lanes;
+end architecture rtl;
+```
+
+```text
+lint_790 | Error | 6 | Signal 'lane_hit' is only used inside generate 'g_lanes': declared
+                       there, each iteration has one of its own instead of all of them
+                       sharing it
+```
+
+**Limitations** it works from names, not from resolved declarations, so a signal whose name is
+declared anywhere else in the architecture (a constant, a variable, a generate parameter, a
+block's port) is left alone. A block's guard and port map are read in the region around the
+block, so a signal used there stays where it is. An unused signal is not reported here.
 
 ---
 

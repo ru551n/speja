@@ -1389,3 +1389,63 @@ fn an_excluded_file_is_left_alone_by_the_server() {
     );
     assert_eq!(diagnostics(&vendored), 0);
 }
+
+/// A signal used only inside one generate is offered a move into it: as a refactoring while its
+/// rule (`lint_790`) is off, as the finding's quick fix once it is on. A generate with no
+/// declarative part is given one, and the `begin` that ends it.
+#[test]
+fn a_signal_can_be_moved_into_the_generate_that_uses_it() {
+    let source = "entity dut is\nend entity dut;\n\narchitecture rtl of dut is\n  signal s : bit;\n\
+                  begin\n  g : if true generate\n    assert s = '0';\n  end generate g;\n\
+                  end architecture rtl;\n";
+    let ask = |session: &mut Session, uri: &str, only: &str| {
+        let got = session.talk_while(
+            &[serde_json::json!({
+                "jsonrpc": "2.0", "id": 7, "method": "textDocument/codeAction",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "range": { "start": { "line": 4, "character": 2 },
+                               "end": { "line": 4, "character": 2 } },
+                    "context": { "diagnostics": [], "only": [only] }
+                }
+            })],
+            |seen| seen.iter().any(|m| m["id"] == 7),
+        );
+        got.iter().find(|m| m["id"] == 7).expect("a reply")["result"]
+            .as_array()
+            .expect("actions")
+            .iter()
+            .filter(|a| a["title"] == "Move signal s into generate 'g'")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("dut.vhd");
+    std::fs::write(&file, source).expect("write");
+    let uri = file_uri(&file);
+    let mut session = Session::start();
+    session.talk(&[did_open(&uri, source)], 1);
+    let offered = ask(&mut session, &uri, "refactor");
+    assert_eq!(
+        offered.len(),
+        1,
+        "offered as a refactoring with the rule off"
+    );
+    assert_eq!(offered[0]["kind"], "refactor.move");
+    let edits = offered[0]["edit"]["changes"][&uri]
+        .as_array()
+        .expect("edits");
+    let inserted: Vec<&str> = edits.iter().filter_map(|e| e["newText"].as_str()).collect();
+    assert!(
+        inserted.contains(&"\n    signal s : bit;\n  begin"),
+        "{inserted:?}"
+    );
+    drop(session);
+
+    enable_class(dir.path(), "advisory");
+    let mut session = Session::start_in(dir.path());
+    session.talk(&[did_open(&uri, source)], 1);
+    let offered = ask(&mut session, &uri, "quickfix");
+    assert_eq!(offered.len(), 1, "the finding's quick fix with the rule on");
+}

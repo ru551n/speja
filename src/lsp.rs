@@ -165,10 +165,9 @@ fn position_at(line: usize, column: usize) -> Position {
     }
 }
 
-/// The byte range of whole lines `first..=last`, 0-based, clamped to the text.
-///
-/// Formatting a selection works in whole lines, as `--range` does. A layout is decided for a
-/// line, not for the columns someone happened to drag across, and half a line cannot be folded.
+/// The kind of the action that moves a signal into a narrower region.
+const MOVE: &str = "refactor.move";
+
 /// speja's byte-offset edits as the editor's line/character edits.
 fn lsp_edits(text: &str, edits: &[speja::TextEdit]) -> Vec<TextEdit> {
     edits
@@ -182,6 +181,10 @@ fn lsp_edits(text: &str, edits: &[speja::TextEdit]) -> Vec<TextEdit> {
         .collect()
 }
 
+/// The byte range of whole lines `first..=last`, 0-based, clamped to the text.
+///
+/// Formatting a selection works in whole lines, as `--range` does. A layout is decided for a
+/// line, not for the columns someone happened to drag across, and half a line cannot be folded.
 fn line_span(text: &str, first: u32, last: u32) -> std::ops::Range<usize> {
     let starts: Vec<usize> = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
@@ -625,6 +628,7 @@ impl LanguageServer for Backend {
                             CodeActionKind::QUICKFIX,
                             CodeActionKind::SOURCE_FIX_ALL,
                             CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+                            CodeActionKind::new(MOVE),
                         ]),
                         ..CodeActionOptions::default()
                     },
@@ -788,6 +792,40 @@ impl LanguageServer for Backend {
                             title,
                             kind: Some(CodeActionKind::QUICKFIX),
                             edit: Some(workspace_edit(&uri, lsp_edits(&text, &edits))),
+                            ..CodeAction::default()
+                        }));
+                    }
+                }
+
+                // Moving a signal into the one block or generate that uses it (`lint_790`). The
+                // rule is advisory and off unless asked for, but the move is useful either way,
+                // so it is offered as a refactoring always, and as the finding's quick fix when
+                // the rule is on. On the declaration's line, one action per name that can move.
+                let reported = cfg.rule_by_id("lint_790").is_some_and(|s| s.enabled);
+                let kind = if reported {
+                    CodeActionKind::QUICKFIX
+                } else {
+                    CodeActionKind::new(MOVE)
+                };
+                let asked = wanted
+                    .as_ref()
+                    .is_none_or(|only| only.iter().any(|k| kind.as_str().starts_with(k.as_str())));
+                if asked {
+                    let (first, last) = selected_lines(range);
+                    for m in analysis::scope::moves(&parsed) {
+                        let line = position_of(&text, m.at.start).line;
+                        if line < first || line > last {
+                            continue;
+                        }
+                        let iterations = if m.per_iteration {
+                            " (one per iteration)"
+                        } else {
+                            ""
+                        };
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: format!("Move signal {} into {}{iterations}", m.name, m.target),
+                            kind: Some(kind.clone()),
+                            edit: Some(workspace_edit(&uri, lsp_edits(&text, &m.edits))),
                             ..CodeAction::default()
                         }));
                     }

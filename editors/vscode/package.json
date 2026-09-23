@@ -132,6 +132,11 @@
         "category": "speja"
       },
       {
+        "command": "speja.moveSignal",
+        "title": "Move Signal Into the Scope That Uses It",
+        "category": "speja"
+      },
+      {
         "command": "speja.fsmFromEnum",
         "title": "Create State Machine from Enum Type",
         "category": "speja"
@@ -238,6 +243,10 @@
           "when": "editorLangId == vhdl"
         },
         {
+          "command": "speja.moveSignal",
+          "when": "editorLangId == vhdl"
+        },
+        {
           "command": "speja.fsmFromEnum",
           "when": "editorLangId == vhdl"
         },
@@ -314,6 +323,10 @@
         {
           "command": "speja.extractObject",
           "group": "1_cursor@9"
+        },
+        {
+          "command": "speja.moveSignal",
+          "group": "1_cursor@10"
         },
         {
           "command": "speja.formatDocument",

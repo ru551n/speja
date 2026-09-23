@@ -94,6 +94,7 @@ The fact is exact and the conclusion is a judgement. An unused declaration reall
 | [`lint_730`](native-rules.md#lint_730) | A signal is read but nothing drives it: no assignment, and no instance output. |
 | [`lint_750`](native-rules.md#lint_750) | A component declaration does not match the entity it stands for. |
 | [`lint_760`](native-rules.md#lint_760) | A subprogram whose body calls itself, which no synthesis tool accepts (off by default). |
+| [`lint_790`](native-rules.md#lint_790) | A signal is only used inside one block or generate below the region that declares it. |
 
 ## Experimental
 

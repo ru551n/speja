@@ -29,7 +29,7 @@ giving. A test asserts each of those is absent.
 | `textDocument/publishDiagnostics` | the style rules and the lint layer, with `relatedInformation` |
 | `textDocument/formatting` | one edit for the whole document |
 | `textDocument/rangeFormatting` | the selected lines only, the rest untouched |
-| `textDocument/codeAction` | a quick fix per fixable finding, `source.fixAll`, and `source.organizeImports` |
+| `textDocument/codeAction` | a quick fix per fixable finding, `source.fixAll`, `source.organizeImports`, and `refactor.move` to move a signal into the block or generate that uses it |
 
 ## Formatting a selection
 

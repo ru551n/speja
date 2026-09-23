@@ -3,6 +3,16 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## Unreleased
+
+* **Move a signal into the block or generate that uses it.** On the declaration of a signal that
+  only one block or generate body uses, the editor offers *Move signal ... into ...*, also as
+  *speja: Move Signal Into the Scope That Uses It*. A generate with no declarative part is given
+  one, with its `begin`. One name out of `signal a, b : bit;` moves on its own.
+* **`lint_790` reports a signal declared wider than it is used**, off unless asked for. In a
+  `for ... generate` it says that moving it gives each iteration its own signal.
+* **What *speja* means**, and how to say it, in the README.
+
 ## 0.14.3
 
 **Targets VSG 3.35.**

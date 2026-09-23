@@ -279,6 +279,43 @@ async function quickFixes(): Promise<void> {
   if (chosen) await runAction(chosen.action);
 }
 
+/**
+ * Move the signal declared on the cursor's line into the block or generate that uses it.
+ *
+ * The server offers the move as a refactoring, or as the quick fix of `lint_790` when that rule
+ * is on, so both kinds are asked for and only the moves kept.
+ */
+async function moveSignal(): Promise<void> {
+  const editor = window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "vhdl") return;
+  const range = new Range(editor.selection.start, editor.selection.end);
+  const moves: CodeAction[] = [];
+  for (const kind of ["refactor.move", "quickfix"])
+    for (const a of (await commands.executeCommand<CodeAction[]>(
+      "vscode.executeCodeActionProvider",
+      editor.document.uri,
+      range,
+      kind,
+    )) ?? [])
+      if (/^Move signal /.test(a.title)) moves.push(a);
+  if (!moves.length) {
+    void window.showInformationMessage(
+      "speja: no signal to move here. Put the cursor on the declaration of a signal that only one block or generate uses.",
+    );
+    return;
+  }
+  const chosen =
+    moves.length === 1
+      ? moves[0]
+      : (
+          await window.showQuickPick(
+            moves.map((a) => ({ label: a.title, action: a })),
+            { placeHolder: "Which signal?" },
+          )
+        )?.action;
+  if (chosen) await runAction(chosen);
+}
+
 /** What the speja menu lists, in order. Every entry is also a palette command. */
 const MENU: [string, string][] = [
   ["speja.quickFix", "Quick Fixes at Cursor..."],
@@ -291,6 +328,7 @@ const MENU: [string, string][] = [
   ["speja.fsmFromEnum", "Create State Machine from Enum Type"],
   ["speja.componentDeclaration", "Declare Entity as Component..."],
   ["speja.extractObject", "Extract Selection to Constant or Signal"],
+  ["speja.moveSignal", "Move Signal Into the Scope That Uses It"],
   ["speja.formatDocument", "Format Document"],
   ["speja.formatSelection", "Format Selection"],
   ["speja.sortUseClauses", "Sort Library and Use Clauses"],
@@ -365,6 +403,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     ),
     commands.registerCommand("speja.fixAll", () => serverEdit("fixAll")),
     commands.registerCommand("speja.sortUseClauses", () => serverEdit("sort")),
+    commands.registerCommand("speja.moveSignal", moveSignal),
     // Which executable to run is decided at startup, so a change to it needs a restart.
     workspace.onDidChangeConfiguration(async (event) => {
       if (

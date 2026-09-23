@@ -14,6 +14,9 @@
 
 **Catch it earlier. Earlier than simulation.**
 
+*speja* (Swedish, said roughly "SPAY-ah") means to scout, to keep a lookout: to spot trouble
+before it reaches you.
+
 A VHDL formatter and linter in Rust. Every bug has a price that goes up the longer it takes to
 find: a moment in your editor, a coffee in CI, an afternoon in a waveform viewer, a respin on
 silicon. speja moves what it can to the cheap end of that scale: the moment you save the file.

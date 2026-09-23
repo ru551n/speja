@@ -19,6 +19,7 @@ pub mod flow;
 pub mod fsm;
 pub mod lint;
 pub mod resetdomain;
+pub mod scope;
 pub mod suspend;
 pub mod testbench;
 pub mod width;
@@ -105,6 +106,7 @@ pub fn rules() -> impl Iterator<Item = Rule> {
         .chain(suspend::RULES.iter().copied())
         .chain(evaluated::RULES.iter().copied())
         .chain(flow::RULES.iter().copied())
+        .chain(scope::RULES.iter().copied())
 }
 
 /// How sure the rule with this id is, or `None` if it is not a rule of the lint layer.
@@ -186,5 +188,6 @@ pub fn per_file(
         .chain(suspend::check(parsed, path))
         .chain(evaluated::check(parsed, path))
         .chain(flow::check(parsed, path))
+        .chain(scope::check(parsed, path))
         .collect()
 }

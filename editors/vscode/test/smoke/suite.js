@@ -1559,18 +1559,21 @@ exports.run = async function run() {
         `${fixesOnly.filter((a) => /^Extract/.test(a.title)).length} extract in quickfix, ${refactors.length} refactorings`);
     }
 
-    // 26. Asked for one kind of action, only that kind comes back: VS Code drops the rest and logs
-    // a warning for each, which filled the extension host log on every lightbulb.
+    // 27. A signal only one generate uses moves into it, and the generate is given the `begin`
+    // it has no declarative part without.
     {
-      const d = await vscode.workspace.openTextDocument(at("audit.vhd"));
-      await vscode.window.showTextDocument(d);
-      const l = d.getText().split("\n").findIndex((x) => /count <= clamp/.test(x));
-      const sel = new vscode.Range(l, 15, l, 27);
-      const fixesOnly = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", d.uri, sel, "quickfix")) || [];
-      const refactors = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", d.uri, sel, "refactor.extract")) || [];
-      check(!fixesOnly.some((a) => /^Extract to/.test(a.title)) && refactors.some((a) => /^Extract to/.test(a.title)),
-        "quick fixes asked for, no refactoring is returned; refactorings asked for, they are",
-        `${fixesOnly.filter((a) => /^Extract/.test(a.title)).length} extract in quickfix, ${refactors.length} refactorings`);
+      const d = await vscode.workspace.openTextDocument(at("move.vhd"));
+      const ed = await vscode.window.showTextDocument(d);
+      const l = d.getText().split("\n").findIndex((x) => /signal lane_hit/.test(x));
+      ed.selection = new vscode.Selection(l, 4, l, 4);
+      await wait(1500);
+      await vscode.commands.executeCommand("speja.moveSignal");
+      await wait(1000);
+      const moved = d.getText();
+      check(/g_lanes : if true generate\n    signal lane_hit : bit;\n  begin\n    lane_hit <= go;/.test(moved) &&
+          !/is\n  signal lane_hit/.test(moved),
+        "speja: Move Signal moves it into the generate and adds the begin", JSON.stringify(moved.slice(0, 260)));
+      await vscode.commands.executeCommand("workbench.action.files.revert");
     }
 
     // 23. What typing offers. Every row every provider returns, VHDL-LS's included, is written
