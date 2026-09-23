@@ -3,6 +3,18 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## Unreleased
+
+* **"Declare N signals for this port map" declares before the architecture's own `begin`.** It
+  used the nearest `begin` above the instance, which was a process's or a function's whenever one
+  came first, and indented like the instance. Extract to constant or signal had the same fault.
+* **Fix All is out of the speja menu**: it is the same edit as Format Document. It stays a
+  palette command and the `source.fixAll` action for `codeActionsOnSave`.
+* **The "File is not formatted" finding is on the line that will change**, and says which
+  disabled rule the formatter still applies. It was on the file's last line.
+* **Refactorings are returned only when asked for**, which stops a warning in the extension host
+  log on every lightbulb.
+
 ## 0.14.2
 
 **Targets VSG 3.35.**

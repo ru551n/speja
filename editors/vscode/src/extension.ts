@@ -330,10 +330,9 @@ const MENU: [string, [string, string, string][]][] = [
       [
         "speja.formatDocument",
         "Format Document",
-        "speja's formatter, whatever the default",
+        "layout and the safe fixes, as speja --fix",
       ],
       ["speja.formatSelection", "Format Selection", "only the selected lines"],
-      ["speja.fixAll", "Fix All Findings", "every fix speja applies safely"],
       [
         "speja.sortUseClauses",
         "Sort Library and Use Clauses",

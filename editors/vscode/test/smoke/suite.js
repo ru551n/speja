@@ -1410,6 +1410,17 @@ exports.run = async function run() {
         "a variable is declared in the process, after the procedure it declares",
         `tmp_v at ${vLine + 1}, procedure ends ${procEnd + 1}, process begin ${pBegin + 1}`);
 
+      // An instance below a process: its signals go to the architecture, not into the process
+      // whose `begin` is the nearest one above the instance.
+      const late = lineOf(doc, /rst => rst_late/);
+      check(await apply(doc, late, 10, "Declare 1 signal for this port map"), "the port-map action applies below a process");
+      const now = doc.getText().split("\n");
+      const lateLine = now.findIndex((l) => /signal rst_late\b/.test(l));
+      const archBegin = now.findIndex((l, i) => i > now.findIndex((x) => /^architecture second/.test(x)) && /^begin\b/.test(l));
+      check(lateLine > 0 && lateLine < archBegin && /^  signal/.test(now[lateLine]),
+        "and declares it before the architecture's begin, indented as a declaration",
+        `rst_late at ${lateLine + 1} ${JSON.stringify(now[lateLine] || "")}, architecture begin ${archBegin + 1}`);
+
       // A file that does not analyse still offers the port-map action.
       const broken = await vscode.workspace.openTextDocument(at("broken.vhd"));
       await vscode.window.showTextDocument(broken);
@@ -1431,7 +1442,7 @@ exports.run = async function run() {
         "every command sits under `speja` once, not `VHDL: VHDL:`",
         contributed.filter((c) => c.category !== "speja" || /:/.test(c.title)).map((c) => c.title).join(" | ") || "all");
       const inMenu = new Set(pkg.contributes.menus["speja.context"].map((m) => m.command));
-      const missingFromMenu = contributed.filter((c) => !["speja.restartServer", "speja.showOutput", "speja.showVersion", "speja.refreshHierarchy"].includes(c.command) && !inMenu.has(c.command));
+      const missingFromMenu = contributed.filter((c) => !["speja.restartServer", "speja.showOutput", "speja.showVersion", "speja.refreshHierarchy", "speja.fixAll"].includes(c.command) && !inMenu.has(c.command));
       check(missingFromMenu.length === 0, "the right-click speja menu carries every editing command",
         missingFromMenu.map((c) => c.command).join(", ") || "all");
 
@@ -1456,7 +1467,7 @@ exports.run = async function run() {
       const beforeMenu = lay.getText();
       await vscode.commands.executeCommand("speja.showMenu");
       await wait(1500);
-      check(offeredLabels.includes("Format Selection") && offeredLabels.includes("Instantiate Entity..."),
+      check(offeredLabels.includes("Format Selection") && offeredLabels.includes("Instantiate Entity...") && !offeredLabels.includes("Fix All Findings"),
         "the speja menu lists the actions", offeredLabels.slice(0, 6).join(" | "));
       check(lay.getText() !== beforeMenu, "and picking one runs it");
       await restore();
@@ -1519,6 +1530,34 @@ exports.run = async function run() {
       vscode.window.createQuickPick = realCreate;
       check(/^use work\.audit_pkg\.all;$/m.test(lay.getText()), "and picking a row adds its package's use clause");
       await vscode.commands.executeCommand("workbench.action.files.revert");
+    }
+
+    // 26. Asked for one kind of action, only that kind comes back: VS Code drops the rest and logs
+    // a warning for each, which filled the extension host log on every lightbulb.
+    {
+      const d = await vscode.workspace.openTextDocument(at("audit.vhd"));
+      await vscode.window.showTextDocument(d);
+      const l = d.getText().split("\n").findIndex((x) => /count <= clamp/.test(x));
+      const sel = new vscode.Range(l, 15, l, 27);
+      const fixesOnly = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", d.uri, sel, "quickfix")) || [];
+      const refactors = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", d.uri, sel, "refactor.extract")) || [];
+      check(!fixesOnly.some((a) => /^Extract to/.test(a.title)) && refactors.some((a) => /^Extract to/.test(a.title)),
+        "quick fixes asked for, no refactoring is returned; refactorings asked for, they are",
+        `${fixesOnly.filter((a) => /^Extract/.test(a.title)).length} extract in quickfix, ${refactors.length} refactorings`);
+    }
+
+    // 26. Asked for one kind of action, only that kind comes back: VS Code drops the rest and logs
+    // a warning for each, which filled the extension host log on every lightbulb.
+    {
+      const d = await vscode.workspace.openTextDocument(at("audit.vhd"));
+      await vscode.window.showTextDocument(d);
+      const l = d.getText().split("\n").findIndex((x) => /count <= clamp/.test(x));
+      const sel = new vscode.Range(l, 15, l, 27);
+      const fixesOnly = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", d.uri, sel, "quickfix")) || [];
+      const refactors = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", d.uri, sel, "refactor.extract")) || [];
+      check(!fixesOnly.some((a) => /^Extract to/.test(a.title)) && refactors.some((a) => /^Extract to/.test(a.title)),
+        "quick fixes asked for, no refactoring is returned; refactorings asked for, they are",
+        `${fixesOnly.filter((a) => /^Extract/.test(a.title)).length} extract in quickfix, ${refactors.length} refactorings`);
     }
 
     // 23. What typing offers. Every row every provider returns, VHDL-LS's included, is written

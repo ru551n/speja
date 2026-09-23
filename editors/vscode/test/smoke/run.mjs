@@ -599,6 +599,12 @@ begin
     tmp_v := 1;
   end process;
 
+  u_after : entity work.fifo
+    port map (
+      clk => clk,
+      rst => rst_late
+    );
+
 end architecture second;
 `);
 

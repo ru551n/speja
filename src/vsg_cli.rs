@@ -181,10 +181,22 @@ fn describe_error(parsed: &Parsed, e: &FormatError) -> String {
 fn layout_findings(parsed: &Parsed, formatted: Vec<u8>, cfg: &Config) -> Vec<Diagnostic> {
     let after = Parsed::new(formatted);
     let mut out: Vec<Diagnostic> = Vec::new();
+    // The first change a disabled rule would have reported, for the fallback below.
+    let mut unreported: Option<(usize, String)> = None;
     for change in speja::layout::layout_changes(parsed, &after) {
         let rule = speja::layout::rule_for(&change);
         // A disabled VSG rule does not report (the formatter still applies its policy).
         if rule != "format" && cfg.rule_by_id(rule).is_some_and(|s| !s.enabled) {
+            unreported.get_or_insert_with(|| {
+                (
+                    change.line,
+                    format!(
+                        "File is not formatted: {} ({rule} is disabled, but the formatter still \
+                         applies it)",
+                        speja::layout::message(&change, cfg.format.indent)
+                    ),
+                )
+            });
             continue;
         }
         if out.iter().any(|d| d.line == change.line && d.rule == rule) {
@@ -202,13 +214,22 @@ fn layout_findings(parsed: &Parsed, formatted: Vec<u8>, cfg: &Config) -> Vec<Dia
         });
     }
     if out.is_empty() {
-        // The tokens are the same; only line endings or the final newline differ.
+        // Nothing a rule reports, yet formatting changes the file: either every change belongs
+        // to a disabled rule, which the formatter applies anyway, or only line endings or the
+        // final newline differ. The first is placed on the line that will change and says why;
+        // a finding on the last line naming nothing sent people looking in the wrong place.
+        let (line, message) = unreported.unwrap_or_else(|| {
+            (
+                parsed.source().split(|&b| b == b'\n').count().max(1),
+                "File is not formatted".into(),
+            )
+        });
         out.push(Diagnostic {
-            line: parsed.source().split(|&b| b == b'\n').count().max(1),
+            line,
             column: 1,
             rule: "format".into(),
             severity: "error".into(),
-            message: "File is not formatted".into(),
+            message,
             fixable: true,
             related: Vec::new(),
             fix: Vec::new(),

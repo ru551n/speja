@@ -277,9 +277,9 @@ can be bound to a key in *Keyboard Shortcuts* (`Ctrl+K Ctrl+S`, search `speja`).
 | `speja.fsmFromEnum` *Create State Machine from Enum Type* | on an enumeration type |
 | `speja.componentDeclaration` *Declare Entity as Component...* | for component instantiation |
 | `speja.extractObject` *Extract Selection to Constant or Signal* | the selected expression |
-| `speja.formatDocument` *Format Document* | speja's formatter, even where another is the default |
+| `speja.formatDocument` *Format Document* | layout and every safe fix, as `speja --fix`; speja's even where another formatter is the default |
 | `speja.formatSelection` *Format Selection* | only the selected lines |
-| `speja.fixAll` *Fix All Findings* | every fix speja applies safely |
+| `speja.fixAll` *Fix All Findings* | the same edit as Format Document, as the `source.fixAll` action; in the palette, not the menu |
 | `speja.sortUseClauses` *Sort Library and Use Clauses* | ieee and std first, work last |
 | `speja.removeUnusedUseClauses` *Remove Unused Use Clauses...* | pick which ones go |
 

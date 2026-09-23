@@ -307,10 +307,24 @@ fn diagnose(
     {
         let after = speja::Parsed::new(formatted);
         let mut seen: std::collections::HashSet<(usize, String)> = std::collections::HashSet::new();
+        // The command line's fallback, the same here: when every change belongs to a disabled
+        // rule the formatter still applies, one finding on the first line that will change says
+        // so, rather than the editor showing nothing while format-on-save rewrites the line.
+        let mut unreported: Option<(usize, String)> = None;
         for change in speja::layout::layout_changes(&parsed, &after) {
             let rule = speja::layout::rule_for(&change);
             // A disabled VSG rule does not report, though the formatter still applies its policy.
             if rule != "format" && cfg.rule_by_id(rule).is_some_and(|set| !set.enabled) {
+                unreported.get_or_insert_with(|| {
+                    (
+                        change.line,
+                        format!(
+                            "File is not formatted: {} ({rule} is disabled, but the formatter \
+                             still applies it)",
+                            speja::layout::message(&change, cfg.format.indent)
+                        ),
+                    )
+                });
                 continue;
             }
             if !seen.insert((change.line, rule.to_owned())) {
@@ -329,6 +343,23 @@ fn diagnose(
                 code: Some(NumberOrString::String(rule.to_owned())),
                 source: Some("speja".to_owned()),
                 message: speja::layout::message(&change, cfg.format.indent),
+                ..Diagnostic::default()
+            });
+        }
+        if seen.is_empty()
+            && let Some((line, message)) = unreported
+        {
+            let line = u32::try_from(line.saturating_sub(1)).unwrap_or(0);
+            let end = text
+                .lines()
+                .nth(line as usize)
+                .map_or(0, |l| u32::try_from(l.chars().count()).unwrap_or(0));
+            out.push(Diagnostic {
+                range: Range::new(Position::new(line, 0), Position::new(line, end)),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: Some(NumberOrString::String("format".to_owned())),
+                source: Some("speja".to_owned()),
+                message,
                 ..Diagnostic::default()
             });
         }

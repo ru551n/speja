@@ -942,17 +942,6 @@ async function componentDeclaration(): Promise<void> {
   );
 }
 
-/** The line holding the `begin` that opens the enclosing statement part. */
-function declarationInsertPoint(
-  doc: vscode.TextDocument,
-  from: vscode.Position,
-): vscode.Position {
-  for (let l = from.line; l >= 0; l--)
-    if (/^\s*begin\b/i.test(doc.lineAt(l).text))
-      return new vscode.Position(l, 0);
-  return new vscode.Position(from.line, 0);
-}
-
 async function declareSignals(
   uriArg?: vscode.Uri,
   atArg?: vscode.Position,
@@ -1001,12 +990,21 @@ async function declareSignals(
     if (!genericValues.has(g.name) && g.def !== undefined)
       genericValues.set(g.name, g.def);
 
+  // The same site the single declare action uses: before the architecture's own `begin`. The
+  // nearest `begin` above the instance was a process's or a function's whenever one came first.
+  const site = declarationSite(doc, inst.range.start, "signal");
+  if (!site) {
+    vscode.window.showWarningMessage(
+      "Could not find the architecture this instance is in.",
+    );
+    return;
+  }
   const existing = await declaredNear(doc, inst.range.start);
   const decls = renderSignals(e.ports, {
     existing,
     actuals,
     genericValues,
-    indent: indentOf(doc.lineAt(inst.range.start.line).text),
+    indent: site.indent,
   });
 
   if (!decls) {
@@ -1015,9 +1013,7 @@ async function declareSignals(
     );
     return;
   }
-  await editor.edit((b) =>
-    b.insert(declarationInsertPoint(doc, inst.range.start), decls + "\n"),
-  );
+  await editor.edit((b) => b.insert(site.position, decls + "\n"));
 }
 
 async function fsmFromEnum(): Promise<void> {
@@ -1188,11 +1184,19 @@ async function extractObject(
   });
   if (!type) return;
 
-  const at = declarationInsertPoint(doc, range.start);
-  const indent = indentOf(doc.lineAt(at.line).text) + "  ";
+  const site = declarationSite(doc, range.start, kind);
+  if (!site) {
+    vscode.window.showWarningMessage(
+      "Could not find the architecture to declare it in.",
+    );
+    return;
+  }
   await editor.edit((b) => {
     b.replace(range, name);
-    b.insert(at, `${indent}${kind} ${name} : ${type} := ${expression};\n`);
+    b.insert(
+      site.position,
+      `${site.indent}${kind} ${name} : ${type} := ${expression};\n`,
+    );
   });
 }
 
@@ -2174,7 +2178,13 @@ const vhdlCodeActions: vscode.CodeActionProvider = {
       // what its states are either, and guessing three would be putting words in their mouth.
     }
 
-    if (!range.isEmpty) {
+    // Only when refactorings are wanted: asked for quick fixes, VS Code drops these and logs a
+    // warning for every one, which filled the extension host log on every lightbulb.
+    const extract =
+      !context.only ||
+      context.only.contains(vscode.CodeActionKind.RefactorExtract) ||
+      vscode.CodeActionKind.RefactorExtract.contains(context.only);
+    if (!range.isEmpty && extract) {
       for (const kind of ["constant", "signal"] as const) {
         const action = new vscode.CodeAction(
           `Extract to ${kind}`,

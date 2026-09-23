@@ -324,10 +324,6 @@
           "group": "2_file@1"
         },
         {
-          "command": "speja.fixAll",
-          "group": "2_file@2"
-        },
-        {
           "command": "speja.sortUseClauses",
           "group": "2_file@3"
         },
