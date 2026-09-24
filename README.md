@@ -165,16 +165,9 @@ claude mcp add speja -- speja mcp
 about to write before writing it, which is one step earlier still; `format` with `write` fixes a
 file in place without moving it through the conversation.
 
-For Claude Code there is a plugin, which installs a `speja` skill and registers the MCP server:
-
-```text
-/plugin marketplace add ru551n/speja
-/plugin install speja@speja
-```
-
-The skill tells an agent to format and check VHDL before committing it, how to read a finding's
-class, and not to treat a run that skipped the library map as a clean file. `speja` itself still
-has to be on `PATH`.
+For Claude Code there is a [skill](https://speja.readthedocs.io/en/latest/claude-code/) that
+tells an agent to format and check VHDL before committing it, how to read a finding's class, and
+not to treat a run that skipped the library map as a clean file. It runs the `speja` on `PATH`.
 
 ### CI
 
@@ -204,7 +197,7 @@ repeated.
   it cannot reach, and how to check both yourself
 * [Language server](https://speja.readthedocs.io/en/latest/lsp/),
   [MCP server](https://speja.readthedocs.io/en/latest/mcp/) and
-  [Claude Code plugin](https://speja.readthedocs.io/en/latest/claude-code/)
+  [Claude Code skill](https://speja.readthedocs.io/en/latest/claude-code/)
 * [Waivers](https://speja.readthedocs.io/en/latest/waivers/)
 * [Migrating from VSG](https://speja.readthedocs.io/en/latest/migrating-from-vsg/)
 * [Compatibility with VSG](https://speja.readthedocs.io/en/latest/compatibility/), measured
