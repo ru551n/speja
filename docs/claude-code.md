@@ -14,7 +14,7 @@ and how to use it, and the [MCP server](mcp.md), registered and ready.
 pip install speja        # or: uv tool install speja
 ```
 
-## The `vsg` skill
+## The `speja` skill
 
 Claude loads it when a request is about formatting VHDL, checking its style, or whether it is
 ready to commit. What it carries:

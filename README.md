@@ -165,7 +165,7 @@ claude mcp add speja -- speja mcp
 about to write before writing it, which is one step earlier still; `format` with `write` fixes a
 file in place without moving it through the conversation.
 
-For Claude Code there is a plugin, which installs a `vsg` skill and registers the MCP server:
+For Claude Code there is a plugin, which installs a `speja` skill and registers the MCP server:
 
 ```text
 /plugin marketplace add ru551n/speja
