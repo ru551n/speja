@@ -1,17 +1,18 @@
-# Claude Code skill
+# Claude Code plugin
 
-A **skill** tells Claude when and how to use speja. Install it for every project:
+The plugin gives Claude a **skill** that says when and how to use speja:
 
-```sh
-mkdir -p ~/.claude/skills/speja
-curl -fsSL https://raw.githubusercontent.com/ru551n/speja/main/skills/speja/SKILL.md \
-    -o ~/.claude/skills/speja/SKILL.md
+```text
+/plugin marketplace add ru551n/speja
+/plugin install speja@speja
 ```
 
-or for one project, by putting the same file in the project's `.claude/skills/speja/`. Running the
-same command again updates it.
+`claude plugin update speja@speja` brings it up to date with a new release.
 
-The skill runs the `speja` on `PATH`:
+For one project instead, commit [`skills/speja/SKILL.md`](https://github.com/ru551n/speja/blob/main/skills/speja/SKILL.md)
+to the project's `.claude/skills/speja/`, and everyone who clones it has the skill.
+
+Either way, the skill runs the `speja` on `PATH`:
 
 ```sh
 pip install speja        # or: uv tool install speja

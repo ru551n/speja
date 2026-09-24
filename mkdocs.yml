@@ -49,7 +49,7 @@ nav:
       - Language server: lsp.md
       - Editing in VS Code: vscode-editing.md
       - MCP server: mcp.md
-      - Claude Code skill: claude-code.md
+      - Claude Code plugin: claude-code.md
   - Static analysis:
       - Overview: lint.md
       - Project setup: project-setup.md

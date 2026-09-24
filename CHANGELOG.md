@@ -5,9 +5,9 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
-* **The Claude Code plugin is gone; the skill stays.** It is one file to copy into
-  `~/.claude/skills/speja/`, and it runs the `speja` on `PATH`. The skill is named `speja`, not
-  `vsg`. Register the MCP server with `claude mcp add speja -- speja mcp` if you want it.
+* **The Claude Code plugin no longer registers the MCP server.** It carries only the skill, now
+  named `speja` rather than `vsg`, so its tools are not loaded into every session. Register the
+  server with `claude mcp add speja -- speja mcp` if you want it.
 
 ## 0.14.4
 
