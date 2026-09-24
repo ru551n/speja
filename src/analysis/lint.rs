@@ -90,10 +90,16 @@ impl Analysis {
 ///
 /// The error is returned rather than swallowed, because a report quietly missing most of the
 /// lint layer looks exactly like a clean one.
-pub fn front_end_for(path: &Path, text: Vec<u8>) -> Result<Vec<Finding>, String> {
+///
+/// `map` is the library map to analyse against; the caller finds it, usually with
+/// [`project_config_for`], so it can also say which one it used.
+pub fn front_end_for(
+    path: &Path,
+    text: Vec<u8>,
+    map: Option<&Path>,
+) -> Result<Vec<Finding>, String> {
     let sources = [Source::buffer(path.to_path_buf(), text)];
-    let map = path.parent().and_then(project_config_for);
-    let mut analyser = Analyser::for_project(&sources, map.as_deref())?;
+    let mut analyser = Analyser::for_project(&sources, map)?;
     Ok(analyser.analyse(&sources).reportable())
 }
 

@@ -3,6 +3,13 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## Unreleased
+
+* **The MCP `lint` tool takes the project's library map.** Pass `vhdl_ls_toml` and the rules that
+  resolve names across files analyse against it, instead of the nearest `vhdl_ls.toml` above the
+  file, which can be a catch-all map belonging to no project. The answer's `library_map` says
+  which map was used, and a named map that does not exist is an error.
+
 ## 0.14.4
 
 **Targets VSG 3.35.**
