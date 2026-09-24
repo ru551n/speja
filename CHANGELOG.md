@@ -5,6 +5,9 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **The Claude Code plugin no longer registers the MCP server.** It carries only the skill, now
+  named `speja` rather than `vsg`, so its tools are not loaded into every session. Register the
+  server with `claude mcp add speja -- speja mcp` if you want it.
 * **The MCP `lint` tool takes the project's library map.** Pass `vhdl_ls_toml` and the rules that
   resolve names across files analyse against it, instead of the nearest `vhdl_ls.toml` above the
   file, which can be a catch-all map belonging to no project. The answer's `library_map` says

@@ -165,7 +165,7 @@ claude mcp add speja -- speja mcp
 about to write before writing it, which is one step earlier still; `format` with `write` fixes a
 file in place without moving it through the conversation.
 
-For Claude Code there is a plugin, which installs a `vsg` skill and registers the MCP server:
+For Claude Code there is a plugin with a `speja` skill:
 
 ```text
 /plugin marketplace add ru551n/speja
@@ -173,8 +173,8 @@ For Claude Code there is a plugin, which installs a `vsg` skill and registers th
 ```
 
 The skill tells an agent to format and check VHDL before committing it, how to read a finding's
-class, and not to treat a run that skipped the library map as a clean file. `speja` itself still
-has to be on `PATH`.
+class, and not to treat a run that skipped the library map as a clean file. It runs the `speja`
+on `PATH`.
 
 ### CI
 

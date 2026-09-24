@@ -1,5 +1,5 @@
 ---
-name: vsg
+name: speja
 description: Use when formatting or style-checking VHDL, or checking VHDL is clean before committing: laying out a file the project's way, fixing style violations, running the linter over changed VHDL, or answering what a rule id means. Typical requests include "format this VHDL", "lint this", "check the style", "is this ready to commit", "what does entity_019 mean", "clean up the formatting".
 ---
 
