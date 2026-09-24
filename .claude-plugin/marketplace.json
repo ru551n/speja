@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "speja",
-      "source": "./",
+      "source": "./plugins/speja",
       "description": "Format VHDL, fix what is fixable, and check it is clean before committing."
     }
   ]

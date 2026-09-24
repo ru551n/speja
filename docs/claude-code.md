@@ -9,7 +9,7 @@ The plugin gives Claude a **skill** that says when and how to use speja:
 
 `claude plugin update speja@speja` brings it up to date with a new release.
 
-For one project instead, commit [`skills/speja/SKILL.md`](https://github.com/ru551n/speja/blob/main/skills/speja/SKILL.md)
+For one project instead, commit [`SKILL.md`](https://github.com/ru551n/speja/blob/main/plugins/speja/skills/speja/SKILL.md)
 to the project's `.claude/skills/speja/`, and everyone who clones it has the skill.
 
 Either way, the skill runs the `speja` on `PATH`:
