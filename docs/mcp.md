@@ -13,7 +13,7 @@ the [language server](lsp.md).
 
 | Tool | Arguments | Answers |
 |---|---|---|
-| `lint` | `path` or `source` | every finding, with rule id, line, column, message and class |
+| `lint` | `path` or `source`, and `vhdl_ls_toml` | every finding, with rule id, line, column, message and class |
 | `format` | `path` or `source`, and `write` | the formatted source, or what it changed when it wrote |
 | `explain_rule` | `rule` | the rule's description, its class, and whether a default run uses it |
 
@@ -40,6 +40,20 @@ build watching it does not rerun because a formatter looked at it.
 name exactly as the command line does: the configuration that applies, and the project's
 `vhdl_ls.toml`. An agent working in a configured project therefore gets that project's rules and
 its whole lint layer, rather than the defaults and half of it.
+
+## Always pass the library map
+
+```json
+{ "path": "rtl/fifo.vhd", "vhdl_ls_toml": "vhdl_ls.toml" }
+```
+
+`vhdl_ls_toml` names the project's library map, and `lint` analyses against it rather than
+against whichever `vhdl_ls.toml` it finds above the file. Pass it on every call. The one found by
+walking up can belong to something else entirely: a catch-all map in a parent directory that puts
+every file in one library knows none of the libraries the project uses, and every `use` of them
+becomes a `lint_100`. A map that is named and not there is an error, never a quiet fallback.
+
+Every answer says which map it used in `library_map`, `null` when there was none.
 
 Source that does not parse comes back from `format` unchanged, with the reason, and from `lint`
 as its syntax errors alone.

@@ -87,6 +87,10 @@ of them does something the command line cannot:
 - `format` with `write: true` fixes a file in place and returns only what changed, instead of the
   whole file.
 - `explain_rule` is `--explain`.
+- **Always pass `vhdl_ls_toml` to `lint`**: the project's own library map. Without it the server
+  uses the nearest `vhdl_ls.toml` above the file, which can be a catch-all map from a parent
+  directory, and then every `use` of the project's libraries is a false `lint_100`. Check the
+  answer's `library_map` names the map you meant.
 
 For files already on disk with a shell available, the command line is still cheaper: it takes
 many files in one run and nothing travels through the conversation.

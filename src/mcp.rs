@@ -62,6 +62,15 @@ fn tools() -> Value {
                         "type": "string",
                         "description": "VHDL to check in place of the file, for source that is \
                                         not written yet or is being edited."
+                    },
+                    "vhdl_ls_toml": {
+                        "type": "string",
+                        "description": "The project's `vhdl_ls.toml` library map. Always pass \
+                                        it: the rules that resolve names across files need it, \
+                                        and without it speja falls back to the nearest \
+                                        `vhdl_ls.toml` above `path`, which may belong to \
+                                        another project. The answer's `library_map` says which \
+                                        map was used."
                     }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["source"] }]
@@ -152,7 +161,18 @@ fn config_for(path: &Path) -> Result<speja::Config, String> {
 }
 
 /// Everything speja reports about one buffer, as data.
-fn lint(source: &str, path: &Path) -> Result<Value, String> {
+///
+/// `map` is the library map the caller named; without one, the nearest above `path` is used.
+fn lint(source: &str, path: &Path, map: Option<&Path>) -> Result<Value, String> {
+    // A map that was asked for and is not there is the caller's mistake, not a finding: silently
+    // falling back to another map would answer a different question than the one asked.
+    if let Some(map) = map.filter(|m| !m.is_file()) {
+        return Err(format!("{}: no such library map", map.display()));
+    }
+    let map = map.map(Path::to_path_buf).or_else(|| {
+        path.parent()
+            .and_then(speja::analysis::lint::project_config_for)
+    });
     let cfg = config_for(path)?;
     let parsed = speja::Parsed::new(source.as_bytes().to_vec());
     let at = |offset: usize| {
@@ -185,11 +205,14 @@ fn lint(source: &str, path: &Path) -> Result<Value, String> {
     // The front end's rules as well, so an agent sees what `--check style,lint` sees. They need
     // the project's library map, found from the file's path; without one only a few of them
     // report, exactly as on the command line.
-    let (front_end, unbuilt) =
-        match speja::analysis::lint::front_end_for(path, source.as_bytes().to_vec()) {
-            Ok(findings) => (findings, None),
-            Err(why) => (Vec::new(), Some(why)),
-        };
+    let (front_end, unbuilt) = match speja::analysis::lint::front_end_for(
+        path,
+        source.as_bytes().to_vec(),
+        map.as_deref(),
+    ) {
+        Ok(findings) => (findings, None),
+        Err(why) => (Vec::new(), Some(why)),
+    };
     let native = speja::analysis::findings_for(&parsed, path, &cfg)
         .into_iter()
         .chain(front_end);
@@ -204,7 +227,11 @@ fn lint(source: &str, path: &Path) -> Result<Value, String> {
             "certainty": speja::analysis::certainty_of(finding.rule).map(Certainty::name),
         }));
     }
-    let mut answer = json!({ "findings": found, "parsed": true });
+    let mut answer = json!({
+        "findings": found,
+        "parsed": true,
+        "library_map": map.map(|m| m.display().to_string()),
+    });
     // Said out loud rather than left to silence: without the front end most of the lint layer
     // did not run, and a report missing it looks exactly like a clean one.
     if let Some(why) = unbuilt {
@@ -266,7 +293,10 @@ fn call(name: &str, arguments: &Value) -> Value {
     let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     let write = arguments["write"].as_bool().unwrap_or(false);
     let answer = match name {
-        "lint" => subject(arguments).and_then(|(source, path)| lint(&source, &path)),
+        "lint" => subject(arguments).and_then(|(source, path)| {
+            let map = arguments["vhdl_ls_toml"].as_str().map(Path::new);
+            lint(&source, &path, map)
+        }),
         "format" => subject(arguments).and_then(|(source, path)| format(&source, &path, write)),
         "explain_rule" => explain(&text(&arguments["rule"])),
         other => Err(format!("no tool called '{other}'")),
@@ -599,6 +629,77 @@ mod tests {
         let body = body_of(&reply);
         assert_eq!(body["certainty"], "advisory");
         assert_eq!(body["default"], "off");
+    }
+
+    /// The map a caller names wins over the one found above the file. The found one here is the
+    /// real failure this exists for: a catch-all map further up that knows no library the file
+    /// uses, which turns every `use` into a `lint_100`.
+    #[test]
+    fn a_named_library_map_wins_over_the_one_above_the_file() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let rtl = dir.path().join("rtl");
+        let maps = dir.path().join("maps");
+        std::fs::create_dir_all(&rtl).expect("rtl");
+        std::fs::create_dir_all(&maps).expect("maps");
+        let pkg = rtl.join("pkg.vhd");
+        let dut = rtl.join("dut.vhd");
+        std::fs::write(
+            &pkg,
+            "package p is\n  constant k : bit := '0';\nend package p;\n",
+        )
+        .expect("pkg");
+        let source = "library mylib;\nuse mylib.p.all;\n\nentity dut is\nend entity dut;\n";
+        std::fs::write(&dut, source).expect("dut");
+        let toml = |libraries: &str| format!("[libraries]\n{libraries}\n");
+        std::fs::write(
+            dir.path().join("vhdl_ls.toml"),
+            toml(&format!("defaultlib.files = ['{}']", dut.display())),
+        )
+        .expect("the wrong map");
+        let named = maps.join("vhdl_ls.toml");
+        std::fs::write(
+            &named,
+            toml(&format!(
+                "mylib.files = ['{}', '{}']",
+                pkg.display(),
+                dut.display()
+            )),
+        )
+        .expect("the right map");
+
+        let lint = |arguments: Value| {
+            body_of(&request(
+                "tools/call",
+                &json!({ "name": "lint", "arguments": arguments }),
+            ))
+        };
+        let unresolved = |body: &Value| {
+            body["findings"]
+                .as_array()
+                .expect("findings")
+                .iter()
+                .any(|f| f["rule"] == "lint_100")
+        };
+        let path = dut.to_str().expect("utf-8");
+
+        let found = lint(json!({ "path": path }));
+        assert!(unresolved(&found), "{found}");
+
+        let given = lint(json!({ "path": path, "vhdl_ls_toml": named.to_str().expect("utf-8") }));
+        assert!(!unresolved(&given), "{given}");
+        assert_eq!(given["library_map"], named.display().to_string());
+    }
+
+    #[test]
+    fn a_named_library_map_that_is_not_there_is_an_error() {
+        let reply = request(
+            "tools/call",
+            &json!({
+                "name": "lint",
+                "arguments": { "source": "entity e is\nend entity e;\n", "vhdl_ls_toml": "nowhere/vhdl_ls.toml" }
+            }),
+        );
+        assert_eq!(reply["result"]["isError"], true, "{reply}");
     }
 
     #[test]
