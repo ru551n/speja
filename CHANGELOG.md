@@ -3,8 +3,12 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
-## Unreleased
+## 0.14.5
 
+**Targets VSG 3.35.**
+
+* **Installing the Claude Code plugin copies only the skill.** The plugin lives in
+  `plugins/speja/`, so an install no longer downloads the whole repository.
 * **The Claude Code plugin no longer registers the MCP server.** It carries only the skill, now
   named `speja` rather than `vsg`, so its tools are not loaded into every session. Register the
   server with `claude mcp add speja -- speja mcp` if you want it.

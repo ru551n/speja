@@ -8,7 +8,7 @@ vhdl-style:
   stage: test
   image: python:3.13-slim
   script:
-    - pip install --no-cache-dir speja==0.14.4
+    - pip install --no-cache-dir speja==0.14.5
     - >
       speja -c vsg.yaml --recursive src
       --quality_report gl-code-quality-report.json
