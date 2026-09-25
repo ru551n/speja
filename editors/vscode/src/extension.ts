@@ -20,6 +20,7 @@ import {
   OutputChannel,
   Range,
   StatusBarAlignment,
+  TextDocument,
   Uri,
   WorkspaceEdit,
   commands,
@@ -28,6 +29,7 @@ import {
   workspace,
 } from "vscode";
 import {
+  applicableCommands,
   editingActionsAt,
   registerEditingFeatures,
   runAction,
@@ -381,15 +383,16 @@ async function showMenu(): Promise<void> {
   });
 }
 
-/** The entries of the menu at the cursor: every action, each running its command. */
+/** The entries of the menu at the cursor: the actions that apply there, each running its command. */
 const menuActions = {
-  provideCodeActions(
-    _document: unknown,
-    _range: unknown,
+  async provideCodeActions(
+    document: TextDocument,
+    range: Range,
     context: { only?: CodeActionKind },
-  ): CodeAction[] {
+  ): Promise<CodeAction[]> {
     if (!context.only || !MENU_KIND.contains(context.only)) return [];
-    return MENU.map(([command, label]) => {
+    const applicable = await applicableCommands(document, range);
+    return MENU.filter(([command]) => applicable.has(command)).map(([command, label]) => {
       const action = new CodeAction(label, MENU_KIND);
       action.command = { command, title: label };
       return action;

@@ -57,7 +57,8 @@ one, most of them are off. See
 * **Add Use Clause**
 * **Complete Case Statement**
 
-...and more. **speja: Show Actions...** lists them all. These build on
+...and more. **speja: Show Actions...** (the **speja** item in the status bar, or right-click)
+lists the ones that apply where the cursor is. These build on
 [VHDL-LS](https://marketplace.visualstudio.com/items?itemName=hbohlin.vhdl-ls), so install it
 alongside.
 

@@ -25,6 +25,10 @@ reports are that version's. `speja --version` prints the same thing.
   to the line in the configuration file.
 * **The editor says when there is no `vhdl_ls.toml`**, once, since most lint rules need it.
 * **Format Document on a file with syntax errors says so**, instead of "already formatted".
+* **The speja menu lists only what applies at the cursor**: Instantiate Entity among an
+  architecture's statements, Map Missing Ports in an instance that leaves ports out, Format
+  Selection with a selection, and so on. The right-click submenu opens that menu instead of
+  listing every command.
 * **Declare Name types a name assigned from a function call** by the function's return type.
 * **Instantiate Entity maps a generic with a default to that default**, not to the generic's own
   name, which is not declared at the instance. The picker lists entities as `library.entity`,

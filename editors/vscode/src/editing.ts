@@ -2424,6 +2424,69 @@ export class DesignHierarchy implements vscode.TreeDataProvider<HierarchyNode> {
  * when no such server is running. The lint and format features of this extension do not depend
  * on any of it and keep working either way.
  */
+/**
+ * The speja commands that would do something at `range`: what the speja menu lists. Each check is the one the command itself makes before it acts, so an
+ * entry is shown exactly when choosing it would not end in "put the cursor ...".
+ */
+export async function applicableCommands(
+  doc: vscode.TextDocument,
+  range: vscode.Range,
+): Promise<Set<string>> {
+  const out = new Set<string>([
+    "speja.addUseClause",
+    "speja.formatDocument",
+    "speja.restartServer",
+    "speja.showOutput",
+    "speja.showVersion",
+  ]);
+  const at = range.start;
+  const text = doc.getText();
+  if (!range.isEmpty) out.add("speja.formatSelection").add("speja.extractObject");
+  if (/^\s*(library|use)\s/im.test(text)) {
+    out.add("speja.sortUseClauses").add("speja.removeUnusedUseClauses");
+  }
+  const begin = architectureBegin(doc, at);
+  const sequential = sequentialHome(doc, at) !== null;
+  if (begin !== null && at.line > begin && !sequential) out.add("speja.instantiateEntity");
+  if (begin !== null || /^\s*package\s+\w+\s+is\b/im.test(doc.getText(new vscode.Range(0, 0, at.line + 1, 0))))
+    out.add("speja.componentDeclaration");
+
+  const diagnostics = vscode.languages
+    .getDiagnostics(doc.uri)
+    .filter((d) => d.range.intersection(range) !== undefined);
+  const [actions, enumType, moves] = await Promise.all([
+    editingActionsAt(doc, range),
+    // Hovering asks the server, so only where a state machine could go at all.
+    begin !== null && !sequential
+      ? hoverText(doc.uri, at).then(parseEnumHover)
+      : Promise.resolve(null),
+    diagnostics.some((d) => d.source === "speja" && d.code === "lint_790")
+      ? Promise.resolve(true)
+      : vscode.commands
+          .executeCommand<vscode.CodeAction[]>(
+            "vscode.executeCodeActionProvider",
+            doc.uri,
+            range,
+            "refactor.move",
+          )
+          .then((found) => (found ?? []).some((a) => /^Move signal /.test(a.title))),
+  ]);
+  const has = (family: RegExp) => actions.some((a) => family.test(a.title));
+  if (has(/^Declare (signal|variable|constant) /)) out.add("speja.declare");
+  if (has(/^Map \d+ missing ports?$/)) out.add("speja.mapMissingPorts");
+  if (has(/^Declare \d+ signals? for this port map$/)) out.add("speja.declareSignals");
+  if (has(/^(Add \d+ missing when choices?|Write the \d+ states of )/))
+    out.add("speja.completeCase");
+  if (
+    diagnostics.some((d) => d.source === "speja") ||
+    actions.some((a) => a.kind && vscode.CodeActionKind.QuickFix.contains(a.kind))
+  )
+    out.add("speja.quickFix");
+  if (enumType && begin !== null && at.line < begin) out.add("speja.fsmFromEnum");
+  if (moves) out.add("speja.moveSignal");
+  return out;
+}
+
 export function registerEditingFeatures(
   context: vscode.ExtensionContext,
 ): void {

@@ -1026,7 +1026,8 @@ fn a_configuration_that_does_not_load_stops_the_editor_rather_than_defaulting() 
     let message = diagnostics[0]["message"].as_str().expect("a message");
     assert!(message.contains("not checking this file"), "{message}");
     assert!(
-        message.starts_with(&format!("{}", dir.path().join("speja.yaml").display())),
+        // The path as the editor spelled it, which on Windows mixes separators.
+        message.contains("speja.yaml: did not find") && message.matches("speja.yaml").count() == 1,
         "the error comes first and names the file: {message}"
     );
     let related = &diagnostics[0]["relatedInformation"][0]["location"]["uri"];

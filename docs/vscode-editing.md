@@ -266,7 +266,7 @@ can be bound to a key in *Keyboard Shortcuts* (`Ctrl+K Ctrl+S`, search `speja`).
 
 | Command | Does |
 |---|---|
-| `speja.showMenu` *Show Actions...* | every action below in one menu, opened at the cursor; also the **speja** item in the status bar |
+| `speja.showMenu` *Show Actions...* | the actions below that apply at the cursor, in one menu opened there; also the **speja** item in the status bar |
 | `speja.quickFix` *Quick Fixes at Cursor...* | the lightbulb's speja entries: the server's fixes and the editing actions together |
 | `speja.declare` *Declare Name Under Cursor...* | the declare offers for the undeclared name at the cursor; applied directly when there is one |
 | `speja.addUseClause` *Add Use Clause...* | a searchable list of every package's contents, and every package by name |
@@ -290,7 +290,9 @@ A binding in `keybindings.json`, for example:
 { "key": "ctrl+alt+s", "command": "speja.showMenu", "when": "editorLangId == vhdl" }
 ```
 
-The editing commands also sit in the editor's right-click menu, under **speja**.
+The editor's right-click menu has **speja** too: Show Actions..., Format Document and, with a
+selection, Format Selection. Every command is also in the palette, where it says what it needs
+when the cursor is not somewhere it applies.
 
 **Add Use Clause...** opens on the name under the cursor and searches as you type, asking the
 language server's symbol index again on each keystroke, so the list is not limited to what one
