@@ -184,7 +184,7 @@ fn lint(source: &str, path: &Path, map: Option<&Path>) -> Result<Value, String> 
     // A file that does not parse gets its syntax errors and nothing else: every rule below
     // would be reasoning about a tree that does not represent the source.
     if !parsed.syntax_errors().is_empty() && !parsed.is_blank() {
-        for error in parsed.syntax_errors() {
+        for error in parsed.syntax_errors_to_report() {
             found.push(json!({
                 "rule": "syntax",
                 "at": at(error.offset),

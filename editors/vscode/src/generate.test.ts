@@ -41,11 +41,13 @@ assert.deepEqual(
 // The `downto 0)` inside the type must not end the port clause.
 assert.equal(e.ports[1].type, "std_logic_vector(g_width - 1 downto 0)");
 
+// A generic with a default is mapped to it: the generic's own name is not declared where the
+// instance goes.
 assert.equal(
   renderInstance(e),
   `  i_leaf : entity work.leaf
     generic map (
-      g_width => g_width
+      g_width => 8
     )
     port map (
       clk  => clk,
@@ -116,7 +118,7 @@ console.log("ok");
 // Snippet mode: the label is the first tab stop, then each actual in order.
 const snip = renderInstance(e, { label: "u_leaf", snippet: true });
 assert.ok(snip.includes("${1:u_leaf} : entity work.leaf"));
-assert.ok(snip.includes("${2:g_width}"));
+assert.ok(snip.includes("${2:8}"));
 assert.ok(snip.includes("${3:clk}"));
 assert.ok(snip.includes("${5:dout}"));
 console.log("ok - snippet");
@@ -862,3 +864,13 @@ end architecture rtl;`;
 }
 
 console.log("generate.test.ts: ok");
+
+// Declare Name types a name assigned from a function call by what the function returns, in
+// either way VHDL-LS spells a function in a hover.
+import { returnTypeOf } from "./generate.ts";
+assert.equal(returnTypeOf("function num_bits_needed[natural return positive]"), "positive");
+assert.equal(
+  returnTypeOf("```vhdl\nfunction f(x : natural) return ieee.numeric_std.unsigned\n```"),
+  "ieee.numeric_std.unsigned",
+);
+assert.equal(returnTypeOf("signal count : natural"), null);

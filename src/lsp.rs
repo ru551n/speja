@@ -20,11 +20,11 @@ use tower_lsp_server::jsonrpc::{self, Result};
 use tower_lsp_server::ls_types::{
     CodeAction, CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
     CodeActionProviderCapability, CodeActionResponse, Diagnostic, DiagnosticRelatedInformation,
-    DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentRangeFormattingParams,
-    InitializeParams, InitializeResult, InitializedParams, Location, MessageType, NumberOrString,
-    OneOf, Position, Range, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Uri, WorkspaceEdit,
+    DiagnosticSeverity, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentFormattingParams,
+    DocumentRangeFormattingParams, InitializeParams, InitializeResult, InitializedParams, Location,
+    MessageType, NumberOrString, OneOf, Position, Range, ServerCapabilities, ServerInfo,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkspaceEdit,
 };
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
@@ -62,6 +62,9 @@ pub(crate) struct Backend {
     /// The workspace the editor opened, where a waiver file is created when a project has none
     /// yet. Without it the file lands beside the source, which is rarely what anyone wants.
     root: Arc<RwLock<Option<PathBuf>>>,
+    /// Whether the editor has been told that a file has no `vhdl_ls.toml`. Once is enough: the
+    /// command line warns on every run, but a notice on every keystroke would be noise.
+    told_no_map: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// What a waiver file is called when the client does not say.
@@ -99,8 +102,15 @@ fn config_for(path: &Path) -> std::result::Result<Config, String> {
     // it as one lets format-on-save rewrite a file under settings the project never chose, while
     // the command line refuses to run at all -- the editor and CI would disagree about the same
     // file, which is the one thing this tool must not do.
-    let cfg = Config::load(std::slice::from_ref(&file))
-        .map_err(|e| format!("{}: {e}", file.display()))?;
+    let cfg = Config::load(std::slice::from_ref(&file)).map_err(|e| {
+        // Most load errors already start with the file's name.
+        let (name, e) = (file.display().to_string(), e.to_string());
+        if e.starts_with(&name) {
+            e
+        } else {
+            format!("{name}: {e}")
+        }
+    })?;
     Ok(cfg.for_path(path).into_owned())
 }
 
@@ -243,6 +253,24 @@ impl Backend {
         self.client
             .publish_diagnostics(uri, diagnostics, Some(version))
             .await;
+        // Without a library map most lint rules cannot run, and a clean Problems panel would
+        // look like a clean file.
+        if path
+            .parent()
+            .and_then(analysis::lint::project_config_for)
+            .is_none()
+            && !self
+                .told_no_map
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            self.client
+                .show_message(
+                    MessageType::INFO,
+                    "speja: no vhdl_ls.toml found, so the lint rules that need to know each \
+                     file's library are off. See https://speja.readthedocs.io/en/latest/project-setup/",
+                )
+                .await;
+        }
     }
 }
 
@@ -261,14 +289,30 @@ fn diagnose(
     let cfg = match config_for(path) {
         Ok(cfg) => cfg,
         Err(message) => {
+            // The problem is in the configuration file, so the diagnostic points there: the
+            // error comes first, and a link opens the file at the line the parser names.
+            let file = path.parent().and_then(speja::config::discover);
+            let line = message
+                .split_once(" line ")
+                .and_then(|(_, rest)| rest.split(|c: char| !c.is_ascii_digit()).next())
+                .and_then(|n| n.parse::<u32>().ok())
+                .map_or(0, |n| n.saturating_sub(1));
+            let related = file.as_deref().and_then(Uri::from_file_path).map(|uri| {
+                vec![DiagnosticRelatedInformation {
+                    location: Location::new(
+                        uri,
+                        Range::new(Position::new(line, 0), Position::new(line, 0)),
+                    ),
+                    message: "the configuration error is here".to_owned(),
+                }]
+            });
             out.push(Diagnostic {
                 range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                 severity: Some(DiagnosticSeverity::ERROR),
+                code: Some(NumberOrString::String("config".to_owned())),
                 source: Some("speja".to_owned()),
-                message: format!(
-                    "speja is not running on this file: its configuration could not be read. \
-                     {message}"
-                ),
+                message: format!("{message} (speja is not checking this file until it is fixed)"),
+                related_information: related,
                 ..Diagnostic::default()
             });
             return out;
@@ -285,15 +329,17 @@ fn diagnose(
     // A file that does not parse gets its syntax errors and nothing else: every rule below would
     // be reasoning about a tree that does not represent the source.
     if !parsed.syntax_errors().is_empty() && !parsed.is_blank() {
-        for error in parsed.syntax_errors() {
+        for error in parsed.syntax_errors_to_report() {
             out.push(Diagnostic {
                 range: Range::new(
                     position_of(text, error.offset),
                     position_of(text, error.offset),
                 ),
                 severity: Some(DiagnosticSeverity::ERROR),
+                // So the client can tell "cannot format" from "nothing to format".
+                code: Some(NumberOrString::String("syntax".to_owned())),
                 source: Some("speja".to_owned()),
-                message: error.message.clone(),
+                message: format!("syntax error: {}", error.message),
                 ..Diagnostic::default()
             });
         }
@@ -689,6 +735,22 @@ impl LanguageServer for Backend {
         self.publish(uri, change.text, version).await;
     }
 
+    /// A `speja.yaml`, waiver file or library map changed on disk. Each is read afresh for every
+    /// analysis, so the open documents only need to be analysed again; otherwise they would keep
+    /// showing findings under the old settings until they are next edited.
+    async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
+        let open: Vec<(Uri, String, i32)> = self
+            .documents
+            .read()
+            .await
+            .iter()
+            .map(|(uri, d)| (uri.clone(), d.text.clone(), d.version))
+            .collect();
+        for (uri, text, version) in open {
+            self.publish(uri, text, version).await;
+        }
+    }
+
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.documents.write().await.remove(&uri);
@@ -1014,6 +1076,7 @@ pub(crate) fn serve() -> std::process::ExitCode {
             analysers: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             waivers: Arc::new(RwLock::new(WAIVERS.to_owned())),
             root: Arc::new(RwLock::new(None)),
+            told_no_map: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         });
         Server::new(tokio::io::stdin(), tokio::io::stdout(), socket)
             .serve(service)

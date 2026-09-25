@@ -93,7 +93,12 @@ exports.run = async function run() {
       offeredLabels = list.map((item) => item.label);
       // A multiple-choice prompt answers with every item that starts ticked.
       if (options && options.canPickMany) return list.filter((item) => item.picked !== false);
-      return list.find((item) => item.label === pick) || list[0];
+      // Entities are listed as `library.entity`; the suite names them by the entity alone.
+      return (
+        list.find((item) => item.label === pick) ||
+        list.find((item) => String(item.label).endsWith("." + pick)) ||
+        list[0]
+      );
     };
     vscode.window.showInputBox = async (options) => options && options.value;
     // A message box waits for a click that never comes, so a command that raises one would hang
@@ -149,11 +154,13 @@ exports.run = async function run() {
       unresolved().map((d) => d.message).join(" | ") || "nothing unresolved",
     );
 
-    // 3. Give the generic a value, as a user would, then declare the signals the map needs.
-    const generic = doc.getText().indexOf("width => width");
+    // 3. The generic is mapped to its default. Give it another value, as a user would, then
+    // declare the signals the map needs.
+    const generic = doc.getText().indexOf("width => 8");
+    check(generic >= 0, "a generic with a default is mapped to it");
     await editor.edit((edit) =>
       edit.replace(
-        new vscode.Range(doc.positionAt(generic), doc.positionAt(generic + "width => width".length)),
+        new vscode.Range(doc.positionAt(generic), doc.positionAt(generic + "width => 8".length)),
         "width => 16",
       ),
     );

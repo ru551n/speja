@@ -1024,11 +1024,16 @@ fn a_configuration_that_does_not_load_stops_the_editor_rather_than_defaulting() 
         "only the configuration: {diagnostics:#?}"
     );
     let message = diagnostics[0]["message"].as_str().expect("a message");
+    assert!(message.contains("not checking this file"), "{message}");
     assert!(
-        message.contains("configuration could not be read"),
-        "{message}"
+        message.starts_with(&format!("{}", dir.path().join("speja.yaml").display())),
+        "the error comes first and names the file: {message}"
     );
-    assert!(message.contains("speja.yaml"), "names the file: {message}");
+    let related = &diagnostics[0]["relatedInformation"][0]["location"]["uri"];
+    assert!(
+        related.as_str().is_some_and(|u| u.ends_with("speja.yaml")),
+        "links to the configuration file: {related}"
+    );
 
     // And it refuses to format, rather than formatting with the defaults.
     let answered = session.talk_while(
@@ -1448,4 +1453,45 @@ fn a_signal_can_be_moved_into_the_generate_that_uses_it() {
     session.talk(&[did_open(&uri, source)], 1);
     let offered = ask(&mut session, &uri, "quickfix");
     assert_eq!(offered.len(), 1, "the finding's quick fix with the rule on");
+}
+
+#[test]
+fn editing_the_configuration_updates_the_open_files() {
+    // The configuration is read for every analysis, but an open file is only analysed when it
+    // is edited; without the notification it kept the findings of the old settings.
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("speja.yaml"), "rule: [broken\n").expect("write config");
+    let file = dir.path().join("dut.vhd");
+    std::fs::write(&file, TWO_DRIVERS).expect("write source");
+    let uri = file_uri(&file);
+    let mut session = Session::start_in(dir.path());
+    let publishes = |seen: &[serde_json::Value]| {
+        seen.iter()
+            .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+            .count()
+    };
+    let got = session.talk_while(&[did_open(&uri, TWO_DRIVERS)], |seen| publishes(seen) > 0);
+    let first = got
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .expect("diagnostics were published");
+    assert_eq!(first["params"]["diagnostics"][0]["code"], "config");
+
+    std::fs::write(dir.path().join("speja.yaml"), "rule: {}\n").expect("repair config");
+    let changed = serde_json::json!({
+        "jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+        "params": { "changes": [{ "uri": file_uri(&dir.path().join("speja.yaml")), "type": 2 }] }
+    });
+    let got = session.talk_while(&[changed], |seen| publishes(seen) > 1);
+    let again = got
+        .iter()
+        .rfind(|m| m["method"] == "textDocument/publishDiagnostics")
+        .expect("the open file was analysed again");
+    let diagnostics = again["params"]["diagnostics"]
+        .as_array()
+        .expect("diagnostics");
+    assert!(
+        diagnostics.iter().all(|d| d["code"] != "config"),
+        "the repaired configuration is used: {diagnostics:#?}"
+    );
 }

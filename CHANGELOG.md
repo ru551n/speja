@@ -3,6 +3,35 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## 0.14.6
+
+**Targets VSG 3.35.**
+
+* **`:=` in a port list lines up across port modes.** With a default on an `in` port and on an
+  `out` port, the two `:=` landed one column apart after `--fix`; the padding after the mode was
+  left out of the measure. The result now matches VSG.
+* **Alignment findings name the rule to configure.** The spacing before `:` and `:=` in entity
+  generics and ports is reported as `entity_017` and `entity_018`, in components as
+  `component_017`, and in parameter lists as `procedure_410` and `procedure_411`; the `=>` of
+  maps as `instantiation_010` and `procedure_call_401`; the spacing around a port mode as
+  `port_007` to `port_009`. Entity generics were reported as `procedure_410`, and most of the
+  rest as `format`, which no configuration reaches.
+* **Syntax errors read as text**, such as `expected ')'`, not as the parser's internal names. In
+  the editor and the MCP server, a missing token is one error rather than one on every line the
+  parser took to recover.
+* **The editor follows `speja.yaml`, the waiver file and `vhdl_ls.toml` as they change.** Open
+  files were analysed again only when edited.
+* **A `speja.yaml` that does not load** is reported with the parser's message first and a link
+  to the line in the configuration file.
+* **The editor says when there is no `vhdl_ls.toml`**, once, since most lint rules need it.
+* **Format Document on a file with syntax errors says so**, instead of "already formatted".
+* **Declare Name types a name assigned from a function call** by the function's return type.
+* **Instantiate Entity maps a generic with a default to that default**, not to the generic's own
+  name, which is not declared at the instance. The picker lists entities as `library.entity`,
+  so typing both ranks the exact match first.
+* **The extension README shows a `speja.yaml`**, says where it is read from, explains
+  `vhdl_ls.toml`, and its links work on the Marketplace.
+
 ## 0.14.5
 
 **Targets VSG 3.35.**

@@ -1250,6 +1250,11 @@ impl<'a> Builder<'a> {
                 width += 1;
             }
             width += display_width(&self.token_text(t), self.utf8, 0);
+            // Padding already requested inside the span, such as after a port mode.
+            if let Some(pad) = self.pads.get(&t.text_offset()) {
+                width += if i > start + 1 { pad.before } else { 0 };
+                width += if i + 1 < end { pad.after } else { 0 };
+            }
         }
         Some(width)
     }

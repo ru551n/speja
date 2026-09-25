@@ -12,6 +12,7 @@ import {
   renderDeclaration,
   renderWhenChoices,
   typeOfLiteral,
+  returnTypeOf,
   compareCandidates,
   compareUseCandidates,
   declaresName,
@@ -222,7 +223,7 @@ async function entityAt(
 
 async function noServer(): Promise<void> {
   const pick = await vscode.window.showErrorMessage(
-    "No VHDL language server answered. These editing commands read entity and type information from VHDL-LS (rust_hdl); install it and give this workspace a vhdl_ls.toml. Lint and format do not need it.",
+    "These actions need VHDL-LS and a vhdl_ls.toml. Lint and format do not.",
     "Open VHDL-LS setup",
   );
   if (pick)
@@ -869,16 +870,17 @@ async function pickEntity(
   }
   return vscode.window.showQuickPick(
     entities
+      // The qualified name is the label because the picker ranks by the label alone: with it in
+      // the description, `fifo.fifo` ranked `asynchronous_fifo` above `fifo`.
       .map((s) => ({
-        label: identOf(s.name),
-        description: `${libraryOf(s)}.${identOf(s.name)}`,
-        detail: vscode.workspace.asRelativePath(s.location.uri),
+        label: `${libraryOf(s)}.${identOf(s.name)}`,
+        description: vscode.workspace.asRelativePath(s.location.uri),
         sym: s,
       }))
       .sort((a, b) =>
         compareCandidates(
-          { library: libraryOf(a.sym), pkg: a.label },
-          { library: libraryOf(b.sym), pkg: b.label },
+          { library: libraryOf(a.sym), pkg: identOf(a.sym.name) },
+          { library: libraryOf(b.sym), pkg: identOf(b.sym.name) },
         ),
       ),
     { placeHolder, matchOnDescription: true },
@@ -899,7 +901,7 @@ async function instantiateEntity(): Promise<void> {
     sequentialHome(editor.document, cursor) !== null
   ) {
     vscode.window.showWarningMessage(
-      "An instantiation goes among an architecture's statements: put the cursor after its `begin`, outside any process.",
+      "Put the cursor after an architecture's `begin`, outside any process.",
     );
     return;
   }
@@ -1440,9 +1442,18 @@ async function inferredType(
   const expression = assigned[2].trim();
   const literal = typeOfLiteral(expression);
   if (literal) return literal;
+  const column = line.indexOf(expression, line.indexOf(name) + name.length);
+  // A function call on the right: what the function returns.
+  if (/^[A-Za-z][\w.]*\s*\(.*\)$/.test(expression)) {
+    const called = expression.slice(0, expression.indexOf("(")).trim();
+    const hover = await hoverText(
+      doc.uri,
+      new vscode.Position(at.line, column + called.lastIndexOf(".") + 2),
+    );
+    return returnTypeOf(hover) ?? undefined;
+  }
   if (!/^[A-Za-z]\w*$/.test(expression)) return undefined;
   // A name on the right: whatever the server says that one is.
-  const column = line.indexOf(expression, line.indexOf(name) + name.length);
   return typeAt(doc, new vscode.Position(at.line, column + 1));
 }
 
@@ -2471,13 +2482,13 @@ export function registerEditingFeatures(
     vscode.commands.registerCommand("speja.mapMissingPorts", () =>
       actionsAtCursor(
         /^Map \d+ missing ports?$/,
-        "No missing ports here: put the cursor in an instantiation whose map leaves ports out.",
+        "No missing ports: put the cursor in an instantiation.",
       ),
     ),
     vscode.commands.registerCommand("speja.completeCase", () =>
       actionsAtCursor(
         /^(Add \d+ missing when choices?|Write the \d+ states of )/,
-        "No case to complete here: put the cursor on a case over an enumeration.",
+        "Put the cursor on a case whose selector is an enumeration.",
       ),
     ),
     vscode.commands.registerCommand(

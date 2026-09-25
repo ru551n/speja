@@ -78,7 +78,7 @@ impl Parsed {
                 .iter()
                 .map(|e| Diagnostic {
                     offset: e.span().start,
-                    message: format!("{:?}", e.err()),
+                    message: e.err().to_string(),
                 })
                 .collect();
             let root = file.raw();
@@ -193,6 +193,24 @@ impl Parsed {
 
     pub fn syntax_errors(&self) -> &[Diagnostic] {
         &self.errors
+    }
+
+    /// The syntax errors worth showing a person: the first on each line, and none on a line
+    /// straight after one that has an error. The parser's recovery reports each missing token
+    /// again on the lines that follow it, so one missing `;` read as a dozen errors.
+    pub fn syntax_errors_to_report(&self) -> Vec<&Diagnostic> {
+        let mut out = Vec::new();
+        let mut last: Option<usize> = None;
+        for error in &self.errors {
+            let line = self.line_col(error.offset).0;
+            if last.is_none_or(|l| line > l + 1) {
+                out.push(error);
+            }
+            if last.is_none_or(|l| line > l) {
+                last = Some(line);
+            }
+        }
+        out
     }
 
     pub fn is_utf8(&self) -> bool {
@@ -791,6 +809,27 @@ mod tests {
         let (edits, out) = range_format(&src, at..at);
         assert_eq!(edits.len(), 1);
         assert_eq!(out, src.replace("a<=b", "a <= b"));
+    }
+
+    /// Two missing `;` are two errors to a person, however many the parser's recovery reports,
+    /// and they read as the parser's own text rather than Rust's debug output.
+    #[test]
+    fn syntax_errors_are_reported_once_each_and_readably() {
+        let src = "entity broken is\n  port (\n    a : in bit\n    b : out bit\n  );\nend entity;\n\n\
+                   architecture a of broken is\nbegin\n  process (a)\n  begin\n    b <= a\n  \
+                   end process;\nend architecture;\n";
+        let parsed = Parsed::new(src.as_bytes().to_vec());
+        assert!(parsed.syntax_errors().len() > 2);
+        let shown: Vec<(usize, &str)> = parsed
+            .syntax_errors_to_report()
+            .iter()
+            .map(|e| (parsed.line_col(e.offset).0, e.message.as_str()))
+            .collect();
+        assert_eq!(shown.len(), 2, "{shown:?}");
+        assert!(
+            shown.iter().all(|(_, m)| !m.contains("Token(")),
+            "{shown:?}"
+        );
     }
 
     #[test]
