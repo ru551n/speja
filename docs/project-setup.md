@@ -86,7 +86,7 @@ A testbench is written to different rules than hardware: an unused signal in a s
 is normal, a latch in one is not interesting. speja classifies files and applies a separate rule
 block to each kind.
 
-Classification is explicit first. In `vsg.yaml`:
+Classification is explicit first. In `speja.yaml`:
 
 ```yaml
 speja:

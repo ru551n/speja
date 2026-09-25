@@ -2,7 +2,7 @@
   "name": "speja",
   "displayName": "Speja VHDL",
   "description": "VHDL for VS Code: formatting and static analysis from the speja language server, plus syntax highlighting and editing actions such as instantiating an entity, declaring port map signals and generating a state machine.",
-  "version": "0.14.5",
+  "version": "0.14.6",
   "publisher": "ru551n",
   "icon": "icon.png",
   "license": "MIT OR Apache-2.0",
@@ -285,48 +285,8 @@
       ],
       "speja.context": [
         {
-          "command": "speja.quickFix",
-          "group": "1_cursor@0"
-        },
-        {
-          "command": "speja.declare",
-          "group": "1_cursor@1"
-        },
-        {
-          "command": "speja.addUseClause",
-          "group": "1_cursor@2"
-        },
-        {
-          "command": "speja.instantiateEntity",
-          "group": "1_cursor@3"
-        },
-        {
-          "command": "speja.declareSignals",
-          "group": "1_cursor@4"
-        },
-        {
-          "command": "speja.mapMissingPorts",
-          "group": "1_cursor@5"
-        },
-        {
-          "command": "speja.completeCase",
-          "group": "1_cursor@6"
-        },
-        {
-          "command": "speja.fsmFromEnum",
-          "group": "1_cursor@7"
-        },
-        {
-          "command": "speja.componentDeclaration",
-          "group": "1_cursor@8"
-        },
-        {
-          "command": "speja.extractObject",
-          "group": "1_cursor@9"
-        },
-        {
-          "command": "speja.moveSignal",
-          "group": "1_cursor@10"
+          "command": "speja.showMenu",
+          "group": "1_menu@0"
         },
         {
           "command": "speja.formatDocument",
@@ -334,19 +294,8 @@
         },
         {
           "command": "speja.formatSelection",
-          "group": "2_file@1"
-        },
-        {
-          "command": "speja.sortUseClauses",
-          "group": "2_file@3"
-        },
-        {
-          "command": "speja.removeUnusedUseClauses",
-          "group": "2_file@4"
-        },
-        {
-          "command": "speja.showMenu",
-          "group": "3_menu@0"
+          "group": "2_file@1",
+          "when": "editorHasSelection"
         }
       ]
     },

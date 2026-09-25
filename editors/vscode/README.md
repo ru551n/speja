@@ -27,6 +27,28 @@ To make speja the VHDL formatter:
 }
 ```
 
+## Configure
+
+speja reads `speja.yaml` from the file's folder or any folder above it. It takes VSG's
+configuration format, so an existing VSG configuration works as it is:
+
+```yaml
+rule:
+  length_001:
+    length: 100          # fold lines at 100 columns
+  port_012:
+    disable: true        # allow default values on ports
+```
+
+On an existing codebase the full VSG rule set can fill the Problems panel; turn off what your
+project does not follow. Each finding names its rule, and
+[the rule reference](https://speja.readthedocs.io/en/latest/rule-reference/) lists the options.
+
+The bug-finding rules need to know which library each file belongs to. They read the
+`vhdl_ls.toml` that [VHDL-LS](https://github.com/VHDL-LS/rust_hdl#configuration) uses; without
+one, most of them are off. See
+[project setup](https://speja.readthedocs.io/en/latest/project-setup/).
+
 ## Editing actions
 
 * **Instantiate Entity**
@@ -35,7 +57,8 @@ To make speja the VHDL formatter:
 * **Add Use Clause**
 * **Complete Case Statement**
 
-...and more. **speja: Show Actions...** lists them all. These build on
+...and more. **speja: Show Actions...** (the **speja** item in the status bar, or right-click)
+lists the ones that apply where the cursor is. These build on
 [VHDL-LS](https://marketplace.visualstudio.com/items?itemName=hbohlin.vhdl-ls), so install it
 alongside.
 
@@ -48,4 +71,5 @@ A number of popular Vim colour schemes are available as themes.
 * [Editing VHDL in VS Code](https://speja.readthedocs.io/en/latest/vscode-editing/): every
   action, with examples.
 * [What the lint rules catch](https://speja.readthedocs.io/en/latest/lint/).
-* [Formatting and fixing](docs/formatting.md) and [choosing a server](docs/server-selection.md).
+* [Formatting and fixing](https://github.com/ru551n/speja/blob/HEAD/editors/vscode/docs/formatting.md)
+  and [choosing a server](https://github.com/ru551n/speja/blob/HEAD/editors/vscode/docs/server-selection.md).

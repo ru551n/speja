@@ -153,6 +153,75 @@ fn keyword_rule(t: &SyntaxToken) -> Option<&'static str> {
         .map(|info| info.id)
 }
 
+/// The VSG alignment rule for the spacing before a `:` or `:=` of an interface element, or a
+/// `=>` of an association, decided by the construct that owns the list. The learned table only
+/// sees the token and its neighbours, so it cannot tell an entity's generics from a procedure's
+/// parameters.
+fn alignment_rule(t: &SyntaxToken) -> Option<&'static str> {
+    use NodeKind as N;
+    let (element, colon) = match t.kind() {
+        T::Colon => (t.parent(), true),
+        T::ColonEq if t.parent().kind() == N::InitialValue => (t.parent().parent()?, false),
+        T::RightArrow => {
+            let element = t
+                .parent()
+                .parent()
+                .filter(|p| p.kind() == N::AssociationElement)?;
+            let mut node = element.parent();
+            while let Some(n) = node {
+                match n.kind() {
+                    N::PortMapAspect | N::GenericMapAspect => return Some("instantiation_010"),
+                    N::ProcedureCallStatement => {
+                        return Some("procedure_call_401");
+                    }
+                    _ => node = n.parent(),
+                }
+            }
+            return None;
+        }
+        _ => return None,
+    };
+    if element.kind() != N::InterfaceObjectDeclaration {
+        return None;
+    }
+    let mut node = element.parent();
+    while let Some(n) = node {
+        match (n.kind(), colon) {
+            (N::EntityDeclaration, true) => return Some("entity_017"),
+            (N::EntityDeclaration, false) => return Some("entity_018"),
+            (N::ComponentDeclaration, true) => return Some("component_017"),
+            (N::ProcedureSpecification | N::FunctionSpecification, true) => {
+                return Some("procedure_410");
+            }
+            (N::ProcedureSpecification, false) => return Some("procedure_411"),
+            (
+                N::ComponentDeclaration
+                | N::BlockStatement
+                | N::FunctionSpecification
+                | N::PackageDeclaration,
+                _,
+            ) => return None,
+            _ => node = n.parent(),
+        }
+    }
+    None
+}
+
+/// The VSG rule for the spacing before or after a port mode: `port_007` (`in`), `port_008`
+/// (`out`) or `port_009` (`inout`).
+fn mode_rule(prev: &SyntaxToken, t: &SyntaxToken) -> Option<&'static str> {
+    use vhdl_syntax::tokens::Keyword as Kw;
+    [prev, t]
+        .into_iter()
+        .filter(|m| m.parent().kind() == NodeKind::InterfaceObjectDeclaration)
+        .find_map(|m| match m.kind() {
+            T::Keyword(Kw::In) => Some("port_007"),
+            T::Keyword(Kw::Out) => Some("port_008"),
+            T::Keyword(Kw::Inout) => Some("port_009"),
+            _ => None,
+        })
+}
+
 /// The layout differences between `before` and its formatting `after` (same tokens).
 pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
     let (bt, at) = (before.tokens(), after.tokens());
@@ -238,7 +307,7 @@ pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
             (0, 0) => push(
                 ChangeKind::Spacing,
                 format!("Spacing:{}:{prev}>{}", construct(b), kind_name(b)),
-                None,
+                alignment_rule(b).or_else(|| mode_rule(bt.get(i.wrapping_sub(1))?, b)),
                 tail(ga),
                 line,
             ),
@@ -443,6 +512,43 @@ pub fn message(change: &LayoutChange, indent_size: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Alignment and port-mode spacing is reported under the rule of the construct that owns
+    /// the list: an entity's generics are not a procedure's parameters.
+    #[test]
+    fn interface_spacing_is_reported_under_its_construct_rule() {
+        let src = "entity e is\n  generic (\n    a : natural := 1;\n    bb : bit := '1'\n  );\n\
+                   \x20 port (\n    c : in bit;\n    dd : out bit := '0'\n  );\nend entity e;\n\n\
+                   package p is\n  procedure q (\n    x_with_a_name_long_enough_to_fold_the_list : in natural := 0;\n    \
+                   yy_with_a_name_long_enough_to_fold_the_list : in bit := '0'\n  );\n\
+                   end package p;\n";
+        let before = Parsed::new(src.as_bytes().to_vec());
+        let cfg = crate::FormatConfig::default();
+        let after = Parsed::new(crate::format_parsed(&before, &cfg).unwrap());
+        let mut found: Vec<(usize, String)> = layout_changes(&before, &after)
+            .iter()
+            .filter(|c| c.kind == ChangeKind::Spacing)
+            .map(|c| (c.line, rule_for(c).to_owned()))
+            .collect();
+        found.sort();
+        found.dedup();
+        let expect = [
+            (3, "entity_017"),
+            (4, "entity_018"),
+            (7, "entity_017"),
+            (7, "port_007"),
+            (8, "port_008"),
+            (14, "procedure_410"),
+            (15, "procedure_411"),
+        ];
+        for (line, rule) in expect {
+            assert!(
+                found.contains(&(line, rule.to_owned())),
+                "{line} {rule}: {found:?}"
+            );
+        }
+        assert!(found.iter().all(|(_, r)| r != "format"), "{found:?}");
+    }
 
     /// Two blank lines where one belongs is one too many, and the message says so rather than
     /// asking for another.

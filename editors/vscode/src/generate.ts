@@ -175,7 +175,10 @@ export function renderInstance(
   const out = [opts.omitLabel ? `${i}${target}` : `${i}${head} : ${target}`];
   if (generics.length) {
     out.push(`${i}  generic map (`);
-    out.push(...assocList(generics, actual, `${i}    `));
+    // A generic with a default gets it written out: its own name is not declared at the instance.
+    const value = (g: Iface) =>
+      opts.snippet ? `\${${++stop}:${g.def ?? g.name}}` : (g.def ?? g.name);
+    out.push(...assocList(generics, value, `${i}    `));
     out.push(`${i}  )`);
   }
   if (e.ports.length) {
@@ -993,6 +996,15 @@ export function declarableKinds(
  * or a `bit_vector`, and guessing between those is worse than leaving the tab stop for the
  * author, so `std_logic_vector` is offered as the tab stop's default rather than as a fact.
  */
+/**
+ * The return type in a function's hover text (`function f(x : natural) return positive`), or
+ * null when the hover is not a function's. A name that is a signal or an array indexed with `( )`
+ * has no `return`, and so no type from here.
+ */
+export function returnTypeOf(hover: string): string | null {
+  return /\bfunction\b[\s\S]*?\breturn\s+([A-Za-z][\w.]*)/i.exec(hover)?.[1] ?? null;
+}
+
 export function typeOfLiteral(expr: string): string | null {
   const e = expr.trim();
   if (/^'[^']'$/.test(e)) return "std_logic";

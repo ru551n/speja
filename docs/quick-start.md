@@ -40,7 +40,7 @@ speja --recursive src --fix      # format them
 
 ## Configure
 
-Put a `vsg.yaml` next to your sources:
+Put a `speja.yaml` next to your sources:
 
 ```yaml
 rule:
@@ -50,8 +50,9 @@ rule:
     disable: true
 ```
 
-Pass it with `-c vsg.yaml`, or name it `speja.yaml` and it is found automatically from the
-file's directory upwards. The rules and their options are
+It is found automatically from each file's directory upwards, by the command line and the
+editor alike. An existing VSG configuration works unchanged: rename it, or pass it with
+`-c vsg.yaml`. The rules and their options are
 [VSG's](https://vhdl-style-guide.readthedocs.io/en/latest/configuring.html); speja adds a few
 keys of its own under a `speja:` block.
 

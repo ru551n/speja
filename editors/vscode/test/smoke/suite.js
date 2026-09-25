@@ -93,7 +93,12 @@ exports.run = async function run() {
       offeredLabels = list.map((item) => item.label);
       // A multiple-choice prompt answers with every item that starts ticked.
       if (options && options.canPickMany) return list.filter((item) => item.picked !== false);
-      return list.find((item) => item.label === pick) || list[0];
+      // Entities are listed as `library.entity`; the suite names them by the entity alone.
+      return (
+        list.find((item) => item.label === pick) ||
+        list.find((item) => String(item.label).endsWith("." + pick)) ||
+        list[0]
+      );
     };
     vscode.window.showInputBox = async (options) => options && options.value;
     // A message box waits for a click that never comes, so a command that raises one would hang
@@ -149,11 +154,13 @@ exports.run = async function run() {
       unresolved().map((d) => d.message).join(" | ") || "nothing unresolved",
     );
 
-    // 3. Give the generic a value, as a user would, then declare the signals the map needs.
-    const generic = doc.getText().indexOf("width => width");
+    // 3. The generic is mapped to its default. Give it another value, as a user would, then
+    // declare the signals the map needs.
+    const generic = doc.getText().indexOf("width => 8");
+    check(generic >= 0, "a generic with a default is mapped to it");
     await editor.edit((edit) =>
       edit.replace(
-        new vscode.Range(doc.positionAt(generic), doc.positionAt(generic + "width => width".length)),
+        new vscode.Range(doc.positionAt(generic), doc.positionAt(generic + "width => 8".length)),
         "width => 16",
       ),
     );
@@ -1447,10 +1454,11 @@ exports.run = async function run() {
       check(contributed.every((c) => c.category === "speja" && !/^(VHDL|speja):/i.test(c.title)),
         "every command sits under `speja` once, not `VHDL: VHDL:`",
         contributed.filter((c) => c.category !== "speja" || /:/.test(c.title)).map((c) => c.title).join(" | ") || "all");
-      const inMenu = new Set(pkg.contributes.menus["speja.context"].map((m) => m.command));
-      const missingFromMenu = contributed.filter((c) => !["speja.restartServer", "speja.showOutput", "speja.showVersion", "speja.refreshHierarchy", "speja.fixAll"].includes(c.command) && !inMenu.has(c.command));
-      check(missingFromMenu.length === 0, "the right-click speja menu carries every editing command",
-        missingFromMenu.map((c) => c.command).join(", ") || "all");
+      // A static menu cannot ask what applies where it was opened, so the right-click submenu opens
+      // the speja menu, which does.
+      const inMenu = pkg.contributes.menus["speja.context"].map((m) => m.command);
+      check(inMenu.includes("speja.showMenu") && !inMenu.includes("speja.instantiateEntity"),
+        "the right-click speja menu opens the menu that knows what applies", inMenu.join(", "));
 
       // Format Document through speja's own server.
       const lay = await vscode.workspace.openTextDocument(at("audit.vhd"));
@@ -1469,13 +1477,28 @@ exports.run = async function run() {
       await restore();
 
       // The menu opens at the cursor: it is the code action widget asked for speja's kind, so
-      // it carries every action, and the ordinary lightbulb carries none of them.
-      const here = new vscode.Range(layEd.selection.active, layEd.selection.active);
-      const menuItems = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", lay.uri, here, "speja")) || [];
+      // it carries the actions that apply there, and the ordinary lightbulb carries none of them.
+      const menuAt = async (line, col) => {
+        const p = new vscode.Position(line, col);
+        const items = (await vscode.commands.executeCommand("vscode.executeCodeActionProvider", lay.uri, new vscode.Range(p, p), "speja")) || [];
+        return items;
+      };
+      const layLine = (re) => lay.getText().split("\n").findIndex((l) => re.test(l));
+      const onContext = (await menuAt(0, 0)).map((a) => a.title);
+      check(onContext.includes("Format Document") && !onContext.includes("Instantiate Entity...") &&
+          !onContext.includes("Format Selection") && !onContext.includes("Map Missing Ports") &&
+          !onContext.includes("Fix All Findings"),
+        "the speja menu on a library clause leaves out what does not apply there", onContext.join(" | "));
+      const statementsLine = layLine(/^\s*some_out <= typo_sig/);
+      const menuItems = await menuAt(statementsLine, lay.lineAt(statementsLine).text.indexOf("typo_sig") + 1);
       const menuTitles = menuItems.map((a) => a.title);
-      check(menuTitles.includes("Format Document") && menuTitles.includes("Instantiate Entity...") &&
-          menuTitles.includes("Quick Fixes at Cursor...") && !menuTitles.includes("Fix All Findings"),
-        "the speja menu at the cursor lists the actions", menuTitles.slice(0, 5).join(" | "));
+      check(menuTitles.includes("Instantiate Entity...") && menuTitles.includes("Quick Fixes at Cursor...") &&
+          menuTitles.includes("Declare Name Under Cursor...") && !menuTitles.includes("Complete Case Statement"),
+        "and among the statements, next to an unresolved name, lists what does", menuTitles.join(" | "));
+      const onInstance = (await menuAt(layLine(/clkk => clk/), 8)).map((a) => a.title);
+      check(onInstance.includes("Map Missing Ports"),
+        "in an instance that leaves ports out, it offers to map them", onInstance.join(" | "));
+      const here = new vscode.Range(layEd.selection.active, layEd.selection.active);
       const lightbulb = ((await vscode.commands.executeCommand("vscode.executeCodeActionProvider", lay.uri, here)) || []).map((a) => a.title);
       check(!lightbulb.includes("Instantiate Entity...") && !lightbulb.includes("Format Document"),
         "and the ordinary lightbulb does not", lightbulb.join(" | ") || "nothing");

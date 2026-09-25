@@ -58,8 +58,12 @@ What it never does:
   diagnostics and no edits at all: the buffer is left exactly as you wrote it.
 
 The rules and the layout come from the project's own `speja.yaml`, found from the file's
-directory upwards. There is no VS Code setting for any of it; see the
-[extension README](../README.md#configuring-the-rules).
+directory upwards. There is no VS Code setting for any of it; see
+[Configure](https://github.com/ru551n/speja/blob/HEAD/editors/vscode/README.md#configure) in the
+extension README.
+
+To format only the lines you changed, set `"editor.formatOnSaveMode": "modifications"`. speja
+then formats and fixes just those lines, with the same result `--fix` gives them.
 
 ## Quick fixes and Fix All
 

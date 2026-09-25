@@ -20,6 +20,8 @@ import {
   OutputChannel,
   Range,
   StatusBarAlignment,
+  TextDocument,
+  Uri,
   WorkspaceEdit,
   commands,
   languages,
@@ -27,6 +29,7 @@ import {
   workspace,
 } from "vscode";
 import {
+  applicableCommands,
   editingActionsAt,
   registerEditingFeatures,
   runAction,
@@ -112,8 +115,15 @@ async function start(context: ExtensionContext): Promise<void> {
     // Only VHDL, and only speja's own diagnostics: another server can serve the same files.
     documentSelector: [{ scheme: "file", language: "vhdl" }],
     outputChannel: output,
-    // The project's own configuration file decides the rules; there is nothing to send.
-    synchronize: {},
+    // The project's own files decide the rules. Nothing is sent, but an edit to one of them
+    // tells the server to analyse the open files again.
+    synchronize: {
+      fileEvents: workspace.createFileSystemWatcher(
+        `**/{speja.yaml,.speja.yaml,speja.json,.speja.json,vhdl_ls.toml,${
+          workspace.getConfiguration("speja").get<string>("waiverFile") ?? "speja-waivers.yaml"
+        }}`,
+      ),
+    },
     // What a waiver file is called. The server finds it by walking up from the source file and
     // creates one at the workspace root when a project has none.
     initializationOptions: {
@@ -178,6 +188,18 @@ async function serverEdit(
   }
 }
 
+/**
+ * The server changes nothing in a file it cannot parse, which is not the same as nothing to do:
+ * the message for that case, or undefined when the file parses.
+ */
+function unparsed(uri: Uri): string | undefined {
+  return languages
+    .getDiagnostics(uri)
+    .some((d) => d.source === "speja" && d.code === "syntax")
+    ? "speja: the file has syntax errors, see Problems."
+    : undefined;
+}
+
 async function askServer(
   what: "document" | "selection" | "fixAll" | "sort",
 ): Promise<void> {
@@ -213,7 +235,9 @@ async function askServer(
             options,
           });
     if (!edits?.length) {
-      void window.showInformationMessage("speja: already formatted.");
+      void window.showInformationMessage(
+        unparsed(document.uri) ?? "speja: already formatted.",
+      );
       return;
     }
     edit.set(document.uri, await p2c.asTextEdits(edits));
@@ -230,9 +254,10 @@ async function askServer(
   const found = result?.find((a) => "edit" in a && a.edit);
   if (!found || !("edit" in found) || !found.edit) {
     void window.showInformationMessage(
-      what === "fixAll"
-        ? "speja: nothing it can fix safely."
-        : "speja: the library and use clauses are already in order.",
+      unparsed(document.uri) ??
+        (what === "fixAll"
+          ? "speja: nothing it can fix safely."
+          : "speja: the library and use clauses are already in order."),
     );
     return;
   }
@@ -358,15 +383,16 @@ async function showMenu(): Promise<void> {
   });
 }
 
-/** The entries of the menu at the cursor: every action, each running its command. */
+/** The entries of the menu at the cursor: the actions that apply there, each running its command. */
 const menuActions = {
-  provideCodeActions(
-    _document: unknown,
-    _range: unknown,
+  async provideCodeActions(
+    document: TextDocument,
+    range: Range,
     context: { only?: CodeActionKind },
-  ): CodeAction[] {
+  ): Promise<CodeAction[]> {
     if (!context.only || !MENU_KIND.contains(context.only)) return [];
-    return MENU.map(([command, label]) => {
+    const applicable = await applicableCommands(document, range);
+    return MENU.filter(([command]) => applicable.has(command)).map(([command, label]) => {
       const action = new CodeAction(label, MENU_KIND);
       action.command = { command, title: label };
       return action;
