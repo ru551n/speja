@@ -131,7 +131,7 @@ pub struct FixOptions {
 impl FixOptions {
     /// Read a VSG `--fix_only` file: `{"fix": {"rule": {"<rule>": ["all"] | [line, ...]}}}`.
     pub fn parse_fix_only(text: &str) -> Result<BTreeMap<String, Option<Vec<usize>>>, String> {
-        let doc: yaml_serde::Value = yaml_serde::from_str(text).map_err(|e| e.to_string())?;
+        let doc = crate::config::parse_yaml(text)?;
         let rules = doc
             .get("fix")
             .and_then(|f| f.get("rule"))

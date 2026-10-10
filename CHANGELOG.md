@@ -3,6 +3,16 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## Unreleased
+
+* **YAML merge keys work in configuration files.** `<<: *anchor` under a rule now brings in
+  the anchored settings, as it does for VSG; they were dropped. The top-level key that only
+  holds the anchor is no longer reported as unknown, since VSG accepts it silently. The
+  `--fix_only` and waiver files read merge keys too.
+* **`yes`, `no`, `on` and `off` are booleans in configuration files**, as PyYAML reads them for
+  VSG. `disable: yes` was rejected as an invalid value; it now works for `disable`, `fixable`
+  and every other true/false option.
+
 ## 0.14.6
 
 **Targets VSG 3.35.**

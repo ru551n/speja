@@ -145,7 +145,7 @@ impl RuleSettings {
     }
 
     pub fn option_bool(&self, key: &str) -> Option<bool> {
-        self.options.get(key).and_then(Value::as_bool)
+        self.options.get(key).and_then(yaml_bool)
     }
 
     /// A list of strings; a single string counts as a one-element list.
@@ -333,10 +333,9 @@ impl Config {
                 message,
             };
             let text = std::fs::read_to_string(path).map_err(|e| error(e.to_string()))?;
-            // JSON is a subset of YAML, so one parser handles both formats.
-            let doc: Value = yaml_serde::from_str(&text).map_err(|e| error(e.to_string()))?;
+            let doc = parse_yaml(&text).map_err(error)?;
             let listed = cfg.file_list.len();
-            cfg.merge(&doc).map_err(error)?;
+            cfg.merge(&doc, &text).map_err(error)?;
             for entry in &mut cfg.file_list[listed..] {
                 entry.1.clone_from(path);
             }
@@ -347,14 +346,14 @@ impl Config {
 
     /// Load configuration from a YAML or JSON string.
     pub fn parse(text: &str) -> Result<Config, String> {
-        let doc: Value = yaml_serde::from_str(text).map_err(|e| e.to_string())?;
+        let doc = parse_yaml(text)?;
         let mut cfg = Config::default();
-        cfg.merge(&doc)?;
+        cfg.merge(&doc, text)?;
         cfg.resolve_format();
         Ok(cfg)
     }
 
-    fn merge(&mut self, doc: &Value) -> Result<(), String> {
+    fn merge(&mut self, doc: &Value, text: &str) -> Result<(), String> {
         let Some(map) = doc.as_mapping() else {
             if doc.is_null() {
                 return Ok(());
@@ -384,6 +383,9 @@ impl Config {
                     let dir = value.as_str().ok_or("`local_rules` must be a directory")?;
                     self.local_rules = Some(expand_path(dir));
                 }
+                // A key that only holds an anchor for `<<: *alias` is deliberate, and VSG says
+                // nothing about it.
+                _ if anchored(text, key) => {}
                 _ => self.warn(&format!("unknown top-level key `{key}` ignored")),
             }
         }
@@ -452,9 +454,8 @@ impl Config {
                         .collect();
                 }
                 "reflow_comments" => {
-                    self.format.reflow_comments = value
-                        .as_bool()
-                        .ok_or("`reflow_comments` must be true or false")?;
+                    self.format.reflow_comments =
+                        yaml_bool(value).ok_or("`reflow_comments` must be true or false")?;
                 }
                 key => self.warn(&format!("unknown `speja` key `{key}` ignored")),
             }
@@ -1218,6 +1219,37 @@ pub fn glob(pattern: &[u8], text: &[u8]) -> bool {
     }
 }
 
+/// Parse a YAML or JSON document the way `PyYAML` hands it to VSG: merge keys (`<<: *alias`)
+/// are applied.
+pub fn parse_yaml(text: &str) -> Result<Value, String> {
+    // JSON is a subset of YAML, so one parser handles both formats.
+    let mut doc: Value = yaml_serde::from_str(text).map_err(|e| e.to_string())?;
+    doc.apply_merge().map_err(|e| e.to_string())?;
+    Ok(doc)
+}
+
+/// Whether top-level `key` carries an anchor (`key: &name`) in the source text.
+fn anchored(text: &str, key: &str) -> bool {
+    text.lines().any(|line| {
+        line.strip_prefix(key)
+            .and_then(|rest| rest.strip_prefix(':'))
+            .is_some_and(|rest| rest.trim_start().starts_with('&'))
+    })
+}
+
+/// A boolean as `PyYAML` reads it: YAML 1.1 also spells one `yes`/`no`/`on`/`off`.
+fn yaml_bool(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(b) => Some(*b),
+        Value::String(s) => match s.as_str() {
+            "yes" | "Yes" | "YES" | "on" | "On" | "ON" | "true" | "True" | "TRUE" => Some(true),
+            "no" | "No" | "NO" | "off" | "Off" | "OFF" | "false" | "False" | "FALSE" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn merge_layer(layer: &mut RuleLayer, settings: &Value, name: &str) -> Result<(), String> {
     let Some(map) = settings.as_mapping() else {
         return Err(format!("settings of `{name}` must be a mapping"));
@@ -1226,8 +1258,8 @@ fn merge_layer(layer: &mut RuleLayer, settings: &Value, name: &str) -> Result<()
         let key = key.as_str().unwrap_or_default();
         let bad = || format!("`{name}.{key}` has an invalid value {value:?}");
         match key {
-            "disable" => layer.disable = Some(value.as_bool().ok_or_else(bad)?),
-            "fixable" => layer.fixable = Some(value.as_bool().ok_or_else(bad)?),
+            "disable" => layer.disable = Some(yaml_bool(value).ok_or_else(bad)?),
+            "fixable" => layer.fixable = Some(yaml_bool(value).ok_or_else(bad)?),
             "severity" => {
                 layer.severity = Some(
                     match value.as_str().map(str::to_ascii_lowercase).as_deref() {
@@ -1336,6 +1368,37 @@ mod tests {
         // Nothing configured, nothing excluded, and no walking of the path to find that out.
         assert!(!Config::default().excluded(Path::new("generated/gen.vhd")));
         assert!(Config::parse("speja: {exclude: generated}").is_err());
+    }
+
+    #[test]
+    fn merge_keys_are_applied() {
+        let cfg = Config::parse(
+            "upper: &upper\n  case: upper\nrule:\n  architecture_020:\n    <<: *upper\n",
+        )
+        .unwrap();
+        let rule = cfg.rule_by_id("architecture_020").unwrap();
+        assert_eq!(rule.option_str("case"), Some("upper"));
+        // The anchor's holder is not a typo, and VSG says nothing about it.
+        assert_eq!(cfg.warnings, Vec::<String>::new());
+        assert!(
+            Config::parse("shared:\n  case: upper\n")
+                .unwrap()
+                .warnings
+                .iter()
+                .any(|w| w.contains("`shared`"))
+        );
+    }
+
+    #[test]
+    fn yaml_1_1_booleans() {
+        let info = crate::rules::info("entity_015").unwrap();
+        for (spelling, enabled) in [("yes", false), ("On", false), ("NO", true), ("off", true)] {
+            let cfg =
+                Config::parse(&format!("rule: {{entity_015: {{disable: {spelling}}}}}")).unwrap();
+            assert_eq!(cfg.rule(info).enabled, enabled, "{spelling}");
+        }
+        let cfg = Config::parse("rule: {entity_015: {fixable: no}}").unwrap();
+        assert!(!cfg.rule(info).fixable);
     }
 
     #[test]
