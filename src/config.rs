@@ -56,6 +56,9 @@ pub struct FormatConfig {
     pub close_paren_same_line: Vec<vhdl_syntax::syntax::NodeKind>,
     /// Continuation lines are indented instead of aligned (VSG `align_left`/`align_paren`).
     pub indent_continuations: bool,
+    /// Statements whose condition has its continuation lines indented instead of aligned
+    /// (`if_009` `align_left`/`align_paren`).
+    pub indent_conditions: Vec<vhdl_syntax::syntax::NodeKind>,
     /// Conditional assignments whose `when` keywords align (VSG `align_when_keywords`).
     pub align_when_keywords: Vec<vhdl_syntax::syntax::NodeKind>,
     /// Conditional assignments whose `else` keywords align (VSG `align_else_keywords`).
@@ -89,6 +92,7 @@ impl Default for FormatConfig {
             mode_spacing: [(1, 4), (1, 3), (1, 1)],
             close_paren_same_line: Vec::new(),
             indent_continuations: false,
+            indent_conditions: Vec::new(),
             align_when_keywords: Vec::new(),
             align_else_keywords: Vec::new(),
             comment_spaces: 1,
@@ -888,6 +892,13 @@ impl Config {
                         && s.option_str("align_paren") == Some("no")
                 })
             });
+        if self.rule_by_id("if_009").is_some_and(|s| {
+            s.enabled
+                && s.option_bool("align_left") == Some(true)
+                && s.option_bool("align_paren") == Some(false)
+        }) {
+            self.format.indent_conditions = vec![NodeKind::IfStatement, NodeKind::IfStatementElsif];
+        }
         for (rule, statement) in [
             (
                 "concurrent_009",

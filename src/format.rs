@@ -917,8 +917,13 @@ impl<'a> Builder<'a> {
                     let first = c.first_token();
                     let commented = !self.comments_done.contains(&first.text_offset())
                         && comments(&first, true).0.iter().any(|c| !c.trailing);
+                    let condition = self.cfg.indent_conditions.contains(&n.kind());
                     let doc = self.node(&c);
-                    out.push(if commented { Doc::indent(doc) } else { doc });
+                    out.push(if commented || condition {
+                        Doc::indent(doc)
+                    } else {
+                        doc
+                    });
                 }
                 Place::NewLine => {
                     self.mark_item(&children[i]);
@@ -1043,7 +1048,7 @@ impl<'a> Builder<'a> {
             let body = items[0].iter().map(|e| self.elem(e)).collect();
             concat(vec![
                 self.tok(&open),
-                Doc::align(concat(body)),
+                self.align(&open.parent(), concat(body)),
                 self.tok(&close),
             ])
         } else {
@@ -1523,7 +1528,24 @@ impl<'a> Builder<'a> {
                 out.push(self.elem(&c));
             }
         }
-        self.group(Doc::align(concat(out)))
+        let doc = self.align(n, concat(out));
+        self.group(doc)
+    }
+
+    /// Continuation lines of `n` align with its start, except in an `if` or `elsif` condition
+    /// that `block` indents as a whole (`if_009` `align_left: yes`, `align_paren: no`).
+    fn align(&self, n: &SyntaxNode, doc: Doc) -> Doc {
+        let in_condition = || {
+            n.ancestors()
+                .map(|a| a.kind())
+                .find(|k| *k == N::SequenceOfStatements || self.cfg.indent_conditions.contains(k))
+                .is_some_and(|k| k != N::SequenceOfStatements)
+        };
+        if !self.cfg.indent_conditions.is_empty() && in_condition() {
+            doc
+        } else {
+            Doc::align(doc)
+        }
     }
 
     /// A branch of a conditional or selected assignment. A leading `else` ends the previous

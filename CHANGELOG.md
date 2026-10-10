@@ -5,6 +5,11 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **`if_009` honours `align_left: yes` with `align_paren: no`.** The setting was ignored
+  without a warning, so folded `if` and `elsif` conditions stayed aligned after the keyword.
+  Their continuation lines are now indented one level, also with `indent_style: smart_tabs`
+  (VSG issue #1218).
+
 * **`align_when_keywords` and `align_else_keywords` are applied.** Set in `concurrent_009`,
   `sequential_401` or `variable_assignment_400`, they were ignored without a warning. The
   `when` (or `else`) keywords of a conditional assignment printed one branch per line now line

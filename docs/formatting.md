@@ -94,7 +94,8 @@ The spaces around port modes follow `port_007` to `port_009` (`spaces_before`,
   in `generic_010`, `port_014`, `generic_map_004` or `port_map_004`.
 * Continuation lines of folded expressions are aligned with the opening parenthesis, or
   indented one level when `concurrent_003` or `sequential_004` sets `align_left: 'yes'` and
-  `align_paren: 'no'`.
+  `align_paren: 'no'`. `if_009` with the same settings indents the continuation lines of `if`
+  and `elsif` conditions one level, whatever the parentheses.
 * Subprogram parameter lists, calls, aggregates, index constraints, enumerations and
   sensitivity lists are flat when they fit, otherwise one element per line (see
   `line-folding.md`). Aggregates made only of short literals or names fill each line instead.
