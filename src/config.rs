@@ -892,6 +892,36 @@ impl Config {
                         && s.option_str("align_paren") == Some("no")
                 })
             });
+        // VSG's multiline structure rules break array aggregates where the source does; the
+        // formatter breaks them only when they do not fit, keeps the first `(` after the
+        // assignment operator and puts every element on its own line.
+        for rule in [
+            "constant_016",
+            "concurrent_012",
+            "sequential_009",
+            "variable_assignment_008",
+        ] {
+            for (key, supported) in [
+                ("first_paren_new_line", "no"),
+                ("last_paren_new_line", "yes"),
+                ("open_paren_new_line", "yes"),
+                ("close_paren_new_line", "yes"),
+                ("new_line_after_comma", "yes"),
+                ("ignore_single_line", "yes"),
+            ] {
+                let value = self
+                    .layer_option(rule, &["structure"], key)
+                    .and_then(|v| match yaml_bool(v) {
+                        Some(true) => Some("yes"),
+                        Some(false) => Some("no"),
+                        None => v.as_str(),
+                    })
+                    .filter(|v| *v != supported && *v != "ignore");
+                if let Some(value) = value {
+                    self.warn(&format!("{rule}: unsupported option `{key}: {value}`"));
+                }
+            }
+        }
         if self.rule_by_id("if_009").is_some_and(|s| {
             s.enabled
                 && s.option_bool("align_left") == Some(true)
@@ -1340,6 +1370,22 @@ mod tests {
         assert_eq!(
             expand_vars("${CARGO_MANIFEST_DIR}/src/$CARGO_MANIFEST_DIR/$SPEJA_UNSET_VARIABLE"),
             format!("{home}/src/{home}/$SPEJA_UNSET_VARIABLE")
+        );
+    }
+
+    #[test]
+    fn unsupported_multiline_structure_options() {
+        // VSG issue #1502: options the formatter cannot follow are reported, not ignored.
+        let cfg = Config::parse(
+            "rule:\n  constant_016:\n    first_paren_new_line: 'yes'\n    last_paren_new_line: 'yes'\n    open_paren_new_line: ignore\n  sequential_009:\n    new_line_after_comma: no\n",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.warnings,
+            [
+                "constant_016: unsupported option `first_paren_new_line: yes`",
+                "sequential_009: unsupported option `new_line_after_comma: no`",
+            ]
         );
     }
 

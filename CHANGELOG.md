@@ -5,6 +5,14 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **Unsupported multiline structure options are reported.** `first_paren_new_line`,
+  `last_paren_new_line`, `open_paren_new_line`, `close_paren_new_line`, `new_line_after_comma`
+  and `ignore_single_line` in `constant_016`, `concurrent_012`, `sequential_009` and
+  `variable_assignment_008` were ignored without a warning. speja breaks an aggregate only
+  when it does not fit, keeps its first `(` after the assignment operator and puts each
+  element on its own line; a value that asks for something else is now reported as unsupported
+  (VSG issue #1502).
+
 * **`if_009` honours `align_left: yes` with `align_paren: no`.** The setting was ignored
   without a warning, so folded `if` and `elsif` conditions stayed aligned after the keyword.
   Their continuation lines are now indented one level, also with `indent_style: smart_tabs`

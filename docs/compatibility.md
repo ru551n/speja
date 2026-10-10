@@ -122,6 +122,12 @@ could not be processed, missing files and invalid arguments).
 * **Comments in front of a continuation line.** Own-line comments between `elsif` and its
   condition are indented one level deeper than `elsif`, with the condition. VSG indents them
   like `elsif` (VSG issue #1585).
+* **Multiline aggregates.** VSG's multiline structure rules (`constant_016`, `concurrent_012`,
+  `sequential_009`, `variable_assignment_008`) restructure an aggregate when the source writes
+  it over several lines, and by default put its first `(` on a line of its own. speja's layout
+  does not depend on the source's line breaks: an aggregate is folded when it does not fit,
+  with the first `(` after the assignment operator and one element per line. Options asking
+  for another structure are reported as unsupported (VSG issue #1502).
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files
