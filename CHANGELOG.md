@@ -12,6 +12,9 @@ reports are that version's. `speja --version` prints the same thing.
   statements or declarations above them, also inside the last branch of a `case`, and so are
   comments before `when`, `elsif` and `else` that start by closing a pragma region (VSG issue
   #1520).
+* **Comments between `elsif` and its condition are indented.** They, and the condition below
+  them, stayed at the column of `elsif`; they are now one level deeper, like any continuation
+  line (VSG issue #1585).
 
 * **`library_007` supports `style: no_blank_line_unless_different_library`.** speja warned
   that the style is unsupported and kept the blank lines as written. Use clauses of the same

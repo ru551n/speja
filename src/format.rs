@@ -892,7 +892,15 @@ impl<'a> Builder<'a> {
                 place = Place::Inline;
             }
             match place {
-                Place::Inline => out.push(self.node(&c)),
+                Place::Inline => {
+                    // Own-line comments in front of a node that continues the line make it a
+                    // continuation line, indented with the comments (VSG issue #1585).
+                    let first = c.first_token();
+                    let commented = !self.comments_done.contains(&first.text_offset())
+                        && comments(&first, true).0.iter().any(|c| !c.trailing);
+                    let doc = self.node(&c);
+                    out.push(if commented { Doc::indent(doc) } else { doc });
+                }
                 Place::NewLine => {
                     self.mark_item(&children[i]);
                     if matches!(prev.0, Place::Indented | Place::IndentedList) {

@@ -57,7 +57,8 @@ to stdout, so an editor keeps its buffer.
   that ends a declarative part, are indented with the body they follow. So are comments before
   `when`, `elsif` and `else` when the first of them closes a pragma region (`-- synthesis
   translate_on`, `-- pragma translate_on`); other comments there describe the next branch and
-  are indented with its keyword.
+  are indented with its keyword. Own-line comments in front of a part that continues a line
+  (the condition after `elsif`, for example) are indented one level, with that part.
 
 ## Spacing
 

@@ -119,6 +119,9 @@ could not be processed, missing files and invalid arguments).
   comments before `when`, `elsif` and `else` that start by closing a pragma region. VSG
   indents them like the keyword that follows by default, which separates a
   `-- synthesis translate_on` from its `-- synthesis translate_off` (VSG issue #1520).
+* **Comments in front of a continuation line.** Own-line comments between `elsif` and its
+  condition are indented one level deeper than `elsif`, with the condition. VSG indents them
+  like `elsif` (VSG issue #1585).
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files
