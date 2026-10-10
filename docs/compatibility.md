@@ -96,6 +96,9 @@ could not be processed, missing files and invalid arguments).
   the declaration's case rule requires, so declaration and uses are fixed in the same run. Set
   `spelling: declaration` on a consistency rule to compare with the declaration as written, as
   VSG does.
+* **Bit string literals everywhere.** `bit_string_literal_500` and `bit_string_literal_501`
+  check every bit string literal. VSG misses those in procedure call arguments, port and
+  generic maps and case choices (VSG issue #1449).
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files

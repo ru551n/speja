@@ -985,12 +985,18 @@ impl Config {
     /// Effective settings for a rule: rule-specific settings override its groups, which
     /// override `global`, which override the rule's defaults.
     pub fn rule(&self, info: &crate::rules::RuleInfo) -> RuleSettings {
+        // VSG's default case, for the rule whose default is not lower case
+        // (`bit_string_literal_501`).
+        let options = crate::vsg_defaults::defaults()["rule"][info.id]["case"]
+            .as_str()
+            .map(|case| BTreeMap::from([("case".to_owned(), Value::from(case))]))
+            .unwrap_or_default();
         self.layered(
             info.id,
             info.groups,
             info.enabled_by_default,
             info.severity,
-            BTreeMap::new(),
+            options,
         )
     }
 

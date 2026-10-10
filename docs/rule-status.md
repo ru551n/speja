@@ -7,8 +7,8 @@ VSG 3.35.0 has 972 rules:
 
 | Status | Rules | Meaning |
 |---|---|---|
-| implemented | 192 | reported by `speja`, with the fix class listed below |
-| formatter | 779 | layout policy applied by `speja --fix` (whitespace, indentation, blank lines, alignment, keyword case, line structure); configured through the VSG rule options described in `formatting.md` |
+| implemented | 194 | reported by `speja`, with the fix class listed below |
+| formatter | 777 | layout policy applied by `speja --fix` (whitespace, indentation, blank lines, alignment, keyword case, line structure); configured through the VSG rule options described in `formatting.md` |
 | command line | 1 | `source_file_001`: a missing input file is an error (exit code 1) |
 
 Formatter-owned rules are not reported one by one: unformatted lines are reported as `format`
@@ -56,6 +56,8 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 | `attribute_declaration_501` | Attribute names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `attribute_declaration_502` | Attribute type marks are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `attribute_specification_501` | Attribute designators are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
+| `bit_string_literal_500` | Base specifiers of bit string literals are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
+| `bit_string_literal_501` | Values of bit string literals are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `block_002` | Block statements include the optional `is` | on | safe |
 | `block_007` | `end block` repeats the block label | on | safe |
 | `block_500` | Block labels are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |

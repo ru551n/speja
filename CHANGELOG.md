@@ -17,6 +17,12 @@ reports are that version's. `speja --version` prints the same thing.
   context items, speja refused the file as a syntax error; VSG checks and fixes it like any
   other, and so does speja now.
 
+* **`bit_string_literal_500` and `bit_string_literal_501` are checked and fixed.** The case of
+  the base specifier and of the value (`X"5a"` to `x"5A"` by default) was never reported, and
+  `--fix` left bit strings as written. They now apply to every bit string literal, including
+  procedure call arguments, port and generic maps and case choices, which VSG misses (VSG
+  issue #1449).
+
 ## 0.14.6
 
 **Targets VSG 3.35.**

@@ -101,24 +101,48 @@ fn check_case(
     rule: &'static str,
     select: Select,
 ) {
-    let policy = settings.option_str("case").unwrap_or("lower");
-    for t in select(cx) {
+    check_tokens(settings, out, rule, select(cx));
+}
+
+fn check_tokens(
+    settings: &RuleSettings,
+    out: &mut Vec<Violation>,
+    rule: &'static str,
+    tokens: Vec<SyntaxToken>,
+) {
+    for t in tokens {
         if t.kind() != T::Identifier || is_extended(&t) {
             continue;
         }
-        let name = text(&t);
-        let (fix, message) = match required(settings, &name) {
-            Ok(None) => continue,
-            Ok(Some(fixed)) => (
-                Some(rename(&t, fixed.clone())),
-                format!("Change \"{name}\" to \"{fixed}\""),
-            ),
-            Err(()) => (None, format!("Change \"{name}\" to {policy} case")),
-        };
-        let mut v = violation(settings, rule, &t, message);
-        v.fix = fix;
-        out.push(v);
+        if let Some(v) = check_spelling(settings, rule, &t, &text(&t), str::to_owned) {
+            out.push(v);
+        }
     }
+}
+
+/// The violation of `rule` for `part` of token `t`, if `part` is not in the configured case. The
+/// fix replaces the whole token with `token(fixed part)`.
+fn check_spelling(
+    settings: &RuleSettings,
+    rule: &'static str,
+    t: &SyntaxToken,
+    part: &str,
+    token: impl Fn(&str) -> String,
+) -> Option<Violation> {
+    let (fix, message) = match required(settings, part) {
+        Ok(None) => return None,
+        Ok(Some(fixed)) => (
+            Some(rename(t, token(&fixed))),
+            format!("Change \"{part}\" to \"{fixed}\""),
+        ),
+        Err(()) => {
+            let policy = settings.option_str("case").unwrap_or("lower");
+            (None, format!("Change \"{part}\" to {policy} case"))
+        }
+    };
+    let mut v = violation(settings, rule, t, message);
+    v.fix = fix;
+    Some(v)
 }
 
 fn case_rule(id: &'static str, label: bool, description: &'static str, check: Check) -> Rule {
@@ -851,10 +875,48 @@ fn exponents(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>
     }
 }
 
+/// The base specifier (`base`) or the quoted value of every bit string literal (`12UX"f_f"`).
+fn bit_strings(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>, base: bool) {
+    let rule = if base {
+        "bit_string_literal_500"
+    } else {
+        "bit_string_literal_501"
+    };
+    for t in cx.parsed.tokens() {
+        if t.kind() != T::BitStringLiteral {
+            continue;
+        }
+        let literal = text(t);
+        let Some(quote) = literal.find(['"', '%']) else {
+            continue;
+        };
+        let (length, rest) =
+            literal.split_at(literal[..quote].trim_end_matches(char::is_alphabetic).len());
+        let (specifier, value) = rest.split_at(quote - length.len());
+        let v = if base {
+            check_spelling(settings, rule, t, specifier, |f| {
+                format!("{length}{f}{value}")
+            })
+        } else {
+            check_spelling(settings, rule, t, value, |f| {
+                format!("{length}{specifier}{f}")
+            })
+        };
+        out.extend(v);
+    }
+}
+
 fn keyword_like_rules() -> Vec<Rule> {
     let keyword = |id, description, check| Rule {
         info: RuleInfo {
             groups: &["case", "case::keyword"],
+            ..case_rule(id, false, description, check).info
+        },
+        check,
+    };
+    let literal = |id, description, check| Rule {
+        info: RuleInfo {
+            groups: &["case"],
             ..case_rule(id, false, description, check).info
         },
         check,
@@ -874,6 +936,16 @@ fn keyword_like_rules() -> Vec<Rule> {
             "exponent_500",
             "Exponents of decimal literals are in the configured case.",
             exponents,
+        ),
+        literal(
+            "bit_string_literal_500",
+            "Base specifiers of bit string literals are in the configured case.",
+            |cx, s, out| bit_strings(cx, s, out, true),
+        ),
+        literal(
+            "bit_string_literal_501",
+            "Values of bit string literals are in the configured case.",
+            |cx, s, out| bit_strings(cx, s, out, false),
         ),
     ]
 }
@@ -974,6 +1046,43 @@ mod tests {
             assert!(has(&f, rule, text), "{rule} {text} missing in {f:?}");
         }
         assert_eq!(f.iter().filter(|(r, _)| *r == "exponent_500").count(), 1);
+    }
+
+    /// VSG issue #1449: bit string literals are checked wherever they appear.
+    #[test]
+    fn bit_string_literals_everywhere() {
+        let src = "architecture a of b is\nbegin\n  bar : process is\n  begin\n    foo(X\"5a\", a = X\"5a\");\n    case a is\n      when X\"5a\" =>\n        null;\n      when others =>\n        null;\n    end case;\n  end process bar;\n  inst : component my_component\n    port map (\n      c => 12UX\"5a\"\n    );\nend architecture a;\n";
+        let f = found(src, "");
+        assert_eq!(
+            f.iter()
+                .filter(|(r, _)| *r == "bit_string_literal_500")
+                .count(),
+            4,
+            "{f:?}"
+        );
+        assert_eq!(
+            f.iter()
+                .filter(|(r, _)| *r == "bit_string_literal_501")
+                .count(),
+            4,
+            "{f:?}"
+        );
+        let fixed = String::from_utf8(
+            crate::fix::fix(&Parsed::new(src.as_bytes().to_vec()), &Config::default())
+                .unwrap()
+                .output,
+        )
+        .unwrap();
+        assert_eq!(fixed.matches("x\"5A\"").count(), 4, "{fixed}");
+        assert!(fixed.contains("12ux\"5A\""), "{fixed}");
+        let swapped = found(
+            src,
+            "rule:\n  bit_string_literal_500:\n    case: upper\n  bit_string_literal_501:\n    case: lower\n",
+        );
+        assert!(
+            !swapped.iter().any(|(r, _)| r.starts_with("bit_string")),
+            "{swapped:?}"
+        );
     }
 
     #[test]
