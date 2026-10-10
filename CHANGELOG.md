@@ -5,6 +5,18 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **Layout findings carry the rule VSG reports them with.** The learned table that names the
+  VSG rule for each formatting change looked at the token and its own syntax node only, which
+  many constructs share: a blank line before an architecture's `begin` was reported as
+  `subprogram_body_202`, one after `then` as `report_statement_002`, a generate label's spacing
+  as `process_024`. Changes are now told apart by the statement or declaration around the token
+  and by the token before, and adding and removing blank lines are separate. A blank line that a
+  rule wants below a line (`process_022` after `begin`, `if_030` after `end if`) is reported on
+  that line, as in VSG, so one missing blank line can be two findings, also as in VSG; these
+  were `format` before. Spacing between two tokens that a VSG rule documents (such as
+  `generate_002`) is reported under that rule. `scripts/learn_layout_rules.py` learns the
+  richer keys and the table is relearned.
+
 * **Unsupported multiline structure options are reported.** `first_paren_new_line`,
   `last_paren_new_line`, `open_paren_new_line`, `close_paren_new_line`, `new_line_after_comma`
   and `ignore_single_line` in `constant_016`, `concurrent_012`, `sequential_009` and

@@ -184,34 +184,35 @@ fn layout_findings(parsed: &Parsed, formatted: Vec<u8>, cfg: &Config) -> Vec<Dia
     // The first change a disabled rule would have reported, for the fallback below.
     let mut unreported: Option<(usize, String)> = None;
     for change in speja::layout::layout_changes(parsed, &after) {
-        let rule = speja::layout::rule_for(&change);
-        // A disabled VSG rule does not report (the formatter still applies its policy).
-        if rule != "format" && cfg.rule_by_id(rule).is_some_and(|s| !s.enabled) {
-            unreported.get_or_insert_with(|| {
+        for (rule, line) in speja::layout::attributions(&change) {
+            // A disabled VSG rule does not report (the formatter still applies its policy).
+            if rule != "format" && cfg.rule_by_id(rule).is_some_and(|s| !s.enabled) {
+                unreported.get_or_insert_with(|| {
                 (
-                    change.line,
+                    line,
                     format!(
                         "File is not formatted: {} ({rule} is disabled, but the formatter still \
                          applies it)",
-                        speja::layout::message(&change, cfg.format.indent)
+                        speja::layout::message(&change, cfg.format.indent, line)
                     ),
                 )
             });
-            continue;
+                continue;
+            }
+            if out.iter().any(|d| d.line == line && d.rule == rule) {
+                continue;
+            }
+            out.push(Diagnostic {
+                line,
+                column: 1,
+                rule: rule.to_owned(),
+                severity: "error".into(),
+                message: speja::layout::message(&change, cfg.format.indent, line),
+                fixable: true,
+                related: Vec::new(),
+                fix: Vec::new(),
+            });
         }
-        if out.iter().any(|d| d.line == change.line && d.rule == rule) {
-            continue;
-        }
-        out.push(Diagnostic {
-            line: change.line,
-            column: 1,
-            rule: rule.to_owned(),
-            severity: "error".into(),
-            message: speja::layout::message(&change, cfg.format.indent),
-            fixable: true,
-            related: Vec::new(),
-            fix: Vec::new(),
-        });
     }
     if out.is_empty() {
         // Nothing a rule reports, yet formatting changes the file: either every change belongs

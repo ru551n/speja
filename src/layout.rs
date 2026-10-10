@@ -43,6 +43,11 @@ pub struct LayoutChange {
     pub kind: ChangeKind,
     /// Context of the change for the rule table, such as `Indent:ProcessStatementPart:signal`.
     pub key: String,
+    /// More specific keys for the table, the most specific last: `key` with the statement or
+    /// declaration that owns the token, then also with the token before it. The token's own
+    /// node is often a generic one (a name, a separator), so `key` alone cannot tell an
+    /// architecture's `begin` from a procedure's, or a generate label from a process label.
+    pub context: Vec<String>,
     /// The VSG rule that reports the change, if known without the table.
     pub rule: Option<&'static str>,
     /// Expected indentation or spaces (columns), or blank lines.
@@ -54,6 +59,12 @@ pub struct LayoutChange {
     /// For a `BlankLines` change, the blank lines found in the source; `expected` is how many
     /// there should be. Without it the message could only say "add", even about one too many.
     pub found: usize,
+    /// 1-based line of the token before, where VSG reports what is missing below a line
+    /// (`process_022`, `if_030`) rather than above the next.
+    pub prev_line: usize,
+    /// For a `BlankLines` change, the keys of the token before, the most specific last: a rule
+    /// about the lines below that token reports the change on that token's line.
+    pub below: Vec<String>,
 }
 
 /// The whitespace and comments between two tokens: `src` between the previous token and
@@ -126,6 +137,27 @@ fn kind_name(t: &SyntaxToken) -> String {
 
 fn construct(t: &SyntaxToken) -> String {
     format!("{:?}", t.parent().kind())
+}
+
+/// The statement, declaration or clause that owns a token, above the token's own node.
+fn owner(t: &SyntaxToken) -> String {
+    const OWNERS: [&str; 9] = [
+        "Statement",
+        "Declaration",
+        "Body",
+        "Assignment",
+        "Specification",
+        "Clause",
+        "Aspect",
+        "Definition",
+        "Instantiation",
+    ];
+    t.parent()
+        .ancestors()
+        .skip(1)
+        .map(|n| format!("{:?}", crate::format::construct_kind(&n)))
+        .find(|k| OWNERS.iter().any(|o| k.ends_with(o)))
+        .unwrap_or_default()
 }
 
 /// The `case::keyword` rule for a keyword: the one for the innermost construct that has one.
@@ -222,6 +254,27 @@ fn mode_rule(prev: &SyntaxToken, t: &SyntaxToken) -> Option<&'static str> {
         })
 }
 
+/// The VSG spacing rule whose documented token pair (both sides named) is `prev` and `t` in its
+/// construct, such as `generate_002` for the `:` after a generate label. The learned table only
+/// sees the token's own node, which a label shares with every labelled statement.
+fn spacing_rule(parsed: &Parsed, prev: &SyntaxToken, t: &SyntaxToken) -> Option<&'static str> {
+    spacing_pairs().iter().find_map(|(rule, pairs)| {
+        pairs
+            .iter()
+            .filter_map(|[p, n]| Some((p.as_deref()?, n.as_deref()?)))
+            .any(|(p, n)| {
+                let candidate = SpacingRule {
+                    kinds: crate::keywords::constructs(rule),
+                    prev: Some(p),
+                    next: Some(n),
+                    spaces: Spaces::Exact(1),
+                };
+                spacing_applies(parsed, &candidate, prev, t)
+            })
+            .then_some(rule.as_str())
+    })
+}
+
 /// The layout differences between `before` and its formatting `after` (same tokens).
 pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
     let (bt, at) = (before.tokens(), after.tokens());
@@ -235,15 +288,41 @@ pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
         let original = String::from_utf8_lossy(b.text().as_bytes()).into_owned();
         let found = std::cell::Cell::new(0);
         let mut push = |kind, key: String, rule, expected, line| {
+            // Context for the table, built only for a change (most tokens have none).
+            let prev_line = i
+                .checked_sub(1)
+                .map_or(line, |p| before.line_col(bt[p].text_offset()).0);
+            let (prev_token, prev_owner) =
+                i.checked_sub(1)
+                    .map_or(("Start".to_owned(), String::new()), |p| {
+                        let t = &bt[p];
+                        (format!("{}:{}", construct(t), kind_name(t)), owner(t))
+                    });
+            let context = if kind == ChangeKind::Trailing {
+                Vec::new()
+            } else {
+                let owned = format!("{key}|{}", owner(b));
+                vec![owned.clone(), format!("{owned}|{prev_owner}/{prev_token}")]
+            };
+            let below = if kind == ChangeKind::BlankLines {
+                let kind = key.split(':').next().unwrap_or_default();
+                let key = format!("{kind}Below:{prev_token}");
+                vec![key.clone(), format!("{key}|{prev_owner}")]
+            } else {
+                Vec::new()
+            };
             out.push(LayoutChange {
                 line,
                 kind,
                 key,
+                context,
                 rule,
                 expected,
                 token: token.clone(),
                 original: original.clone(),
                 found: found.replace(0),
+                prev_line,
+                below,
             });
         };
         if b.text().as_bytes() != a.text().as_bytes() && matches!(b.kind(), T::Keyword(_)) {
@@ -307,7 +386,9 @@ pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
             (0, 0) => push(
                 ChangeKind::Spacing,
                 format!("Spacing:{}:{prev}>{}", construct(b), kind_name(b)),
-                alignment_rule(b).or_else(|| mode_rule(bt.get(i.wrapping_sub(1))?, b)),
+                alignment_rule(b)
+                    .or_else(|| mode_rule(bt.get(i.wrapping_sub(1))?, b))
+                    .or_else(|| spacing_rule(before, bt.get(i.wrapping_sub(1))?, b)),
                 tail(ga),
                 line,
             ),
@@ -324,7 +405,9 @@ pub fn layout_changes(before: &Parsed, after: &Parsed) -> Vec<LayoutChange> {
                     found.set(x - 1);
                     push(
                         ChangeKind::BlankLines,
-                        format!("BlankLines:{here}"),
+                        // Adding and removing blank lines are different rules: `if_006` only
+                        // removes the blank lines below `then`.
+                        format!("BlankLines{}:{here}", if y > x { "Add" } else { "Remove" }),
                         None,
                         y - 1,
                         line,
@@ -469,21 +552,50 @@ fn spacing_applies(
 }
 
 /// The VSG rule that reports a change: known directly, from the learned table, or `format`.
-pub fn rule_for(change: &LayoutChange) -> &str {
+pub fn rule_for(change: &LayoutChange) -> &'static str {
+    attributions(change)[0].0
+}
+
+/// The VSG rules that report a change, each with the line it reports on. A blank line can be
+/// two findings, as in VSG: one rule asks for it below the line before (`process_022` on
+/// `begin`), another above the line it is on (`if_031` on `if`).
+pub fn attributions(change: &LayoutChange) -> Vec<(&'static str, usize)> {
     if let Some(rule) = change.rule {
-        return rule;
+        return vec![(rule, change.line)];
     }
-    if let Some(rule) = table().get(&change.key) {
-        return rule;
+    let found: Vec<(&'static str, usize)> = learned(&change.key, &change.context)
+        .map(|r| (r, change.line))
+        .into_iter()
+        .chain(
+            change
+                .below
+                .split_first()
+                .and_then(|(key, context)| learned(key, context))
+                .map(|r| (r, change.prev_line)),
+        )
+        .collect();
+    if !found.is_empty() {
+        return found;
     }
     match change.kind {
-        ChangeKind::Trailing => "whitespace_001",
-        _ => "format",
+        ChangeKind::Trailing => vec![("whitespace_001", change.line)],
+        _ => vec![("format", change.line)],
     }
 }
 
-/// A VSG-style solution text for a change.
-pub fn message(change: &LayoutChange, indent_size: usize) -> String {
+/// The table entry for the most specific of a key and its refinements that has one.
+fn learned(key: &String, context: &[String]) -> Option<&'static str> {
+    let table = table();
+    context
+        .iter()
+        .rev()
+        .chain([key])
+        .find_map(|k| table.get(k))
+        .map(String::as_str)
+}
+
+/// A VSG-style solution text for a change reported on `line`.
+pub fn message(change: &LayoutChange, indent_size: usize, line: usize) -> String {
     let token = &change.token;
     match change.kind {
         ChangeKind::Indent => format!("Indent level {}", change.expected / indent_size.max(1)),
@@ -496,13 +608,24 @@ pub fn message(change: &LayoutChange, indent_size: usize) -> String {
         ),
         ChangeKind::LineBreak => format!("Move {token} to the next line"),
         ChangeKind::Join => format!("Move {token} to the previous line"),
-        ChangeKind::BlankLines if change.expected == 0 => "Remove blank lines above".into(),
-        ChangeKind::BlankLines if change.found > change.expected => format!(
-            "Reduce to {} blank line{} above",
-            change.expected,
-            if change.expected == 1 { "" } else { "s" }
-        ),
-        ChangeKind::BlankLines => "Add blank line above".into(),
+        ChangeKind::BlankLines => {
+            let side = if line == change.line {
+                "above"
+            } else {
+                "below"
+            };
+            if change.expected == 0 {
+                format!("Remove blank lines {side}")
+            } else if change.found > change.expected {
+                format!(
+                    "Reduce to {} blank line{} {side}",
+                    change.expected,
+                    if change.expected == 1 { "" } else { "s" }
+                )
+            } else {
+                format!("Add blank line {side}")
+            }
+        }
         ChangeKind::Trailing => "Remove trailing whitespace".into(),
         ChangeKind::KeywordCase => format!("Change \"{}\" to \"{token}\"", change.original),
         ChangeKind::CommentColumn => "Align the comment".into(),
@@ -562,7 +685,7 @@ mod tests {
         let messages: Vec<String> = layout_changes(&before, &after)
             .iter()
             .filter(|c| c.kind == ChangeKind::BlankLines && c.line == 7)
-            .map(|c| message(c, 2))
+            .map(|c| message(c, 2, c.line))
             .collect();
         assert_eq!(messages, ["Reduce to 1 blank line above"], "{messages:?}");
     }
@@ -583,6 +706,62 @@ mod tests {
             .map(|c| c.line)
             .collect();
         assert_eq!(lines, [6, 7, 9], "{src}");
+    }
+
+    /// Each change is reported under the rule VSG 3.35 reports it with, on VSG's line. The
+    /// token's own node does not tell these apart (a `begin`, a label's `:`, a blank line before
+    /// `report`), the construct around it and the token before it do. A rule that asks for a blank
+    /// line below a line reports on that line, as VSG does.
+    #[test]
+    fn changes_carry_the_rule_vsg_reports() {
+        let src = "library ieee;\n  use ieee.std_logic_1164.all;\nentity foo is\nend entity foo;\n\n\
+                   architecture rtl of foo is\n\n  signal s : bit;\n  signal t : bit;\nbegin\n\n\
+                   \x20 gen_a: for i in 0 to 3 generate\n  begin\n  end generate gen_a;\n\n\
+                   \x20 proc_a : process (s) is\n  begin\n    if s = '1' then\n\n      report \"x\";\n\n\
+                   \x20   end if;\n\n    if s = '1' and\n    t = '0' then\n      null;\n    end if;\n\
+                   \x20   null;\n\n    p(1,\n    2);\n\n  end process proc_a;\n\nend architecture rtl;\n";
+        let before = Parsed::new(src.as_bytes().to_vec());
+        let cfg = crate::FormatConfig::default();
+        let after = Parsed::new(crate::format_parsed(&before, &cfg).unwrap());
+        let changes = layout_changes(&before, &after);
+        let found: Vec<(usize, &str, String)> = changes
+            .iter()
+            .flat_map(|c| {
+                attributions(c)
+                    .into_iter()
+                    .map(move |(rule, line)| (line, rule, message(c, 2, line)))
+            })
+            .collect();
+        let has = |line: usize, rule: &str| found.iter().any(|f| (f.0, f.1) == (line, rule));
+        for (line, rule) in [
+            (3, "entity_003"),
+            (10, "architecture_016"),
+            (12, "generate_002"),
+            (17, "process_022"),
+            (18, "if_006"),
+            (18, "if_031"),
+            (22, "if_008"),
+            (25, "if_009"),
+            (27, "if_030"),
+            (31, "procedure_call_400"),
+        ] {
+            assert!(has(line, rule), "{line} {rule}: {found:#?}");
+        }
+        for wrong in [
+            "subprogram_body_202",
+            "report_statement_002",
+            "process_024",
+            "constant_012",
+            "conditional_waveforms_001",
+            "format",
+        ] {
+            assert!(found.iter().all(|f| f.1 != wrong), "{wrong}: {found:#?}");
+        }
+        assert!(!has(22, "if_030"), "{found:#?}");
+        let below = found.iter().find(|f| f.1 == "process_022").unwrap();
+        assert_eq!(below.2, "Add blank line below");
+        let removed = found.iter().find(|f| f.1 == "if_006").unwrap();
+        assert_eq!(removed.2, "Remove blank lines below");
     }
 
     #[test]

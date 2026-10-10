@@ -83,7 +83,9 @@ could not be processed, missing files and invalid arguments).
   case and line length are handled by one formatter with one canonical layout. Each change the
   formatter would make is reported under the VSG rule that reports that kind of change
   (keyword case exactly; the others through a table learned from VSG's reports on real code,
-  `src/layout_rules.json`). Changes without a known rule are reported as `format`, and where the
+  `src/layout_rules.json`, keyed by the token, the construct around it and the token before).
+  A blank line a rule wants below a line is reported on that line, as VSG does. Changes without
+  a known rule are reported as `format`, and where the
   default layouts of VSG and speja differ, the reports differ too.
 * **`length_001` is fixable.** VSG never shortens lines. speja folds them. `length_001` reports only
   what remains, and says whether `--fix` would fold it.
