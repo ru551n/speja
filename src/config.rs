@@ -939,6 +939,11 @@ impl Config {
                 Some(text) => {
                     if let Some(style) = Style::parse(text) {
                         Some(style)
+                    } else if rule.info.id == "library_007"
+                        && text == "no_blank_line_unless_different_library"
+                    {
+                        blank.use_library_groups = true;
+                        Some(Style::NoBlank)
                     } else {
                         self.warn(&format!("{}: unsupported style `{text}`", rule.info.id));
                         rule.style

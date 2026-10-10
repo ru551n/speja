@@ -109,6 +109,10 @@ could not be processed, missing files and invalid arguments).
   or of the run against the spelling the declaration's case rule requires (`constant_004` for
   a constant, …), not against its own `case`. VSG applies its own case to every item (VSG
   issue #1574).
+* **Use clauses grouped by library.** With `library_007: {style:
+  no_blank_line_unless_different_library}`, speja also inserts the blank line between use
+  clauses of different libraries. VSG only removes blank lines between use clauses of the same
+  library (VSG issue #1557).
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files

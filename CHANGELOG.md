@@ -5,6 +5,12 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **`library_007` supports `style: no_blank_line_unless_different_library`.** speja warned
+  that the style is unsupported and kept the blank lines as written. Use clauses of the same
+  library now have no blank line between them and use clauses of different libraries are
+  separated by one. VSG accepts the style but only removes blank lines, so it never separates
+  the groups (VSG issue #1557).
+
 * **YAML merge keys work in configuration files.** `<<: *anchor` under a rule now brings in
   the anchored settings, as it does for VSG; they were dropped. The top-level key that only
   holds the anchor is no longer reported as unknown, since VSG accepts it silently. The

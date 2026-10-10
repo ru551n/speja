@@ -484,6 +484,9 @@ pub struct BlankSettings {
     pub rules: BTreeMap<&'static str, Option<Style>>,
     /// `library_003`: allow a library clause directly above another one.
     pub allow_library_clause: bool,
+    /// `library_007` style `no_blank_line_unless_different_library`: a blank line between use
+    /// clauses of different libraries, none between those of the same library.
+    pub use_library_groups: bool,
     /// `whitespace_200`: the maximum number of consecutive blank lines.
     pub max_blank_lines: usize,
     /// Pragma comment patterns (`pragma_400` to `pragma_403`), if enabled.
@@ -537,6 +540,7 @@ impl Default for BlankSettings {
                 .map(|r| (r.info.id, r.style))
                 .collect(),
             allow_library_clause: false,
+            use_library_groups: false,
             max_blank_lines: 1,
             pragmas: Some(Pragmas::default()),
         }
@@ -549,6 +553,7 @@ impl BlankSettings {
         BlankSettings {
             rules: BTreeMap::new(),
             allow_library_clause: false,
+            use_library_groups: false,
             max_blank_lines: 1,
             pragmas: None,
         }
@@ -598,11 +603,31 @@ pub fn policies(parsed: &Parsed, settings: &BlankSettings) -> HashMap<usize, Sty
                     continue;
                 }
             }
+            let style = if rule.info.id == "library_007" && settings.use_library_groups {
+                use_clause_style(&anchors, t)
+            } else {
+                style
+            };
             let entry = out.entry(t.text_offset()).or_insert(style);
             *entry = (*entry).max(style);
         }
     }
     out
+}
+
+/// `library_007` with `no_blank_line_unless_different_library`: a use clause directly below a use
+/// clause of another library gets a blank line above it (VSG issue #1557), any other gets none.
+fn use_clause_style(anchors: &Anchors<'_>, t: &SyntaxToken) -> Style {
+    let library = |t: &SyntaxToken| anchors.next(t).map(|l| l.text().to_lowercase());
+    let prev_use = anchors.prev(t).and_then(|p| {
+        p.ancestors()
+            .find(|a| a.kind() == N::UseClauseContextItem)
+            .map(|a| a.first_token())
+    });
+    match prev_use {
+        Some(p) if library(&p) != library(t) => Style::Require,
+        _ => Style::NoBlank,
+    }
 }
 
 #[cfg(test)]
@@ -637,6 +662,17 @@ mod tests {
         let src = "architecture a of e is\nbegin\n  x <= y;\n\n\n\n  y <= z;\n  -- synthesis translate_off\n\n  z <= w;\n  -- synthesis translate_on\n  w <= v;\nend architecture;\n";
         let out = fmt(src, "rule: {whitespace_200: {blank_lines_allowed: 2}}");
         assert!(out.contains("x <= y;\n\n\n  y <= z;\n\n  -- synthesis translate_off\n  z <= w;\n  -- synthesis translate_on\n\n  w <= v;"), "{out}");
+    }
+
+    #[test]
+    fn use_clauses_grouped_by_library() {
+        // VSG issue #1557.
+        let src = "library ieee;\nuse ieee.std_logic_1164.all;\n\nuse ieee.numeric_std.all;\nuse work.axi4_stream_pkg.all;\nuse work.axi4_lite_pkg.all;\n\nentity e is\nend entity e;\n";
+        let cfg = "rule: {global: {disable: true}, library_007: {disable: false, style: no_blank_line_unless_different_library}}";
+        assert_eq!(
+            fmt(src, cfg),
+            "library ieee;\n  use ieee.std_logic_1164.all;\n  use ieee.numeric_std.all;\n\n  use work.axi4_stream_pkg.all;\n  use work.axi4_lite_pkg.all;\n\nentity e is\nend entity e;\n"
+        );
     }
 
     #[test]
