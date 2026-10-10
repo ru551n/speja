@@ -23,6 +23,12 @@ reports are that version's. `speja --version` prints the same thing.
   procedure call arguments, port and generic maps and case choices, which VSG misses (VSG
   issue #1449).
 
+* **Record element names are left alone by the consistency rules.** `function_508` renamed the
+  record element in `(PARAM => param)` to match a parameter `param`, and `type_501` renamed a
+  record element that shares its name with an enumeration literal. A name that is also a record
+  element is now treated as ambiguous and not checked, as for names declared twice (VSG issues
+  #1482 and #1187).
+
 ## 0.14.6
 
 **Targets VSG 3.35.**

@@ -464,8 +464,8 @@ fn case_label_rules() -> Vec<Rule> {
     }
 }
 
-/// Every name declared in the snapshot, with the kinds of declaration (by consistency rule, or
-/// `interface` for ports, generics and parameters) that declare it.
+/// Every name declared in the snapshot, with the kinds of declaration (by consistency rule,
+/// `interface` for ports, generics and parameters, or `record_element`) that declare it.
 pub(super) fn declared_kinds(cx: &Context<'_>) -> HashMap<String, Vec<&'static str>> {
     let mut out: HashMap<String, Vec<&'static str>> = HashMap::new();
     let mut add = |kind: &'static str, tokens: Vec<SyntaxToken>| {
@@ -485,6 +485,8 @@ pub(super) fn declared_kinds(cx: &Context<'_>) -> HashMap<String, Vec<&'static s
     add("type_501", enum_literals(cx));
     add("function_010", designators(cx, N::FunctionSpecification));
     add("procedure_507", designators(cx, N::ProcedureSpecification));
+    // Record elements are named in aggregates (`(field => x)`) like any other name.
+    add("record_element", declared(cx, N::ElementDeclaration));
     let interfaces: Vec<SyntaxToken> = cx
         .nodes(N::InterfaceList)
         .iter()
@@ -1032,6 +1034,17 @@ mod tests {
         let src = "architecture rtl of e is\n  signal Count : integer;\nbegin\n  process\n    variable count : integer;\n  begin\n    count := 1;\n  end process;\nend architecture rtl;\n";
         let f = found(src, "rule:\n  signal_014:\n    spelling: declaration\n");
         assert!(!f.iter().any(|(r, _)| *r == "signal_014"), "{f:?}");
+    }
+
+    /// VSG issues #1482 and #1187: a record element named in an aggregate is not a use of a
+    /// parameter or an enumeration literal of the same name.
+    #[test]
+    fn record_elements_are_not_other_names() {
+        let src = "package body p is\n  type t is record\n    PARAM : std_logic;\n  end record;\n  function f (param : std_logic) return t is\n    variable r : t;\n  begin\n    r := (\n      PARAM => param\n    );\n    return r;\n  end function;\nend package body;\n";
+        assert!(!found(src, "").iter().any(|(r, _)| *r == "function_508"));
+        let src = "architecture rtl of example is\n  type t_state is (BIT_LENGTH, DATA_STREAM_LENGTH);\n  type t_reg is record\n    state : t_state;\n    data_stream_length : std_logic_vector(21 downto 0);\n  end record;\n  constant C_REG_T_INIT : t_reg := (\n    state => BIT_LENGTH,\n    data_stream_length => (others => '0')\n  );\nbegin\nend;\n";
+        let f = found(src, "rule:\n  type_500:\n    case: upper\n");
+        assert!(!f.iter().any(|(r, _)| *r == "type_501"), "{f:?}");
     }
 
     #[test]
