@@ -99,7 +99,9 @@ The spaces around port modes follow `port_007` to `port_009` (`spaces_before`,
   sensitivity lists are flat when they fit, otherwise one element per line (see
   `line-folding.md`). Aggregates made only of short literals or names fill each line instead.
 * Conditional assignments with an `else` have one branch per line, with `else` ending each line.
-  Selected assignments have one alternative per line.
+  With `align_when_keywords: yes` (or `align_else_keywords: yes`) in `concurrent_009`,
+  `sequential_401` or `variable_assignment_400`, the `when` (or `else`) keywords of those lines
+  are aligned. Selected assignments have one alternative per line.
 * `assert` statements put `report` and `severity` on their own indented lines.
 
 ## Alignment

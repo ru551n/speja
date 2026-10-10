@@ -5,6 +5,11 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **`align_when_keywords` and `align_else_keywords` are applied.** Set in `concurrent_009`,
+  `sequential_401` or `variable_assignment_400`, they were ignored without a warning. The
+  `when` (or `else`) keywords of a conditional assignment printed one branch per line now line
+  up, as in VSG (VSG issue #1586).
+
 * **Comments that close a body stay indented with it.** A `-- synthesis translate_on` before
   `begin` went to the indentation of `begin` (column 0 in an architecture), and one before `when`
   or `end case` to that of the keyword, so it no longer lined up with its

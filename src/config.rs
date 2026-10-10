@@ -56,6 +56,10 @@ pub struct FormatConfig {
     pub close_paren_same_line: Vec<vhdl_syntax::syntax::NodeKind>,
     /// Continuation lines are indented instead of aligned (VSG `align_left`/`align_paren`).
     pub indent_continuations: bool,
+    /// Conditional assignments whose `when` keywords align (VSG `align_when_keywords`).
+    pub align_when_keywords: Vec<vhdl_syntax::syntax::NodeKind>,
+    /// Conditional assignments whose `else` keywords align (VSG `align_else_keywords`).
+    pub align_else_keywords: Vec<vhdl_syntax::syntax::NodeKind>,
     /// Spaces before a trailing comment (VSG `comment_004`), where alignment does not decide.
     pub comment_spaces: usize,
     /// Re-wrap comment paragraphs to `width` (speja extension `speja: reflow_comments`).
@@ -85,6 +89,8 @@ impl Default for FormatConfig {
             mode_spacing: [(1, 4), (1, 3), (1, 1)],
             close_paren_same_line: Vec::new(),
             indent_continuations: false,
+            align_when_keywords: Vec::new(),
+            align_else_keywords: Vec::new(),
             comment_spaces: 1,
             reflow_comments: false,
         }
@@ -882,6 +888,29 @@ impl Config {
                         && s.option_str("align_paren") == Some("no")
                 })
             });
+        for (rule, statement) in [
+            (
+                "concurrent_009",
+                NodeKind::ConcurrentConditionalSignalAssignment,
+            ),
+            ("sequential_401", NodeKind::ConditionalWaveformAssignment),
+            (
+                "variable_assignment_400",
+                NodeKind::ConditionalVariableAssignment,
+            ),
+        ] {
+            let Some(settings) = self.rule_by_id(rule).filter(|s| s.enabled) else {
+                continue;
+            };
+            let when = settings.option_bool("align_when_keywords") == Some(true);
+            let other = settings.option_bool("align_else_keywords") == Some(true);
+            if when {
+                self.format.align_when_keywords.push(statement);
+            }
+            if other {
+                self.format.align_else_keywords.push(statement);
+            }
+        }
     }
 
     fn resolve_alignment(&mut self) {

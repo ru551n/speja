@@ -18,7 +18,7 @@ speja accepts VSG configuration documents in YAML or JSON.
 | `rule.length_001.length` | sets the formatter's target width and the `length_001` limit |
 | `rule.global.indent_size` | sets the formatter's indentation |
 | `rule.global.indent_style` | `spaces` (default) or `smart_tabs` |
-| `number_of_spaces`, port mode `spaces_before`/`spaces_after`, `action: same_line` of closing parentheses, `align_left`/`align_paren` | applied by the formatter (see `formatting.md`) |
+| `number_of_spaces`, port mode `spaces_before`/`spaces_after`, `action: same_line` of closing parentheses, `align_left`/`align_paren`, `align_when_keywords`/`align_else_keywords` | applied by the formatter (see `formatting.md`) |
 | `rule.global.case`, `rule.group.case` / `case::keyword` `.case` | sets keyword case (`lower` or `upper`) and the default of the identifier case rules |
 | `rule.group.case` / `case::keyword` `.disable: true` | keeps keywords as written |
 | keyword case rules (`entity_004`, …) `.case`, `.disable` | per keyword (see `formatting.md`) |
