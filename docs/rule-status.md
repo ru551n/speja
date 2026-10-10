@@ -159,7 +159,7 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 | `package_instantiation_504` | Uninstantiated package names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `package_instantiation_600` | Instantiated package names have a valid suffix | off | none |
 | `package_instantiation_601` | Instantiated package names have a valid prefix | off | none |
-| `parameter_specification_500` | Loop and generate parameters are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
+| `parameter_specification_500` | Loop and generate parameters, and their uses, are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `port_010` | Port names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `port_011` | Port names have a valid prefix | off | none |
 | `port_012` | Ports have no default values | on | unsafe |

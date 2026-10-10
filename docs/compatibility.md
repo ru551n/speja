@@ -102,6 +102,9 @@ could not be processed, missing files and invalid arguments).
 * **Record elements in consistency rules.** A use of a name that is also declared as a record
   element is not checked by the consistency rules (`function_508`, `type_501`, …), since it may
   name the element. VSG renames such element names in aggregates (VSG issues #1482 and #1187).
+* **Loop and generate parameter uses.** `parameter_specification_500` also checks the uses of the
+  parameter inside its loop or generate statement, so that `--fix` keeps them consistent with
+  the declaration. VSG checks the declaration only (VSG issue #1561).
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files

@@ -395,9 +395,6 @@ fn case_name_rules() -> Vec<Rule> {
         "package_instantiation_504",
             "Uninstantiated package names are in the configured case.",
             |cx| instantiated_names(cx, N::PackageInstantiationPreamble);
-        "parameter_specification_500",
-            "Loop and generate parameters are in the configured case.",
-            |cx| idents_of(cx, N::ParameterSpecification);
         "port_010", "Port names are in the configured case.",
             |cx| interface_names(cx, N::PortClause);
         "port_map_002", "Port names in port maps are in the configured case.",
@@ -620,6 +617,37 @@ fn body_scopes(cx: &Context<'_>, kind: N) -> Vec<Scope> {
         .collect()
 }
 
+/// Each loop or generate parameter, used in its loop or generate statement.
+fn parameter_scopes(cx: &Context<'_>) -> Vec<Scope> {
+    cx.nodes(N::ParameterSpecification)
+        .iter()
+        .filter_map(|n| {
+            Some(Scope {
+                decls: vec![ident(n)?],
+                external: Vec::new(),
+                region: n
+                    .ancestors()
+                    .find(|a| matches!(a.kind(), N::LoopStatement | N::ForGenerateStatement))?,
+            })
+        })
+        .collect()
+}
+
+/// Loop and generate parameters, and their uses (VSG issue #1561: VSG checks the declaration
+/// only, so `--fix` left the uses in the old case).
+fn loop_parameters(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
+    const RULE: &str = "parameter_specification_500";
+    check_case(cx, settings, out, RULE, |cx| {
+        idents_of(cx, N::ParameterSpecification)
+    });
+    let mut uses = Vec::new();
+    check_consistency(cx, settings, &mut uses, RULE, RULE, parameter_scopes);
+    // A use inside nested loops with parameters of the same name is in both scopes.
+    uses.sort_by_key(|v| v.start);
+    uses.dedup_by_key(|v| v.start);
+    out.extend(uses);
+}
+
 fn check_consistency(
     cx: &Context<'_>,
     settings: &RuleSettings,
@@ -677,8 +705,10 @@ fn check_consistency(
         let first = sites.partition_point(|(o, _, _)| *o < range.start);
         let last = sites.partition_point(|(o, _, _)| *o < range.end);
         let own_kind = if matches!(rule, "architecture_600" | "architecture_601" | "entity_600")
-            || matches!(rule, "function_508" | "procedure_509")
-        {
+            || matches!(
+                rule,
+                "function_508" | "procedure_509" | "parameter_specification_500"
+            ) {
             "interface"
         } else {
             rule
@@ -954,6 +984,12 @@ fn keyword_like_rules() -> Vec<Rule> {
 
 pub(super) fn rules() -> Vec<Rule> {
     let mut all = case_name_rules();
+    all.push(case_rule(
+        "parameter_specification_500",
+        false,
+        "Loop and generate parameters, and their uses, are in the configured case.",
+        loop_parameters,
+    ));
     all.extend(case_label_rules());
     all.extend(consistency());
     all.extend(keyword_like_rules());
@@ -1045,6 +1081,34 @@ mod tests {
         let src = "architecture rtl of example is\n  type t_state is (BIT_LENGTH, DATA_STREAM_LENGTH);\n  type t_reg is record\n    state : t_state;\n    data_stream_length : std_logic_vector(21 downto 0);\n  end record;\n  constant C_REG_T_INIT : t_reg := (\n    state => BIT_LENGTH,\n    data_stream_length => (others => '0')\n  );\nbegin\nend;\n";
         let f = found(src, "rule:\n  type_500:\n    case: upper\n");
         assert!(!f.iter().any(|(r, _)| *r == "type_501"), "{f:?}");
+    }
+
+    /// VSG issue #1561: uses of a loop or generate parameter follow its case.
+    #[test]
+    fn loop_parameter_uses() {
+        let src = "architecture a of b is\nbegin\n  GEN_LABEL : for i in t_index_range generate\n    I_INSTANCE : entity work.some_entity\n      port map (\n        DATA_I => INPUT_DATA(i),\n        DATA_O => OUTPUT_DATA(i)\n      );\n  end generate GEN_LABEL;\n  process\n  begin\n    for i in 0 to 3 loop\n      for j in 0 to i loop\n        x(i) <= y(j);\n      end loop;\n    end loop;\n  end process;\nend architecture a;\n";
+        let yaml = "rule:\n  parameter_specification_500:\n    case: upper\n";
+        let f = found(src, yaml);
+        let rule = |t: &str| {
+            f.iter()
+                .filter(|(r, s)| *r == "parameter_specification_500" && s == t)
+                .count()
+        };
+        assert_eq!((rule("i"), rule("j")), (6, 2), "{f:?}");
+        let config = Config::parse(yaml).unwrap();
+        let text = String::from_utf8(
+            crate::fix::fix(&Parsed::new(src.as_bytes().to_vec()), &config)
+                .unwrap()
+                .output,
+        )
+        .unwrap();
+        assert!(text.contains("INPUT_DATA(I)"), "{text}");
+        assert!(text.contains("x(I) <= y(J);"), "{text}");
+        assert!(
+            found(src, "")
+                .iter()
+                .all(|(r, _)| *r != "parameter_specification_500")
+        );
     }
 
     #[test]

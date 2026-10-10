@@ -29,6 +29,11 @@ reports are that version's. `speja --version` prints the same thing.
   element is now treated as ambiguous and not checked, as for names declared twice (VSG issues
   #1482 and #1187).
 
+* **`parameter_specification_500` covers the uses of a loop or generate parameter.** With
+  `case: upper`, `for i in` became `for I in` while `data(i)` in the body kept the old case.
+  Uses inside the loop or generate statement are now reported and fixed under the same rule;
+  VSG checks the declaration only (VSG issue #1561).
+
 ## 0.14.6
 
 **Targets VSG 3.35.**
