@@ -13,6 +13,10 @@ reports are that version's. `speja --version` prints the same thing.
   VSG. `disable: yes` was rejected as an invalid value; it now works for `disable`, `fixable`
   and every other true/false option.
 
+* **A file of `library` and `use` clauses alone is accepted.** With no design unit after the
+  context items, speja refused the file as a syntax error; VSG checks and fixes it like any
+  other, and so does speja now.
+
 ## 0.14.6
 
 **Targets VSG 3.35.**

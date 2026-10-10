@@ -29,7 +29,7 @@ use std::ops::Range;
 
 use vhdl_syntax::parser::parse_with_standard;
 use vhdl_syntax::standard::VHDLStandard;
-use vhdl_syntax::syntax::{AstNode, SyntaxElement, SyntaxNode, SyntaxToken, TokenKind};
+use vhdl_syntax::syntax::{AstNode, NodeKind, SyntaxElement, SyntaxNode, SyntaxToken, TokenKind};
 use vhdl_syntax::tokens::TriviaPiece;
 
 pub use config::{Config, FormatConfig};
@@ -69,19 +69,32 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// Where a file ends that closes on context items with no design unit after them, such as a
+/// file of `library` and `use` clauses alone. VSG accepts one; the parser reports the missing
+/// unit at the end of the file, and that is the only error this lets go.
+fn context_only_end(root: &SyntaxNode) -> Option<usize> {
+    let unit = root.children().last()?;
+    let context_only = unit.kind() == NodeKind::DesignUnit
+        && unit.children().all(|n| n.kind() == NodeKind::ContextClause)
+        && unit.last_token().kind() == TokenKind::SemiColon;
+    context_only.then(|| unit.text_range().end)
+}
+
 impl Parsed {
     pub fn new(source: Vec<u8>) -> Parsed {
         let standard = VHDLStandard::VHDL2008;
         let parse = |text: &[u8]| {
             let (file, errors) = parse_with_standard(standard, text);
+            let root = file.raw();
+            let end = context_only_end(&root);
             let errors: Vec<Diagnostic> = errors
                 .iter()
                 .map(|e| Diagnostic {
                     offset: e.span().start,
                     message: e.err().to_string(),
                 })
+                .filter(|e| end.is_none_or(|end| e.offset < end))
                 .collect();
-            let root = file.raw();
             let mut tokens = Vec::new();
             collect_tokens(&root, &mut tokens);
             (root, errors, tokens)
@@ -813,6 +826,20 @@ mod tests {
 
     /// Two missing `;` are two errors to a person, however many the parser's recovery reports,
     /// and they read as the parser's own text rather than Rust's debug output.
+    #[test]
+    fn a_file_of_context_items_alone_is_not_a_syntax_error() {
+        // VSG accepts `library` and `use` clauses with no design unit after them.
+        let parsed = Parsed::new(b"library ieee;\nuse ieee.std_logic_1164.all;\n".to_vec());
+        assert_eq!(parsed.syntax_errors(), []);
+        let out = fix(&parsed, &Config::default()).unwrap().output;
+        assert_eq!(out, b"library ieee;\n  use ieee.std_logic_1164.all;\n");
+        // A clause cut short at the end of the file is still an error.
+        assert_ne!(
+            Parsed::new(b"library ieee;\nuse ieee.all\n".to_vec()).syntax_errors(),
+            []
+        );
+    }
+
     #[test]
     fn syntax_errors_are_reported_once_each_and_readably() {
         let src = "entity broken is\n  port (\n    a : in bit\n    b : out bit\n  );\nend entity;\n\n\
