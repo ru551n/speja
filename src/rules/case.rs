@@ -206,17 +206,80 @@ fn name_words(name: &SyntaxNode) -> Vec<SyntaxToken> {
         .collect()
 }
 
-/// `use lib.pkg.item`: parts 0, 1, 2; `use lib.item`: parts 0 and 2.
+/// `use lib.pkg.item`: the library (part 0) or the package (part 1).
 fn use_part(cx: &Context<'_>, part: usize) -> Vec<SyntaxToken> {
     selected_names(cx, N::UseClause)
         .into_iter()
         .filter_map(|mut parts| match (part, parts.len()) {
             (0, _) => parts.first().cloned(),
             (1, 3..) => Some(parts.swap_remove(1)),
-            (2, 2..) => parts.pop(),
             _ => None,
         })
         .collect()
+}
+
+/// The case rule of the declarations whose uses the consistency rule `rule` checks.
+fn declaration_rule(rule: &str) -> &str {
+    match rule {
+        "signal_014" => "signal_004",
+        "constant_013" => "constant_004",
+        "variable_011" => "variable_004",
+        "type_014" => "type_004",
+        "subtype_002" => "subtype_501",
+        "alias_declaration_503" => "alias_declaration_502",
+        "function_010" => "function_017",
+        "procedure_507" => "procedure_501",
+        "type_501" => "type_500",
+        _ => rule,
+    }
+}
+
+/// Item names in use clauses. An item declared in a package of this file or of the run takes
+/// the spelling its declaration's case rule requires (VSG issue #1574: VSG applies its own case
+/// to `use work.pkg.MY_CONSTANT` even when `MY_CONSTANT` is declared that way); other items take
+/// the configured case.
+fn use_clause_items(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
+    const RULE: &str = "use_clause_502";
+    let mut local = super::Project::new();
+    local.add(cx.parsed);
+    let mut plain = Vec::new();
+    for parts in selected_names(cx, N::UseClause) {
+        let [_, .., item] = parts.as_slice() else {
+            continue;
+        };
+        let mut declared: Vec<String> = match parts.as_slice() {
+            [_, package, _, ..] => {
+                let package = lower_text(package);
+                [Some(&local), cx.project]
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|p| p.package_items(&package))
+                    .filter(|(_, name)| name.eq_ignore_ascii_case(&text(item)))
+                    .map(|(rule, name)| spelling(cx, declaration_rule(rule), name.clone()))
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        declared.sort();
+        declared.dedup();
+        let name = text(item);
+        match declared.as_slice() {
+            [want] if is_extended(item) || *want == name => {}
+            [want] => {
+                let mut v = violation(
+                    settings,
+                    RULE,
+                    item,
+                    format!("Change \"{name}\" to \"{want}\""),
+                );
+                v.fix = Some(rename(item, want.clone()));
+                out.push(v);
+            }
+            _ if declared.contains(&name) => {}
+            _ => plain.push(item.clone()),
+        }
+    }
+    check_tokens(settings, out, RULE, plain);
 }
 
 fn context_part(cx: &Context<'_>, first: bool) -> Vec<SyntaxToken> {
@@ -429,8 +492,6 @@ fn case_name_rules() -> Vec<Rule> {
             |cx| use_part(cx, 0);
         "use_clause_501", "Package names in use clauses are in the configured case.",
             |cx| use_part(cx, 1);
-        "use_clause_502", "Item names in use clauses are in the configured case.",
-            |cx| use_part(cx, 2);
         "variable_004", "Variable names are in the configured case.",
             |cx| declared(cx, N::VariableDeclaration);
     }
@@ -990,6 +1051,12 @@ pub(super) fn rules() -> Vec<Rule> {
         "Loop and generate parameters, and their uses, are in the configured case.",
         loop_parameters,
     ));
+    all.push(case_rule(
+        "use_clause_502",
+        false,
+        "Item names in use clauses are in the configured case, or as declared.",
+        use_clause_items,
+    ));
     all.extend(case_label_rules());
     all.extend(consistency());
     all.extend(keyword_like_rules());
@@ -1109,6 +1176,29 @@ mod tests {
                 .iter()
                 .all(|(r, _)| *r != "parameter_specification_500")
         );
+    }
+
+    /// VSG issue #1574: an item in a use clause may keep the case of its declaration.
+    #[test]
+    fn use_clause_items_as_declared() {
+        let src = "package my_package is\n  constant MY_CONSTANT : boolean := TRUE;\nend package;\nlibrary work;\nuse work.my_package.MY_CONSTANT;\npackage my_other_package is\n  constant MY_OTHER_CONSTANT : boolean := MY_CONSTANT;\nend package;\n";
+        let upper = "rule:\n  constant_004:\n    case: upper\n";
+        let f = found(src, upper);
+        assert!(!f.iter().any(|(r, _)| *r == "use_clause_502"), "{f:?}");
+        assert!(has(&found(src, ""), "use_clause_502", "MY_CONSTANT"));
+        // The declaration in another file of the run.
+        let (pkg, user) = src.split_at(src.find("library").unwrap());
+        let mut project = crate::rules::Project::new();
+        project.add(&Parsed::new(pkg.as_bytes().to_vec()));
+        let config = Config::parse(upper).unwrap();
+        let parsed = Parsed::new(user.as_bytes().to_vec());
+        let rules: Vec<&str> = crate::rules::check_with(&parsed, &config, Some(&project))
+            .into_iter()
+            .map(|v| v.rule)
+            .collect();
+        assert!(!rules.contains(&"use_clause_502"), "{rules:?}");
+        let alone = crate::rules::check(&parsed, &config);
+        assert!(alone.iter().any(|v| v.rule == "use_clause_502"));
     }
 
     #[test]

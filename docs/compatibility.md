@@ -105,6 +105,10 @@ could not be processed, missing files and invalid arguments).
 * **Loop and generate parameter uses.** `parameter_specification_500` also checks the uses of the
   parameter inside its loop or generate statement, so that `--fix` keeps them consistent with
   the declaration. VSG checks the declaration only (VSG issue #1561).
+* **Use clause items.** `use_clause_502` checks an item declared in a package of the same file
+  or of the run against the spelling the declaration's case rule requires (`constant_004` for
+  a constant, …), not against its own `case`. VSG applies its own case to every item (VSG
+  issue #1574).
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files

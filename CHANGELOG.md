@@ -34,6 +34,12 @@ reports are that version's. `speja --version` prints the same thing.
   Uses inside the loop or generate statement are now reported and fixed under the same rule;
   VSG checks the declaration only (VSG issue #1561).
 
+* **`use_clause_502` respects how an imported item is declared.** In
+  `use work.my_package.MY_CONSTANT`, the item was held to `use_clause_502`'s own case even when
+  the constant is declared `MY_CONSTANT` under `constant_004: {case: upper}`. When the package
+  is in the same file or another file of the run, the item now takes the spelling the
+  declaration's own case rule asks for, as the consistency rules do (VSG issue #1574).
+
 ## 0.14.6
 
 **Targets VSG 3.35.**

@@ -134,6 +134,11 @@ impl Project {
             .map(|(_, name)| name.as_str())
     }
 
+    /// Every name declared in `package` (lower case), with the consistency rule that checks it.
+    pub(crate) fn package_items(&self, package: &str) -> &[(String, String)] {
+        self.packages.get(package).map_or(&[], Vec::as_slice)
+    }
+
     /// Generics (`ports == false`) or ports of an entity (lower case), as declared.
     pub(crate) fn entity_interface(&self, entity: &str, ports: bool) -> Option<&[String]> {
         self.entities

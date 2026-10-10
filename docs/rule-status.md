@@ -224,7 +224,7 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 | `use_clause_001` | Restricted packages are not used | off | none |
 | `use_clause_500` | Library names in use clauses are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `use_clause_501` | Package names in use clauses are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
-| `use_clause_502` | Item names in use clauses are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
+| `use_clause_502` | Item names in use clauses are in the configured case, or as declared | on | safe (report only for camelCase, PascalCase, regex) |
 | `variable_004` | Variable names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `variable_007` | Variable declarations have no default value | on | unsafe |
 | `variable_011` | Uses of a variable repeat the declared spelling | on | safe |
