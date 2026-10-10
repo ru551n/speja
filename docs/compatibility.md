@@ -113,6 +113,12 @@ could not be processed, missing files and invalid arguments).
   no_blank_line_unless_different_library}`, speja also inserts the blank line between use
   clauses of different libraries. VSG only removes blank lines between use clauses of the same
   library (VSG issue #1557).
+* **Comments that close a body.** Own-line comments before `begin` and `end` are indented with
+  the declarations or statements above them, as with VSG's `indent.options.comment`
+  `align_with_end_of_declarative_part` and `align_with_end_of_statement_part` set, and so are
+  comments before `when`, `elsif` and `else` that start by closing a pragma region. VSG
+  indents them like the keyword that follows by default, which separates a
+  `-- synthesis translate_on` from its `-- synthesis translate_off` (VSG issue #1520).
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files

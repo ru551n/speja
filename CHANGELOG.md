@@ -5,6 +5,14 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **Comments that close a body stay indented with it.** A `-- synthesis translate_on` before
+  `begin` went to the indentation of `begin` (column 0 in an architecture), and one before `when`
+  or `end case` to that of the keyword, so it no longer lined up with its
+  `-- synthesis translate_off`. Comments before `begin` and `end` are now indented like the
+  statements or declarations above them, also inside the last branch of a `case`, and so are
+  comments before `when`, `elsif` and `else` that start by closing a pragma region (VSG issue
+  #1520).
+
 * **`library_007` supports `style: no_blank_line_unless_different_library`.** speja warned
   that the style is unsupported and kept the blank lines as written. Use clauses of the same
   library now have no blank line between them and use clauses of different libraries are

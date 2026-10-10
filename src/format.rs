@@ -966,7 +966,36 @@ impl<'a> Builder<'a> {
             }
             out.push(self.elem(&c));
         }
+        if let Some(next) = self.closing_keyword(n) {
+            self.mark_item(&SyntaxElement::Token(next.clone()));
+            out.push(self.leading(&next));
+        }
         Doc::indent_n(levels, concat(out))
+    }
+
+    /// The keyword after the item list `n` whose own-line comments belong to the list, at the
+    /// indentation of its items (VSG issue #1520): those in front of `end` and `begin`, and
+    /// those in front of `when`, `elsif` and `else` that start by closing a pragma region (a
+    /// comment in front of a branch usually describes that branch).
+    fn closing_keyword(&self, n: &SyntaxNode) -> Option<SyntaxToken> {
+        n.children().next()?;
+        let next = self.parsed.next_token(&n.last_token())?;
+        let T::Keyword(k) = next.kind() else {
+            return None;
+        };
+        let belongs = match k {
+            Kw::End | Kw::Begin => true,
+            Kw::When | Kw::Elsif | Kw::Else => {
+                let (own, _) = comments(next, true);
+                own.iter().find(|c| !c.trailing).is_some_and(|c| {
+                    let text = String::from_utf8_lossy(&c.text).to_ascii_lowercase();
+                    self.cfg.blank.pragma(&c.text) == Some(false)
+                        || text.split_whitespace().eq(["--", "pragma", "translate_on"])
+                })
+            }
+            _ => false,
+        };
+        belongs.then(|| next.clone())
     }
 
     /// `( ... )`: a group that is either flat or has one element per line. A single

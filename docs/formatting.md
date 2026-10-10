@@ -53,8 +53,11 @@ to stdout, so an editor keeps its buffer.
   normalized to the file's line ending).
 * The order of tokens and comments, and which token a comment is attached to. A trailing comment
   stays at the end of the line of the token it follows. An own-line comment stays on its own line
-  in front of the same token. Comments before a closing `end` or `)` are indented with the body
-  they follow.
+  in front of the same token. Comments before a closing `end` or `)`, and before the `begin`
+  that ends a declarative part, are indented with the body they follow. So are comments before
+  `when`, `elsif` and `else` when the first of them closes a pragma region (`-- synthesis
+  translate_on`, `-- pragma translate_on`); other comments there describe the next branch and
+  are indented with its keyword.
 
 ## Spacing
 
