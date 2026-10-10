@@ -856,7 +856,7 @@ mod tests {
 
     #[test]
     fn a_configuration_of_an_instance_that_is_really_there() {
-        assert!(instance_check("i_dff : dff").is_empty());
+        assert_eq!(instance_check("i_dff : dff"), Vec::<String>::new());
     }
 
     #[test]

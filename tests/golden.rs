@@ -49,7 +49,7 @@ fn golden() {
         })
         .collect();
     inputs.sort();
-    assert!(!inputs.is_empty());
+    assert_ne!(inputs, Vec::<std::path::PathBuf>::new());
     let mut failures = Vec::new();
     for input in inputs {
         let src = std::fs::read_to_string(&input).expect("read input");

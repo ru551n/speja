@@ -101,7 +101,7 @@ fn psl_written_as_code_is_named_rather_than_puzzled_over() {
 fn syntax_errors_are_reported_and_nothing_is_changed() {
     let out = vsg(&["--stdin", "--fix"], MALFORMED);
     assert_eq!(out.status.code(), Some(1));
-    assert!(out.stdout.is_empty());
+    assert_eq!(out.stdout, b"");
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("syntax"), "{err}");
     let dir = tempfile::tempdir().expect("tempdir");
@@ -480,7 +480,7 @@ fn sonarqube_report_carries_the_layer_as_the_issue_type() {
     let doc: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&report).unwrap()).unwrap();
     let issues = doc["issues"].as_array().expect("an issues array");
-    assert!(!issues.is_empty());
+    assert_ne!(*issues, Vec::<serde_json::Value>::new());
     for issue in issues {
         assert_eq!(issue["engineId"], "speja");
         let rule = issue["ruleId"].as_str().unwrap_or_default();

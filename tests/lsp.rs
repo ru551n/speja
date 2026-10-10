@@ -773,7 +773,7 @@ fn a_badly_laid_out_line_offers_to_format_itself() {
         .and_then(|changes| changes.values().next())
         .and_then(serde_json::Value::as_array)
         .expect("the action carries the edit, so accepting it needs no round trip");
-    assert!(!edits.is_empty());
+    assert_ne!(*edits, Vec::<serde_json::Value>::new());
     // The edit must stay on the line the lightbulb was opened on.
     for edit in edits {
         assert_eq!(edit["range"]["start"]["line"], 4);

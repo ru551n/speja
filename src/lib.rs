@@ -698,7 +698,7 @@ mod tests {
         let parsed = Parsed::new(src.as_bytes().to_vec());
         let edits = format_range(&parsed, &cfg(), range).unwrap();
         let out = apply_edits(parsed.source(), &edits);
-        assert!(Parsed::new(out.clone()).syntax_errors().is_empty());
+        assert_eq!(Parsed::new(out.clone()).syntax_errors(), []);
         (edits, String::from_utf8(out).unwrap())
     }
 
@@ -788,10 +788,10 @@ mod tests {
     #[test]
     fn range_on_formatted_lines_changes_nothing() {
         let (edits, _) = range_format(SRC, 0..0);
-        assert!(edits.is_empty());
+        assert_eq!(edits, Vec::<TextEdit>::new());
         let full = String::from_utf8(format(SRC.into(), &cfg()).unwrap()).unwrap();
         let (edits, out) = range_format(&full, 0..0);
-        assert!(edits.is_empty());
+        assert_eq!(edits, Vec::<TextEdit>::new());
         assert_eq!(out, full);
     }
 
