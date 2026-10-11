@@ -37,6 +37,8 @@ pub(crate) struct Builder<'a> {
     /// Tokens (by text offset) whose trailing comment is emitted by the caller, after the
     /// enclosing item, so it cannot force a value inside the item to break.
     deferred_trailing: HashSet<usize>,
+    /// Group of the conditional branch built last, whose line the next branch's `else` ends.
+    last_branch: Option<GroupId>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -45,6 +47,8 @@ struct Pad {
     after: usize,
     /// Only pad when this group is broken.
     group: Option<GroupId>,
+    /// ... and this one is not (the line holding the token did not fold).
+    unless: Option<GroupId>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -361,6 +365,7 @@ impl<'a> Builder<'a> {
             directives: directives(parsed),
             blank: crate::blank::policies(parsed, &cfg.blank),
             deferred_trailing: HashSet::new(),
+            last_branch: None,
         }
     }
 
@@ -604,7 +609,7 @@ impl<'a> Builder<'a> {
                 .is_some_and(|p| p.before > 0)
     }
 
-    fn pad(n: usize, group: Option<GroupId>) -> Doc {
+    fn pad(n: usize, group: Option<GroupId>, unless: Option<GroupId>) -> Doc {
         if n == 0 {
             return Doc::Nil;
         }
@@ -612,6 +617,14 @@ impl<'a> Builder<'a> {
             text: vec![b' '; n].into(),
             width: n,
             space: false,
+        };
+        let atom = match unless {
+            Some(id) => Doc::IfBreak {
+                id,
+                broken: Box::new(Doc::Nil),
+                flat: Box::new(atom),
+            },
+            None => atom,
         };
         match group {
             Some(id) => Doc::IfBreak {
@@ -627,9 +640,9 @@ impl<'a> Builder<'a> {
         let pad = self.pads.get(&t.text_offset()).copied().unwrap_or_default();
         concat(vec![
             self.leading(t),
-            Self::pad(pad.before, pad.group),
+            Self::pad(pad.before, pad.group, pad.unless),
             self.atom(t),
-            Self::pad(pad.after, pad.group),
+            Self::pad(pad.after, pad.group, pad.unless),
             self.trailing(t),
         ])
     }
@@ -702,8 +715,14 @@ impl<'a> Builder<'a> {
                 self.items(n, level)
             }
             ConditionalWaveforms | ConditionalExpressions => {
+                let id = self.new_group();
+                self.align_conditional_keywords(n, id);
                 let doc = self.children(n);
-                self.group(Doc::align(doc))
+                Doc::Group {
+                    id,
+                    doc: Box::new(Doc::align(doc)),
+                    broken: false,
+                }
             }
             SelectedWaveforms | SelectedExpressions => self.selected(n),
             // `[t, t return t]` moves to a continuation line as a whole, then folds inside.
@@ -892,7 +911,20 @@ impl<'a> Builder<'a> {
                 place = Place::Inline;
             }
             match place {
-                Place::Inline => out.push(self.node(&c)),
+                Place::Inline => {
+                    // Own-line comments in front of a node that continues the line make it a
+                    // continuation line, indented with the comments (VSG issue #1585).
+                    let first = c.first_token();
+                    let commented = !self.comments_done.contains(&first.text_offset())
+                        && comments(&first, true).0.iter().any(|c| !c.trailing);
+                    let condition = self.cfg.indent_conditions.contains(&n.kind());
+                    let doc = self.node(&c);
+                    out.push(if commented || condition {
+                        Doc::indent(doc)
+                    } else {
+                        doc
+                    });
+                }
                 Place::NewLine => {
                     self.mark_item(&children[i]);
                     if matches!(prev.0, Place::Indented | Place::IndentedList) {
@@ -966,7 +998,36 @@ impl<'a> Builder<'a> {
             }
             out.push(self.elem(&c));
         }
+        if let Some(next) = self.closing_keyword(n) {
+            self.mark_item(&SyntaxElement::Token(next.clone()));
+            out.push(self.leading(&next));
+        }
         Doc::indent_n(levels, concat(out))
+    }
+
+    /// The keyword after the item list `n` whose own-line comments belong to the list, at the
+    /// indentation of its items (VSG issue #1520): those in front of `end` and `begin`, and
+    /// those in front of `when`, `elsif` and `else` that start by closing a pragma region (a
+    /// comment in front of a branch usually describes that branch).
+    fn closing_keyword(&self, n: &SyntaxNode) -> Option<SyntaxToken> {
+        n.children().next()?;
+        let next = self.parsed.next_token(&n.last_token())?;
+        let T::Keyword(k) = next.kind() else {
+            return None;
+        };
+        let belongs = match k {
+            Kw::End | Kw::Begin => true,
+            Kw::When | Kw::Elsif | Kw::Else => {
+                let (own, _) = comments(next, true);
+                own.iter().find(|c| !c.trailing).is_some_and(|c| {
+                    let text = String::from_utf8_lossy(&c.text).to_ascii_lowercase();
+                    self.cfg.blank.pragma(&c.text) == Some(false)
+                        || text.split_whitespace().eq(["--", "pragma", "translate_on"])
+                })
+            }
+            _ => false,
+        };
+        belongs.then(|| next.clone())
     }
 
     /// `( ... )`: a group that is either flat or has one element per line. A single
@@ -987,7 +1048,7 @@ impl<'a> Builder<'a> {
             let body = items[0].iter().map(|e| self.elem(e)).collect();
             concat(vec![
                 self.tok(&open),
-                Doc::align(concat(body)),
+                self.align(&open.parent(), concat(body)),
                 self.tok(&close),
             ])
         } else {
@@ -1467,16 +1528,44 @@ impl<'a> Builder<'a> {
                 out.push(self.elem(&c));
             }
         }
-        self.group(Doc::align(concat(out)))
+        let doc = self.align(n, concat(out));
+        self.group(doc)
+    }
+
+    /// Continuation lines of `n` align with its start, except in an `if` or `elsif` condition
+    /// that `block` indents as a whole (`if_009` `align_left: yes`, `align_paren: no`).
+    fn align(&self, n: &SyntaxNode, doc: Doc) -> Doc {
+        let in_condition = || {
+            n.ancestors()
+                .map(|a| a.kind())
+                .find(|k| *k == N::SequenceOfStatements || self.cfg.indent_conditions.contains(k))
+                .is_some_and(|k| k != N::SequenceOfStatements)
+        };
+        if !self.cfg.indent_conditions.is_empty() && in_condition() {
+            doc
+        } else {
+            Doc::align(doc)
+        }
     }
 
     /// A branch of a conditional or selected assignment. A leading `else` ends the previous
     /// line; the `when` part folds onto an indented continuation line.
     fn branch(&mut self, n: &SyntaxNode) -> Doc {
+        let id = self.new_group();
         let mut head = Vec::new();
         let mut value = Vec::new();
         let mut when = Vec::new();
         for (i, c) in n.children_with_tokens().enumerate() {
+            // Aligned `when` and `else` keywords are only padded on lines that did not fold.
+            if let Some(t) = c.as_token()
+                && let Some(pad) = self.pads.get_mut(&t.text_offset())
+            {
+                if kw(&t, Kw::When) {
+                    pad.unless = Some(id);
+                } else if i == 0 && kw(&t, Kw::Else) {
+                    pad.unless = self.last_branch;
+                }
+            }
             match c.as_token() {
                 Some(t) if i == 0 && kw(&t, Kw::Else) => {
                     head.push(self.tok(&t));
@@ -1493,8 +1582,70 @@ impl<'a> Builder<'a> {
         if !when.is_empty() {
             value.push(Doc::indent(concat(when)));
         }
-        let value = self.group(concat(value));
+        self.last_branch = Some(id);
+        let value = Doc::Group {
+            id,
+            doc: Box::new(concat(value)),
+            broken: false,
+        };
         concat(vec![concat(head), value])
+    }
+
+    /// `when` and `else` keywords of the branches of a conditional assignment aligned, when it
+    /// is printed one branch per line (VSG `align_when_keywords` and `align_else_keywords` of
+    /// `concurrent_009`, `sequential_401` and `variable_assignment_400`).
+    fn align_conditional_keywords(&mut self, n: &SyntaxNode, group: GroupId) {
+        let Some(statement) = n.parent().map(|p| p.kind()) else {
+            return;
+        };
+        let branches: Vec<SyntaxNode> = n.children().collect();
+        // The token in front of each branch's value: its `else`, or the assignment operator.
+        let starts: Vec<Option<SyntaxToken>> = branches
+            .iter()
+            .map(|b| {
+                let first = b.first_token();
+                if kw(&first, Kw::Else) {
+                    Some(first)
+                } else {
+                    self.parsed.prev_token(&first).cloned()
+                }
+            })
+            .collect();
+        let align = |builder: &mut Self, targets: Vec<(SyntaxToken, SyntaxToken)>| {
+            let widths: Vec<(SyntaxToken, usize)> = targets
+                .into_iter()
+                .filter_map(|(from, to)| {
+                    Some((to.clone(), builder.flat_width_between(&from, &to)?))
+                })
+                .collect();
+            let Some(max) = widths.iter().map(|(_, w)| *w).max() else {
+                return;
+            };
+            for (t, w) in widths {
+                let pad = builder.pads.entry(t.text_offset()).or_default();
+                pad.before = max - w;
+                pad.group = Some(group);
+            }
+        };
+        if self.cfg.align_when_keywords.contains(&statement) {
+            let targets = branches
+                .iter()
+                .zip(&starts)
+                .filter_map(|(b, from)| {
+                    let when = direct_token(b, |k| k == T::Keyword(Kw::When))?;
+                    Some((from.clone()?, when))
+                })
+                .collect();
+            align(self, targets);
+        }
+        if self.cfg.align_else_keywords.contains(&statement) {
+            let targets = starts
+                .iter()
+                .zip(branches.iter().skip(1))
+                .filter_map(|(from, next)| Some((from.clone()?, next.first_token())))
+                .collect();
+            align(self, targets);
+        }
     }
 
     /// Selected assignment alternatives: always one per line, indented.

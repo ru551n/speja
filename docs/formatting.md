@@ -53,8 +53,12 @@ to stdout, so an editor keeps its buffer.
   normalized to the file's line ending).
 * The order of tokens and comments, and which token a comment is attached to. A trailing comment
   stays at the end of the line of the token it follows. An own-line comment stays on its own line
-  in front of the same token. Comments before a closing `end` or `)` are indented with the body
-  they follow.
+  in front of the same token. Comments before a closing `end` or `)`, and before the `begin`
+  that ends a declarative part, are indented with the body they follow. So are comments before
+  `when`, `elsif` and `else` when the first of them closes a pragma region (`-- synthesis
+  translate_on`, `-- pragma translate_on`); other comments there describe the next branch and
+  are indented with its keyword. Own-line comments in front of a part that continues a line
+  (the condition after `elsif`, for example) are indented one level, with that part.
 
 ## Spacing
 
@@ -90,12 +94,15 @@ The spaces around port modes follow `port_007` to `port_009` (`spaces_before`,
   in `generic_010`, `port_014`, `generic_map_004` or `port_map_004`.
 * Continuation lines of folded expressions are aligned with the opening parenthesis, or
   indented one level when `concurrent_003` or `sequential_004` sets `align_left: 'yes'` and
-  `align_paren: 'no'`.
+  `align_paren: 'no'`. `if_009` with the same settings indents the continuation lines of `if`
+  and `elsif` conditions one level, whatever the parentheses.
 * Subprogram parameter lists, calls, aggregates, index constraints, enumerations and
   sensitivity lists are flat when they fit, otherwise one element per line (see
   `line-folding.md`). Aggregates made only of short literals or names fill each line instead.
 * Conditional assignments with an `else` have one branch per line, with `else` ending each line.
-  Selected assignments have one alternative per line.
+  With `align_when_keywords: yes` (or `align_else_keywords: yes`) in `concurrent_009`,
+  `sequential_401` or `variable_assignment_400`, the `when` (or `else`) keywords of those lines
+  are aligned. Selected assignments have one alternative per line.
 * `assert` statements put `report` and `severity` on their own indented lines.
 
 ## Alignment

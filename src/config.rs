@@ -56,6 +56,13 @@ pub struct FormatConfig {
     pub close_paren_same_line: Vec<vhdl_syntax::syntax::NodeKind>,
     /// Continuation lines are indented instead of aligned (VSG `align_left`/`align_paren`).
     pub indent_continuations: bool,
+    /// Statements whose condition has its continuation lines indented instead of aligned
+    /// (`if_009` `align_left`/`align_paren`).
+    pub indent_conditions: Vec<vhdl_syntax::syntax::NodeKind>,
+    /// Conditional assignments whose `when` keywords align (VSG `align_when_keywords`).
+    pub align_when_keywords: Vec<vhdl_syntax::syntax::NodeKind>,
+    /// Conditional assignments whose `else` keywords align (VSG `align_else_keywords`).
+    pub align_else_keywords: Vec<vhdl_syntax::syntax::NodeKind>,
     /// Spaces before a trailing comment (VSG `comment_004`), where alignment does not decide.
     pub comment_spaces: usize,
     /// Re-wrap comment paragraphs to `width` (speja extension `speja: reflow_comments`).
@@ -85,6 +92,9 @@ impl Default for FormatConfig {
             mode_spacing: [(1, 4), (1, 3), (1, 1)],
             close_paren_same_line: Vec::new(),
             indent_continuations: false,
+            indent_conditions: Vec::new(),
+            align_when_keywords: Vec::new(),
+            align_else_keywords: Vec::new(),
             comment_spaces: 1,
             reflow_comments: false,
         }
@@ -145,7 +155,7 @@ impl RuleSettings {
     }
 
     pub fn option_bool(&self, key: &str) -> Option<bool> {
-        self.options.get(key).and_then(Value::as_bool)
+        self.options.get(key).and_then(yaml_bool)
     }
 
     /// A list of strings; a single string counts as a one-element list.
@@ -333,10 +343,9 @@ impl Config {
                 message,
             };
             let text = std::fs::read_to_string(path).map_err(|e| error(e.to_string()))?;
-            // JSON is a subset of YAML, so one parser handles both formats.
-            let doc: Value = yaml_serde::from_str(&text).map_err(|e| error(e.to_string()))?;
+            let doc = parse_yaml(&text).map_err(error)?;
             let listed = cfg.file_list.len();
-            cfg.merge(&doc).map_err(error)?;
+            cfg.merge(&doc, &text).map_err(error)?;
             for entry in &mut cfg.file_list[listed..] {
                 entry.1.clone_from(path);
             }
@@ -347,14 +356,14 @@ impl Config {
 
     /// Load configuration from a YAML or JSON string.
     pub fn parse(text: &str) -> Result<Config, String> {
-        let doc: Value = yaml_serde::from_str(text).map_err(|e| e.to_string())?;
+        let doc = parse_yaml(text)?;
         let mut cfg = Config::default();
-        cfg.merge(&doc)?;
+        cfg.merge(&doc, text)?;
         cfg.resolve_format();
         Ok(cfg)
     }
 
-    fn merge(&mut self, doc: &Value) -> Result<(), String> {
+    fn merge(&mut self, doc: &Value, text: &str) -> Result<(), String> {
         let Some(map) = doc.as_mapping() else {
             if doc.is_null() {
                 return Ok(());
@@ -384,6 +393,9 @@ impl Config {
                     let dir = value.as_str().ok_or("`local_rules` must be a directory")?;
                     self.local_rules = Some(expand_path(dir));
                 }
+                // A key that only holds an anchor for `<<: *alias` is deliberate, and VSG says
+                // nothing about it.
+                _ if anchored(text, key) => {}
                 _ => self.warn(&format!("unknown top-level key `{key}` ignored")),
             }
         }
@@ -452,9 +464,8 @@ impl Config {
                         .collect();
                 }
                 "reflow_comments" => {
-                    self.format.reflow_comments = value
-                        .as_bool()
-                        .ok_or("`reflow_comments` must be true or false")?;
+                    self.format.reflow_comments =
+                        yaml_bool(value).ok_or("`reflow_comments` must be true or false")?;
                 }
                 key => self.warn(&format!("unknown `speja` key `{key}` ignored")),
             }
@@ -881,6 +892,66 @@ impl Config {
                         && s.option_str("align_paren") == Some("no")
                 })
             });
+        // VSG's multiline structure rules break array aggregates where the source does; the
+        // formatter breaks them only when they do not fit, keeps the first `(` after the
+        // assignment operator and puts every element on its own line.
+        for rule in [
+            "constant_016",
+            "concurrent_012",
+            "sequential_009",
+            "variable_assignment_008",
+        ] {
+            for (key, supported) in [
+                ("first_paren_new_line", "no"),
+                ("last_paren_new_line", "yes"),
+                ("open_paren_new_line", "yes"),
+                ("close_paren_new_line", "yes"),
+                ("new_line_after_comma", "yes"),
+                ("ignore_single_line", "yes"),
+            ] {
+                let value = self
+                    .layer_option(rule, &["structure"], key)
+                    .and_then(|v| match yaml_bool(v) {
+                        Some(true) => Some("yes"),
+                        Some(false) => Some("no"),
+                        None => v.as_str(),
+                    })
+                    .filter(|v| *v != supported && *v != "ignore");
+                if let Some(value) = value {
+                    self.warn(&format!("{rule}: unsupported option `{key}: {value}`"));
+                }
+            }
+        }
+        if self.rule_by_id("if_009").is_some_and(|s| {
+            s.enabled
+                && s.option_bool("align_left") == Some(true)
+                && s.option_bool("align_paren") == Some(false)
+        }) {
+            self.format.indent_conditions = vec![NodeKind::IfStatement, NodeKind::IfStatementElsif];
+        }
+        for (rule, statement) in [
+            (
+                "concurrent_009",
+                NodeKind::ConcurrentConditionalSignalAssignment,
+            ),
+            ("sequential_401", NodeKind::ConditionalWaveformAssignment),
+            (
+                "variable_assignment_400",
+                NodeKind::ConditionalVariableAssignment,
+            ),
+        ] {
+            let Some(settings) = self.rule_by_id(rule).filter(|s| s.enabled) else {
+                continue;
+            };
+            let when = settings.option_bool("align_when_keywords") == Some(true);
+            let other = settings.option_bool("align_else_keywords") == Some(true);
+            if when {
+                self.format.align_when_keywords.push(statement);
+            }
+            if other {
+                self.format.align_else_keywords.push(statement);
+            }
+        }
     }
 
     fn resolve_alignment(&mut self) {
@@ -938,6 +1009,11 @@ impl Config {
                 Some(text) => {
                     if let Some(style) = Style::parse(text) {
                         Some(style)
+                    } else if rule.info.id == "library_007"
+                        && text == "no_blank_line_unless_different_library"
+                    {
+                        blank.use_library_groups = true;
+                        Some(Style::NoBlank)
                     } else {
                         self.warn(&format!("{}: unsupported style `{text}`", rule.info.id));
                         rule.style
@@ -984,12 +1060,18 @@ impl Config {
     /// Effective settings for a rule: rule-specific settings override its groups, which
     /// override `global`, which override the rule's defaults.
     pub fn rule(&self, info: &crate::rules::RuleInfo) -> RuleSettings {
+        // VSG's default case, for the rule whose default is not lower case
+        // (`bit_string_literal_501`).
+        let options = crate::vsg_defaults::defaults()["rule"][info.id]["case"]
+            .as_str()
+            .map(|case| BTreeMap::from([("case".to_owned(), Value::from(case))]))
+            .unwrap_or_default();
         self.layered(
             info.id,
             info.groups,
             info.enabled_by_default,
             info.severity,
-            BTreeMap::new(),
+            options,
         )
     }
 
@@ -1218,6 +1300,37 @@ pub fn glob(pattern: &[u8], text: &[u8]) -> bool {
     }
 }
 
+/// Parse a YAML or JSON document the way `PyYAML` hands it to VSG: merge keys (`<<: *alias`)
+/// are applied.
+pub fn parse_yaml(text: &str) -> Result<Value, String> {
+    // JSON is a subset of YAML, so one parser handles both formats.
+    let mut doc: Value = yaml_serde::from_str(text).map_err(|e| e.to_string())?;
+    doc.apply_merge().map_err(|e| e.to_string())?;
+    Ok(doc)
+}
+
+/// Whether top-level `key` carries an anchor (`key: &name`) in the source text.
+fn anchored(text: &str, key: &str) -> bool {
+    text.lines().any(|line| {
+        line.strip_prefix(key)
+            .and_then(|rest| rest.strip_prefix(':'))
+            .is_some_and(|rest| rest.trim_start().starts_with('&'))
+    })
+}
+
+/// A boolean as `PyYAML` reads it: YAML 1.1 also spells one `yes`/`no`/`on`/`off`.
+fn yaml_bool(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(b) => Some(*b),
+        Value::String(s) => match s.as_str() {
+            "yes" | "Yes" | "YES" | "on" | "On" | "ON" | "true" | "True" | "TRUE" => Some(true),
+            "no" | "No" | "NO" | "off" | "Off" | "OFF" | "false" | "False" | "FALSE" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn merge_layer(layer: &mut RuleLayer, settings: &Value, name: &str) -> Result<(), String> {
     let Some(map) = settings.as_mapping() else {
         return Err(format!("settings of `{name}` must be a mapping"));
@@ -1226,8 +1339,8 @@ fn merge_layer(layer: &mut RuleLayer, settings: &Value, name: &str) -> Result<()
         let key = key.as_str().unwrap_or_default();
         let bad = || format!("`{name}.{key}` has an invalid value {value:?}");
         match key {
-            "disable" => layer.disable = Some(value.as_bool().ok_or_else(bad)?),
-            "fixable" => layer.fixable = Some(value.as_bool().ok_or_else(bad)?),
+            "disable" => layer.disable = Some(yaml_bool(value).ok_or_else(bad)?),
+            "fixable" => layer.fixable = Some(yaml_bool(value).ok_or_else(bad)?),
             "severity" => {
                 layer.severity = Some(
                     match value.as_str().map(str::to_ascii_lowercase).as_deref() {
@@ -1257,6 +1370,22 @@ mod tests {
         assert_eq!(
             expand_vars("${CARGO_MANIFEST_DIR}/src/$CARGO_MANIFEST_DIR/$SPEJA_UNSET_VARIABLE"),
             format!("{home}/src/{home}/$SPEJA_UNSET_VARIABLE")
+        );
+    }
+
+    #[test]
+    fn unsupported_multiline_structure_options() {
+        // VSG issue #1502: options the formatter cannot follow are reported, not ignored.
+        let cfg = Config::parse(
+            "rule:\n  constant_016:\n    first_paren_new_line: 'yes'\n    last_paren_new_line: 'yes'\n    open_paren_new_line: ignore\n  sequential_009:\n    new_line_after_comma: no\n",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.warnings,
+            [
+                "constant_016: unsupported option `first_paren_new_line: yes`",
+                "sequential_009: unsupported option `new_line_after_comma: no`",
+            ]
         );
     }
 
@@ -1336,6 +1465,37 @@ mod tests {
         // Nothing configured, nothing excluded, and no walking of the path to find that out.
         assert!(!Config::default().excluded(Path::new("generated/gen.vhd")));
         assert!(Config::parse("speja: {exclude: generated}").is_err());
+    }
+
+    #[test]
+    fn merge_keys_are_applied() {
+        let cfg = Config::parse(
+            "upper: &upper\n  case: upper\nrule:\n  architecture_020:\n    <<: *upper\n",
+        )
+        .unwrap();
+        let rule = cfg.rule_by_id("architecture_020").unwrap();
+        assert_eq!(rule.option_str("case"), Some("upper"));
+        // The anchor's holder is not a typo, and VSG says nothing about it.
+        assert_eq!(cfg.warnings, Vec::<String>::new());
+        assert!(
+            Config::parse("shared:\n  case: upper\n")
+                .unwrap()
+                .warnings
+                .iter()
+                .any(|w| w.contains("`shared`"))
+        );
+    }
+
+    #[test]
+    fn yaml_1_1_booleans() {
+        let info = crate::rules::info("entity_015").unwrap();
+        for (spelling, enabled) in [("yes", false), ("On", false), ("NO", true), ("off", true)] {
+            let cfg =
+                Config::parse(&format!("rule: {{entity_015: {{disable: {spelling}}}}}")).unwrap();
+            assert_eq!(cfg.rule(info).enabled, enabled, "{spelling}");
+        }
+        let cfg = Config::parse("rule: {entity_015: {fixable: no}}").unwrap();
+        assert!(!cfg.rule(info).fixable);
     }
 
     #[test]

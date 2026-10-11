@@ -300,7 +300,7 @@ mod tests {
                       a <= '0';\n      b <= '0';\n    elsif rising_edge(clk) then\n      \
                       a <= d;\n      b <= a and d;\n    end if;\n  end process p;\n\
                       end architecture rtl;\n";
-        assert!(check_source(source).is_empty());
+        assert_eq!(check_source(source), Vec::<String>::new());
     }
 
     #[test]
@@ -310,7 +310,7 @@ mod tests {
                       p : process (clk) is\n  begin\n    if rising_edge(clk) then\n      \
                       a <= d;\n      b <= a and d;\n    end if;\n  end process p;\n\
                       end architecture rtl;\n";
-        assert!(check_source(source).is_empty());
+        assert_eq!(check_source(source), Vec::<String>::new());
     }
 
     #[test]
@@ -321,7 +321,7 @@ mod tests {
                       architecture rtl of dut is\n  signal a : bit;\nbegin\n  \
                       p : process (en, d) is\n  begin\n    a <= '0';\n    if en = '1' then\n      \
                       a <= d;\n    end if;\n  end process p;\nend architecture rtl;\n";
-        assert!(check_source(source).is_empty());
+        assert_eq!(check_source(source), Vec::<String>::new());
     }
 }
 
@@ -377,6 +377,6 @@ mod reset_branch_tests {
                       architecture rtl of dut is\n  signal a : bit;\nbegin\n  \
                       p : process (clk) is\n  begin\n    if rising_edge(clk) then\n      \
                       a <= d;\n    end if;\n  end process p;\nend architecture rtl;\n";
-        assert!(check_source(source).is_empty());
+        assert_eq!(check_source(source), Vec::<String>::new());
     }
 }

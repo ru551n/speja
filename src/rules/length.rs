@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(messages.len(), 2, "{messages:?}");
         assert!(messages[0].contains("folds it"), "{}", messages[0]);
         assert!(messages[1].contains("cannot be folded"), "{}", messages[1]);
-        assert!(check(src, 120).is_empty());
+        assert_eq!(check(src, 120), Vec::<String>::new());
     }
 
     #[test]
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn exact_boundary() {
         let src = "entity e is\nend;\n-- 20 columns.......\n";
-        assert!(check(src, 20).is_empty());
+        assert_eq!(check(src, 20), Vec::<String>::new());
         assert_eq!(check(src, 19).len(), 1);
     }
 }

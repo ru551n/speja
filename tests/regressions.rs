@@ -136,7 +136,7 @@ fn large_file_is_fast() {
     }
     src.push_str("end architecture a;\n");
     let start = Instant::now();
-    assert!(!fix(src.as_bytes()).unwrap().is_empty());
+    assert_ne!(fix(src.as_bytes()).unwrap(), b"");
     // Generous bound for unoptimized builds.
     assert!(
         start.elapsed() < Duration::from_secs(30),

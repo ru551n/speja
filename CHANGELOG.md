@@ -3,6 +3,90 @@
 Every release says which version of VSG it targets: the rule set, the configuration and the
 reports are that version's. `speja --version` prints the same thing.
 
+## Unreleased
+
+* **Layout findings carry the rule VSG reports them with.** The learned table that names the
+  VSG rule for each formatting change looked at the token and its own syntax node only, which
+  many constructs share: a blank line before an architecture's `begin` was reported as
+  `subprogram_body_202`, one after `then` as `report_statement_002`, a generate label's spacing
+  as `process_024`. Changes are now told apart by the statement or declaration around the token
+  and by the token before, and adding and removing blank lines are separate. A blank line that a
+  rule wants below a line (`process_022` after `begin`, `if_030` after `end if`) is reported on
+  that line, as in VSG, so one missing blank line can be two findings, also as in VSG; these
+  were `format` before. Spacing between two tokens that a VSG rule documents (such as
+  `generate_002`) is reported under that rule. `scripts/learn_layout_rules.py` learns the
+  richer keys and the table is relearned.
+
+* **Unsupported multiline structure options are reported.** `first_paren_new_line`,
+  `last_paren_new_line`, `open_paren_new_line`, `close_paren_new_line`, `new_line_after_comma`
+  and `ignore_single_line` in `constant_016`, `concurrent_012`, `sequential_009` and
+  `variable_assignment_008` were ignored without a warning. speja breaks an aggregate only
+  when it does not fit, keeps its first `(` after the assignment operator and puts each
+  element on its own line; a value that asks for something else is now reported as unsupported
+  (VSG issue #1502).
+
+* **`if_009` honours `align_left: yes` with `align_paren: no`.** The setting was ignored
+  without a warning, so folded `if` and `elsif` conditions stayed aligned after the keyword.
+  Their continuation lines are now indented one level, also with `indent_style: smart_tabs`
+  (VSG issue #1218).
+
+* **`align_when_keywords` and `align_else_keywords` are applied.** Set in `concurrent_009`,
+  `sequential_401` or `variable_assignment_400`, they were ignored without a warning. The
+  `when` (or `else`) keywords of a conditional assignment printed one branch per line now line
+  up, as in VSG (VSG issue #1586).
+
+* **Comments that close a body stay indented with it.** A `-- synthesis translate_on` before
+  `begin` went to the indentation of `begin` (column 0 in an architecture), and one before `when`
+  or `end case` to that of the keyword, so it no longer lined up with its
+  `-- synthesis translate_off`. Comments before `begin` and `end` are now indented like the
+  statements or declarations above them, also inside the last branch of a `case`, and so are
+  comments before `when`, `elsif` and `else` that start by closing a pragma region (VSG issue
+  #1520).
+* **Comments between `elsif` and its condition are indented.** They, and the condition below
+  them, stayed at the column of `elsif`; they are now one level deeper, like any continuation
+  line (VSG issue #1585).
+
+* **`library_007` supports `style: no_blank_line_unless_different_library`.** speja warned
+  that the style is unsupported and kept the blank lines as written. Use clauses of the same
+  library now have no blank line between them and use clauses of different libraries are
+  separated by one. VSG accepts the style but only removes blank lines, so it never separates
+  the groups (VSG issue #1557).
+
+* **YAML merge keys work in configuration files.** `<<: *anchor` under a rule now brings in
+  the anchored settings, as it does for VSG; they were dropped. The top-level key that only
+  holds the anchor is no longer reported as unknown, since VSG accepts it silently. The
+  `--fix_only` and waiver files read merge keys too.
+* **`yes`, `no`, `on` and `off` are booleans in configuration files**, as PyYAML reads them for
+  VSG. `disable: yes` was rejected as an invalid value; it now works for `disable`, `fixable`
+  and every other true/false option.
+
+* **A file of `library` and `use` clauses alone is accepted.** With no design unit after the
+  context items, speja refused the file as a syntax error; VSG checks and fixes it like any
+  other, and so does speja now.
+
+* **`bit_string_literal_500` and `bit_string_literal_501` are checked and fixed.** The case of
+  the base specifier and of the value (`X"5a"` to `x"5A"` by default) was never reported, and
+  `--fix` left bit strings as written. They now apply to every bit string literal, including
+  procedure call arguments, port and generic maps and case choices, which VSG misses (VSG
+  issue #1449).
+
+* **Record element names are left alone by the consistency rules.** `function_508` renamed the
+  record element in `(PARAM => param)` to match a parameter `param`, and `type_501` renamed a
+  record element that shares its name with an enumeration literal. A name that is also a record
+  element is now treated as ambiguous and not checked, as for names declared twice (VSG issues
+  #1482 and #1187).
+
+* **`parameter_specification_500` covers the uses of a loop or generate parameter.** With
+  `case: upper`, `for i in` became `for I in` while `data(i)` in the body kept the old case.
+  Uses inside the loop or generate statement are now reported and fixed under the same rule;
+  VSG checks the declaration only (VSG issue #1561).
+
+* **`use_clause_502` respects how an imported item is declared.** In
+  `use work.my_package.MY_CONSTANT`, the item was held to `use_clause_502`'s own case even when
+  the constant is declared `MY_CONSTANT` under `constant_004: {case: upper}`. When the package
+  is in the same file or another file of the run, the item now takes the spelling the
+  declaration's own case rule asks for, as the consistency rules do (VSG issue #1574).
+
 ## 0.14.6
 
 **Targets VSG 3.35.**

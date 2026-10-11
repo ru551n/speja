@@ -18,7 +18,7 @@ speja accepts VSG configuration documents in YAML or JSON.
 | `rule.length_001.length` | sets the formatter's target width and the `length_001` limit |
 | `rule.global.indent_size` | sets the formatter's indentation |
 | `rule.global.indent_style` | `spaces` (default) or `smart_tabs` |
-| `number_of_spaces`, port mode `spaces_before`/`spaces_after`, `action: same_line` of closing parentheses, `align_left`/`align_paren` | applied by the formatter (see `formatting.md`) |
+| `number_of_spaces`, port mode `spaces_before`/`spaces_after`, `action: same_line` of closing parentheses, `align_left`/`align_paren`, `align_when_keywords`/`align_else_keywords` | applied by the formatter (see `formatting.md`) |
 | `rule.global.case`, `rule.group.case` / `case::keyword` `.case` | sets keyword case (`lower` or `upper`) and the default of the identifier case rules |
 | `rule.group.case` / `case::keyword` `.disable: true` | keeps keywords as written |
 | keyword case rules (`entity_004`, …) `.case`, `.disable` | per keyword (see `formatting.md`) |
@@ -83,7 +83,9 @@ could not be processed, missing files and invalid arguments).
   case and line length are handled by one formatter with one canonical layout. Each change the
   formatter would make is reported under the VSG rule that reports that kind of change
   (keyword case exactly; the others through a table learned from VSG's reports on real code,
-  `src/layout_rules.json`). Changes without a known rule are reported as `format`, and where the
+  `src/layout_rules.json`, keyed by the token, the construct around it and the token before).
+  A blank line a rule wants below a line is reported on that line, as VSG does. Changes without
+  a known rule are reported as `format`, and where the
   default layouts of VSG and speja differ, the reports differ too.
 * **`length_001` is fixable.** VSG never shortens lines. speja folds them. `length_001` reports only
   what remains, and says whether `--fix` would fold it.
@@ -96,6 +98,38 @@ could not be processed, missing files and invalid arguments).
   the declaration's case rule requires, so declaration and uses are fixed in the same run. Set
   `spelling: declaration` on a consistency rule to compare with the declaration as written, as
   VSG does.
+* **Bit string literals everywhere.** `bit_string_literal_500` and `bit_string_literal_501`
+  check every bit string literal. VSG misses those in procedure call arguments, port and
+  generic maps and case choices (VSG issue #1449).
+* **Record elements in consistency rules.** A use of a name that is also declared as a record
+  element is not checked by the consistency rules (`function_508`, `type_501`, …), since it may
+  name the element. VSG renames such element names in aggregates (VSG issues #1482 and #1187).
+* **Loop and generate parameter uses.** `parameter_specification_500` also checks the uses of the
+  parameter inside its loop or generate statement, so that `--fix` keeps them consistent with
+  the declaration. VSG checks the declaration only (VSG issue #1561).
+* **Use clause items.** `use_clause_502` checks an item declared in a package of the same file
+  or of the run against the spelling the declaration's case rule requires (`constant_004` for
+  a constant, …), not against its own `case`. VSG applies its own case to every item (VSG
+  issue #1574).
+* **Use clauses grouped by library.** With `library_007: {style:
+  no_blank_line_unless_different_library}`, speja also inserts the blank line between use
+  clauses of different libraries. VSG only removes blank lines between use clauses of the same
+  library (VSG issue #1557).
+* **Comments that close a body.** Own-line comments before `begin` and `end` are indented with
+  the declarations or statements above them, as with VSG's `indent.options.comment`
+  `align_with_end_of_declarative_part` and `align_with_end_of_statement_part` set, and so are
+  comments before `when`, `elsif` and `else` that start by closing a pragma region. VSG
+  indents them like the keyword that follows by default, which separates a
+  `-- synthesis translate_on` from its `-- synthesis translate_off` (VSG issue #1520).
+* **Comments in front of a continuation line.** Own-line comments between `elsif` and its
+  condition are indented one level deeper than `elsif`, with the condition. VSG indents them
+  like `elsif` (VSG issue #1585).
+* **Multiline aggregates.** VSG's multiline structure rules (`constant_016`, `concurrent_012`,
+  `sequential_009`, `variable_assignment_008`) restructure an aggregate when the source writes
+  it over several lines, and by default put its first `(` on a line of its own. speja's layout
+  does not depend on the source's line breaks: an aggregate is folded when it does not fit,
+  with the first `(` after the assignment operator and one element per line. Options asking
+  for another structure are reported as unsupported (VSG issue #1502).
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files

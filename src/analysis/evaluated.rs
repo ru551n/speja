@@ -450,7 +450,7 @@ mod tests {
         let source = "entity dut is\n  generic (n : integer := 4);\nend entity dut;\n\n\
                       architecture rtl of dut is\n  signal x : bit_vector(n - 1 downto 0);\n  \
                       signal y : bit;\nbegin\n  y <= x(8);\nend architecture rtl;\n";
-        assert!(check_source(source).is_empty());
+        assert_eq!(check_source(source), Vec::<String>::new());
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
                       signal x : bit_vector(7 downto 0);\n  signal y : bit;\nbegin\n  \
                       p : process is\n    variable x : bit_vector(15 downto 0);\n  begin\n    \
                       y <= x(8);\n    wait;\n  end process p;\nend architecture rtl;\n";
-        assert!(check_source(source).is_empty());
+        assert_eq!(check_source(source), Vec::<String>::new());
     }
 
     #[test]
@@ -528,7 +528,7 @@ mod divisor_tests {
                       constant zero : integer := 0;\nbegin\n  p : process is\n    \
                       variable n : integer := 7;\n  begin\n    n := n / zero;\n    wait;\n  \
                       end process p;\nend architecture rtl;\n";
-        assert!(check_source(source).is_empty());
+        assert_eq!(check_source(source), Vec::<String>::new());
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //!
 //! The ids themselves come from `vsg_defaults.json` (VSG's own `-oc` dump). Rules that only
 //! decide where line breaks go ("on its own line", "code after", closing parenthesis
-//! placement) belong to the formatter, which is the default; this table lists the 191
+//! placement) belong to the formatter, which is the default; this table lists the 193
 //! exceptions, taken from `docs/vsg-rules.md`.
 
 use super::Owner;
@@ -26,6 +26,8 @@ pub(super) static OWNERS: &[(&str, Owner)] = &[
     ("attribute_declaration_501", Owner::Lint),
     ("attribute_declaration_502", Owner::Lint),
     ("attribute_specification_501", Owner::Lint),
+    ("bit_string_literal_500", Owner::Lint),
+    ("bit_string_literal_501", Owner::Lint),
     ("block_002", Owner::Structure),
     ("block_007", Owner::Structure),
     ("block_500", Owner::Lint),

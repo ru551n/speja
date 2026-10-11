@@ -101,24 +101,48 @@ fn check_case(
     rule: &'static str,
     select: Select,
 ) {
-    let policy = settings.option_str("case").unwrap_or("lower");
-    for t in select(cx) {
+    check_tokens(settings, out, rule, select(cx));
+}
+
+fn check_tokens(
+    settings: &RuleSettings,
+    out: &mut Vec<Violation>,
+    rule: &'static str,
+    tokens: Vec<SyntaxToken>,
+) {
+    for t in tokens {
         if t.kind() != T::Identifier || is_extended(&t) {
             continue;
         }
-        let name = text(&t);
-        let (fix, message) = match required(settings, &name) {
-            Ok(None) => continue,
-            Ok(Some(fixed)) => (
-                Some(rename(&t, fixed.clone())),
-                format!("Change \"{name}\" to \"{fixed}\""),
-            ),
-            Err(()) => (None, format!("Change \"{name}\" to {policy} case")),
-        };
-        let mut v = violation(settings, rule, &t, message);
-        v.fix = fix;
-        out.push(v);
+        if let Some(v) = check_spelling(settings, rule, &t, &text(&t), str::to_owned) {
+            out.push(v);
+        }
     }
+}
+
+/// The violation of `rule` for `part` of token `t`, if `part` is not in the configured case. The
+/// fix replaces the whole token with `token(fixed part)`.
+fn check_spelling(
+    settings: &RuleSettings,
+    rule: &'static str,
+    t: &SyntaxToken,
+    part: &str,
+    token: impl Fn(&str) -> String,
+) -> Option<Violation> {
+    let (fix, message) = match required(settings, part) {
+        Ok(None) => return None,
+        Ok(Some(fixed)) => (
+            Some(rename(t, token(&fixed))),
+            format!("Change \"{part}\" to \"{fixed}\""),
+        ),
+        Err(()) => {
+            let policy = settings.option_str("case").unwrap_or("lower");
+            (None, format!("Change \"{part}\" to {policy} case"))
+        }
+    };
+    let mut v = violation(settings, rule, t, message);
+    v.fix = fix;
+    Some(v)
 }
 
 fn case_rule(id: &'static str, label: bool, description: &'static str, check: Check) -> Rule {
@@ -182,17 +206,80 @@ fn name_words(name: &SyntaxNode) -> Vec<SyntaxToken> {
         .collect()
 }
 
-/// `use lib.pkg.item`: parts 0, 1, 2; `use lib.item`: parts 0 and 2.
+/// `use lib.pkg.item`: the library (part 0) or the package (part 1).
 fn use_part(cx: &Context<'_>, part: usize) -> Vec<SyntaxToken> {
     selected_names(cx, N::UseClause)
         .into_iter()
         .filter_map(|mut parts| match (part, parts.len()) {
             (0, _) => parts.first().cloned(),
             (1, 3..) => Some(parts.swap_remove(1)),
-            (2, 2..) => parts.pop(),
             _ => None,
         })
         .collect()
+}
+
+/// The case rule of the declarations whose uses the consistency rule `rule` checks.
+fn declaration_rule(rule: &str) -> &str {
+    match rule {
+        "signal_014" => "signal_004",
+        "constant_013" => "constant_004",
+        "variable_011" => "variable_004",
+        "type_014" => "type_004",
+        "subtype_002" => "subtype_501",
+        "alias_declaration_503" => "alias_declaration_502",
+        "function_010" => "function_017",
+        "procedure_507" => "procedure_501",
+        "type_501" => "type_500",
+        _ => rule,
+    }
+}
+
+/// Item names in use clauses. An item declared in a package of this file or of the run takes
+/// the spelling its declaration's case rule requires (VSG issue #1574: VSG applies its own case
+/// to `use work.pkg.MY_CONSTANT` even when `MY_CONSTANT` is declared that way); other items take
+/// the configured case.
+fn use_clause_items(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
+    const RULE: &str = "use_clause_502";
+    let mut local = super::Project::new();
+    local.add(cx.parsed);
+    let mut plain = Vec::new();
+    for parts in selected_names(cx, N::UseClause) {
+        let [_, .., item] = parts.as_slice() else {
+            continue;
+        };
+        let mut declared: Vec<String> = match parts.as_slice() {
+            [_, package, _, ..] => {
+                let package = lower_text(package);
+                [Some(&local), cx.project]
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|p| p.package_items(&package))
+                    .filter(|(_, name)| name.eq_ignore_ascii_case(&text(item)))
+                    .map(|(rule, name)| spelling(cx, declaration_rule(rule), name.clone()))
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        declared.sort();
+        declared.dedup();
+        let name = text(item);
+        match declared.as_slice() {
+            [want] if is_extended(item) || *want == name => {}
+            [want] => {
+                let mut v = violation(
+                    settings,
+                    RULE,
+                    item,
+                    format!("Change \"{name}\" to \"{want}\""),
+                );
+                v.fix = Some(rename(item, want.clone()));
+                out.push(v);
+            }
+            _ if declared.contains(&name) => {}
+            _ => plain.push(item.clone()),
+        }
+    }
+    check_tokens(settings, out, RULE, plain);
 }
 
 fn context_part(cx: &Context<'_>, first: bool) -> Vec<SyntaxToken> {
@@ -371,9 +458,6 @@ fn case_name_rules() -> Vec<Rule> {
         "package_instantiation_504",
             "Uninstantiated package names are in the configured case.",
             |cx| instantiated_names(cx, N::PackageInstantiationPreamble);
-        "parameter_specification_500",
-            "Loop and generate parameters are in the configured case.",
-            |cx| idents_of(cx, N::ParameterSpecification);
         "port_010", "Port names are in the configured case.",
             |cx| interface_names(cx, N::PortClause);
         "port_map_002", "Port names in port maps are in the configured case.",
@@ -408,8 +492,6 @@ fn case_name_rules() -> Vec<Rule> {
             |cx| use_part(cx, 0);
         "use_clause_501", "Package names in use clauses are in the configured case.",
             |cx| use_part(cx, 1);
-        "use_clause_502", "Item names in use clauses are in the configured case.",
-            |cx| use_part(cx, 2);
         "variable_004", "Variable names are in the configured case.",
             |cx| declared(cx, N::VariableDeclaration);
     }
@@ -440,8 +522,8 @@ fn case_label_rules() -> Vec<Rule> {
     }
 }
 
-/// Every name declared in the snapshot, with the kinds of declaration (by consistency rule, or
-/// `interface` for ports, generics and parameters) that declare it.
+/// Every name declared in the snapshot, with the kinds of declaration (by consistency rule,
+/// `interface` for ports, generics and parameters, or `record_element`) that declare it.
 pub(super) fn declared_kinds(cx: &Context<'_>) -> HashMap<String, Vec<&'static str>> {
     let mut out: HashMap<String, Vec<&'static str>> = HashMap::new();
     let mut add = |kind: &'static str, tokens: Vec<SyntaxToken>| {
@@ -461,6 +543,8 @@ pub(super) fn declared_kinds(cx: &Context<'_>) -> HashMap<String, Vec<&'static s
     add("type_501", enum_literals(cx));
     add("function_010", designators(cx, N::FunctionSpecification));
     add("procedure_507", designators(cx, N::ProcedureSpecification));
+    // Record elements are named in aggregates (`(field => x)`) like any other name.
+    add("record_element", declared(cx, N::ElementDeclaration));
     let interfaces: Vec<SyntaxToken> = cx
         .nodes(N::InterfaceList)
         .iter()
@@ -594,6 +678,37 @@ fn body_scopes(cx: &Context<'_>, kind: N) -> Vec<Scope> {
         .collect()
 }
 
+/// Each loop or generate parameter, used in its loop or generate statement.
+fn parameter_scopes(cx: &Context<'_>) -> Vec<Scope> {
+    cx.nodes(N::ParameterSpecification)
+        .iter()
+        .filter_map(|n| {
+            Some(Scope {
+                decls: vec![ident(n)?],
+                external: Vec::new(),
+                region: n
+                    .ancestors()
+                    .find(|a| matches!(a.kind(), N::LoopStatement | N::ForGenerateStatement))?,
+            })
+        })
+        .collect()
+}
+
+/// Loop and generate parameters, and their uses (VSG issue #1561: VSG checks the declaration
+/// only, so `--fix` left the uses in the old case).
+fn loop_parameters(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>) {
+    const RULE: &str = "parameter_specification_500";
+    check_case(cx, settings, out, RULE, |cx| {
+        idents_of(cx, N::ParameterSpecification)
+    });
+    let mut uses = Vec::new();
+    check_consistency(cx, settings, &mut uses, RULE, RULE, parameter_scopes);
+    // A use inside nested loops with parameters of the same name is in both scopes.
+    uses.sort_by_key(|v| v.start);
+    uses.dedup_by_key(|v| v.start);
+    out.extend(uses);
+}
+
 fn check_consistency(
     cx: &Context<'_>,
     settings: &RuleSettings,
@@ -651,8 +766,10 @@ fn check_consistency(
         let first = sites.partition_point(|(o, _, _)| *o < range.start);
         let last = sites.partition_point(|(o, _, _)| *o < range.end);
         let own_kind = if matches!(rule, "architecture_600" | "architecture_601" | "entity_600")
-            || matches!(rule, "function_508" | "procedure_509")
-        {
+            || matches!(
+                rule,
+                "function_508" | "procedure_509" | "parameter_specification_500"
+            ) {
             "interface"
         } else {
             rule
@@ -851,10 +968,48 @@ fn exponents(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>
     }
 }
 
+/// The base specifier (`base`) or the quoted value of every bit string literal (`12UX"f_f"`).
+fn bit_strings(cx: &Context<'_>, settings: &RuleSettings, out: &mut Vec<Violation>, base: bool) {
+    let rule = if base {
+        "bit_string_literal_500"
+    } else {
+        "bit_string_literal_501"
+    };
+    for t in cx.parsed.tokens() {
+        if t.kind() != T::BitStringLiteral {
+            continue;
+        }
+        let literal = text(t);
+        let Some(quote) = literal.find(['"', '%']) else {
+            continue;
+        };
+        let (length, rest) =
+            literal.split_at(literal[..quote].trim_end_matches(char::is_alphabetic).len());
+        let (specifier, value) = rest.split_at(quote - length.len());
+        let v = if base {
+            check_spelling(settings, rule, t, specifier, |f| {
+                format!("{length}{f}{value}")
+            })
+        } else {
+            check_spelling(settings, rule, t, value, |f| {
+                format!("{length}{specifier}{f}")
+            })
+        };
+        out.extend(v);
+    }
+}
+
 fn keyword_like_rules() -> Vec<Rule> {
     let keyword = |id, description, check| Rule {
         info: RuleInfo {
             groups: &["case", "case::keyword"],
+            ..case_rule(id, false, description, check).info
+        },
+        check,
+    };
+    let literal = |id, description, check| Rule {
+        info: RuleInfo {
+            groups: &["case"],
             ..case_rule(id, false, description, check).info
         },
         check,
@@ -875,11 +1030,33 @@ fn keyword_like_rules() -> Vec<Rule> {
             "Exponents of decimal literals are in the configured case.",
             exponents,
         ),
+        literal(
+            "bit_string_literal_500",
+            "Base specifiers of bit string literals are in the configured case.",
+            |cx, s, out| bit_strings(cx, s, out, true),
+        ),
+        literal(
+            "bit_string_literal_501",
+            "Values of bit string literals are in the configured case.",
+            |cx, s, out| bit_strings(cx, s, out, false),
+        ),
     ]
 }
 
 pub(super) fn rules() -> Vec<Rule> {
     let mut all = case_name_rules();
+    all.push(case_rule(
+        "parameter_specification_500",
+        false,
+        "Loop and generate parameters, and their uses, are in the configured case.",
+        loop_parameters,
+    ));
+    all.push(case_rule(
+        "use_clause_502",
+        false,
+        "Item names in use clauses are in the configured case, or as declared.",
+        use_clause_items,
+    ));
     all.extend(case_label_rules());
     all.extend(consistency());
     all.extend(keyword_like_rules());
@@ -962,6 +1139,68 @@ mod tests {
         assert!(!f.iter().any(|(r, _)| *r == "signal_014"), "{f:?}");
     }
 
+    /// VSG issues #1482 and #1187: a record element named in an aggregate is not a use of a
+    /// parameter or an enumeration literal of the same name.
+    #[test]
+    fn record_elements_are_not_other_names() {
+        let src = "package body p is\n  type t is record\n    PARAM : std_logic;\n  end record;\n  function f (param : std_logic) return t is\n    variable r : t;\n  begin\n    r := (\n      PARAM => param\n    );\n    return r;\n  end function;\nend package body;\n";
+        assert!(!found(src, "").iter().any(|(r, _)| *r == "function_508"));
+        let src = "architecture rtl of example is\n  type t_state is (BIT_LENGTH, DATA_STREAM_LENGTH);\n  type t_reg is record\n    state : t_state;\n    data_stream_length : std_logic_vector(21 downto 0);\n  end record;\n  constant C_REG_T_INIT : t_reg := (\n    state => BIT_LENGTH,\n    data_stream_length => (others => '0')\n  );\nbegin\nend;\n";
+        let f = found(src, "rule:\n  type_500:\n    case: upper\n");
+        assert!(!f.iter().any(|(r, _)| *r == "type_501"), "{f:?}");
+    }
+
+    /// VSG issue #1561: uses of a loop or generate parameter follow its case.
+    #[test]
+    fn loop_parameter_uses() {
+        let src = "architecture a of b is\nbegin\n  GEN_LABEL : for i in t_index_range generate\n    I_INSTANCE : entity work.some_entity\n      port map (\n        DATA_I => INPUT_DATA(i),\n        DATA_O => OUTPUT_DATA(i)\n      );\n  end generate GEN_LABEL;\n  process\n  begin\n    for i in 0 to 3 loop\n      for j in 0 to i loop\n        x(i) <= y(j);\n      end loop;\n    end loop;\n  end process;\nend architecture a;\n";
+        let yaml = "rule:\n  parameter_specification_500:\n    case: upper\n";
+        let f = found(src, yaml);
+        let rule = |t: &str| {
+            f.iter()
+                .filter(|(r, s)| *r == "parameter_specification_500" && s == t)
+                .count()
+        };
+        assert_eq!((rule("i"), rule("j")), (6, 2), "{f:?}");
+        let config = Config::parse(yaml).unwrap();
+        let text = String::from_utf8(
+            crate::fix::fix(&Parsed::new(src.as_bytes().to_vec()), &config)
+                .unwrap()
+                .output,
+        )
+        .unwrap();
+        assert!(text.contains("INPUT_DATA(I)"), "{text}");
+        assert!(text.contains("x(I) <= y(J);"), "{text}");
+        assert!(
+            found(src, "")
+                .iter()
+                .all(|(r, _)| *r != "parameter_specification_500")
+        );
+    }
+
+    /// VSG issue #1574: an item in a use clause may keep the case of its declaration.
+    #[test]
+    fn use_clause_items_as_declared() {
+        let src = "package my_package is\n  constant MY_CONSTANT : boolean := TRUE;\nend package;\nlibrary work;\nuse work.my_package.MY_CONSTANT;\npackage my_other_package is\n  constant MY_OTHER_CONSTANT : boolean := MY_CONSTANT;\nend package;\n";
+        let upper = "rule:\n  constant_004:\n    case: upper\n";
+        let f = found(src, upper);
+        assert!(!f.iter().any(|(r, _)| *r == "use_clause_502"), "{f:?}");
+        assert!(has(&found(src, ""), "use_clause_502", "MY_CONSTANT"));
+        // The declaration in another file of the run.
+        let (pkg, user) = src.split_at(src.find("library").unwrap());
+        let mut project = crate::rules::Project::new();
+        project.add(&Parsed::new(pkg.as_bytes().to_vec()));
+        let config = Config::parse(upper).unwrap();
+        let parsed = Parsed::new(user.as_bytes().to_vec());
+        let rules: Vec<&str> = crate::rules::check_with(&parsed, &config, Some(&project))
+            .into_iter()
+            .map(|v| v.rule)
+            .collect();
+        assert!(!rules.contains(&"use_clause_502"), "{rules:?}");
+        let alone = crate::rules::check(&parsed, &config);
+        assert!(alone.iter().any(|v| v.rule == "use_clause_502"));
+    }
+
     #[test]
     fn keyword_like_names() {
         let src = "architecture rtl of e is\n  file f : text open READ_MODE is \"x\";\n  constant t : time := 1.0E-9 * 16#E#;\nbegin\n  a <= b'LENGTH;\nend architecture rtl;\n";
@@ -974,6 +1213,43 @@ mod tests {
             assert!(has(&f, rule, text), "{rule} {text} missing in {f:?}");
         }
         assert_eq!(f.iter().filter(|(r, _)| *r == "exponent_500").count(), 1);
+    }
+
+    /// VSG issue #1449: bit string literals are checked wherever they appear.
+    #[test]
+    fn bit_string_literals_everywhere() {
+        let src = "architecture a of b is\nbegin\n  bar : process is\n  begin\n    foo(X\"5a\", a = X\"5a\");\n    case a is\n      when X\"5a\" =>\n        null;\n      when others =>\n        null;\n    end case;\n  end process bar;\n  inst : component my_component\n    port map (\n      c => 12UX\"5a\"\n    );\nend architecture a;\n";
+        let f = found(src, "");
+        assert_eq!(
+            f.iter()
+                .filter(|(r, _)| *r == "bit_string_literal_500")
+                .count(),
+            4,
+            "{f:?}"
+        );
+        assert_eq!(
+            f.iter()
+                .filter(|(r, _)| *r == "bit_string_literal_501")
+                .count(),
+            4,
+            "{f:?}"
+        );
+        let fixed = String::from_utf8(
+            crate::fix::fix(&Parsed::new(src.as_bytes().to_vec()), &Config::default())
+                .unwrap()
+                .output,
+        )
+        .unwrap();
+        assert_eq!(fixed.matches("x\"5A\"").count(), 4, "{fixed}");
+        assert!(fixed.contains("12ux\"5A\""), "{fixed}");
+        let swapped = found(
+            src,
+            "rule:\n  bit_string_literal_500:\n    case: upper\n  bit_string_literal_501:\n    case: lower\n",
+        );
+        assert!(
+            !swapped.iter().any(|(r, _)| r.starts_with("bit_string")),
+            "{swapped:?}"
+        );
     }
 
     #[test]

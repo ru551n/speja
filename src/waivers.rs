@@ -42,8 +42,8 @@ impl Waivers {
         for path in paths {
             let text =
                 std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let doc: Value =
-                yaml_serde::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+            let doc =
+                speja::config::parse_yaml(&text).map_err(|e| format!("{}: {e}", path.display()))?;
             let list = doc
                 .as_mapping()
                 .and_then(|m| m.get("waivers"))

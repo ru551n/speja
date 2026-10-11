@@ -1,0 +1,6 @@
+rule:
+  concurrent_009:
+    align_when_keywords: yes
+    align_else_keywords: yes
+  sequential_401:
+    align_when_keywords: 'yes'

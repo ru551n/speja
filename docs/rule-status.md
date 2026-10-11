@@ -7,8 +7,8 @@ VSG 3.35.0 has 972 rules:
 
 | Status | Rules | Meaning |
 |---|---|---|
-| implemented | 192 | reported by `speja`, with the fix class listed below |
-| formatter | 779 | layout policy applied by `speja --fix` (whitespace, indentation, blank lines, alignment, keyword case, line structure); configured through the VSG rule options described in `formatting.md` |
+| implemented | 194 | reported by `speja`, with the fix class listed below |
+| formatter | 777 | layout policy applied by `speja --fix` (whitespace, indentation, blank lines, alignment, keyword case, line structure); configured through the VSG rule options described in `formatting.md` |
 | command line | 1 | `source_file_001`: a missing input file is an error (exit code 1) |
 
 Formatter-owned rules are not reported one by one: unformatted lines are reported as `format`
@@ -56,6 +56,8 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 | `attribute_declaration_501` | Attribute names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `attribute_declaration_502` | Attribute type marks are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `attribute_specification_501` | Attribute designators are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
+| `bit_string_literal_500` | Base specifiers of bit string literals are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
+| `bit_string_literal_501` | Values of bit string literals are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `block_002` | Block statements include the optional `is` | on | safe |
 | `block_007` | `end block` repeats the block label | on | safe |
 | `block_500` | Block labels are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
@@ -157,7 +159,7 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 | `package_instantiation_504` | Uninstantiated package names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `package_instantiation_600` | Instantiated package names have a valid suffix | off | none |
 | `package_instantiation_601` | Instantiated package names have a valid prefix | off | none |
-| `parameter_specification_500` | Loop and generate parameters are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
+| `parameter_specification_500` | Loop and generate parameters, and their uses, are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `port_010` | Port names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `port_011` | Port names have a valid prefix | off | none |
 | `port_012` | Ports have no default values | on | unsafe |
@@ -222,7 +224,7 @@ Defaults and severities follow VSG's defaults (all errors except `length_001` an
 | `use_clause_001` | Restricted packages are not used | off | none |
 | `use_clause_500` | Library names in use clauses are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `use_clause_501` | Package names in use clauses are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
-| `use_clause_502` | Item names in use clauses are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
+| `use_clause_502` | Item names in use clauses are in the configured case, or as declared | on | safe (report only for camelCase, PascalCase, regex) |
 | `variable_004` | Variable names are in the configured case | on | safe (report only for camelCase, PascalCase, regex) |
 | `variable_007` | Variable declarations have no default value | on | unsafe |
 | `variable_011` | Uses of a variable repeat the declared spelling | on | safe |

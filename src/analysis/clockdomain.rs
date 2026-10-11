@@ -325,7 +325,7 @@ mod tests {
                       signal clk, a, y : bit;\n\nbegin\n\n  p : process (clk) is\n  begin\n    \
                       if rising_edge(clk) then\n      a <= not a;\n      y <= a and y;\n    \
                       end if;\n  end process p;\n\nend architecture rtl;\n";
-        assert!(check_source(source, &[]).is_empty());
+        assert_eq!(check_source(source, &[]), Vec::<String>::new());
     }
 
     #[test]
@@ -412,6 +412,6 @@ mod edge_tests {
                       end process p_a;\n\n  p_b : process (clk_b) is\n  begin\n    \
                       if falling_edge(clk_b) then\n      b <= d;\n    end if;\n  \
                       end process p_b;\nend architecture rtl;\n";
-        assert!(check_source(source).is_empty());
+        assert_eq!(check_source(source), Vec::<String>::new());
     }
 }

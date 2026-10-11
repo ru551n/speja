@@ -1,5 +1,6 @@
 //! Print the layout changes the formatter makes, one JSON object per line:
-//! `{"file": ..., "line": ..., "key": ..., "rule": ...}`. Used by
+//! `{"file": ..., "line": ..., "prev_line": ..., "keys": [...], "below": [...],
+//! "rule": ...}`, keys from the least to the most specific. Used by
 //! `scripts/learn_layout_rules.py` to map changes to VSG rules.
 //!
 //! `cargo run --release --example layout_keys -- FILE...`
@@ -24,7 +25,9 @@ fn main() {
                 serde_json::json!({
                     "file": path,
                     "line": change.line,
-                    "key": change.key,
+                    "prev_line": change.prev_line,
+                    "below": change.below,
+                    "keys": std::iter::once(&change.key).chain(&change.context).collect::<Vec<_>>(),
                     "rule": rule_for(&change),
                 })
             );
