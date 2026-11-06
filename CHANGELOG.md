@@ -5,6 +5,13 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **A parameter hides a generic of the same name in `architecture_600`.** Inside a function
+  whose parameter has a generic's name, the uses of that name are the parameter's, but
+  `architecture_600` checked them against the generic. With upper-case generics and a lower-case
+  parameter, `architecture_600` and `function_508` asked for opposite cases at the same use and
+  `--fix` alternated between them on every run. Uses inside a subprogram, loop or generate that
+  declares the name again are no longer checked against the outer declaration.
+
 * **Layout findings carry the rule VSG reports them with.** The learned table that names the
   VSG rule for each formatting change looked at the token and its own syntax node only, which
   many constructs share: a blank line before an architecture's `begin` was reported as

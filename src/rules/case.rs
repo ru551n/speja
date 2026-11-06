@@ -765,6 +765,15 @@ fn check_consistency(
         let range = scope.region.text_range();
         let first = sites.partition_point(|(o, _, _)| *o < range.start);
         let last = sites.partition_point(|(o, _, _)| *o < range.end);
+        // Interface declarations of the same kind nested in this scope (a subprogram parameter
+        // or a loop parameter named like a generic, say) hide the outer one inside their region.
+        let inner: Vec<_> = nested_interface_scopes(cx)
+            .into_iter()
+            .filter(|s| {
+                let r = s.region.text_range();
+                r != range && range.start <= r.start && r.end <= range.end
+            })
+            .collect();
         let own_kind = if matches!(rule, "architecture_600" | "architecture_601" | "entity_600")
             || matches!(
                 rule,
@@ -774,7 +783,7 @@ fn check_consistency(
         } else {
             rule
         };
-        for (_, t, lower) in &sites[first..last] {
+        for (o, t, lower) in &sites[first..last] {
             let Some(Some(want)) = target.get(&**lower) else {
                 continue;
             };
@@ -785,6 +794,12 @@ fn check_consistency(
                 .get(&**lower)
                 .is_some_and(|kinds| kinds.iter().any(|k| *k != own_kind))
             {
+                continue;
+            }
+            if inner.iter().any(|s| {
+                s.region.text_range().contains(o)
+                    && s.decls.iter().any(|d| lower_text(d) == **lower)
+            }) {
                 continue;
             }
             let name = text(t);
@@ -800,6 +815,15 @@ fn check_consistency(
             }
         }
     }
+}
+
+/// The scopes whose declarations are interface objects: subprogram parameters, and loop and
+/// generate parameters.
+fn nested_interface_scopes(cx: &Context<'_>) -> Vec<Scope> {
+    let mut out = body_scopes(cx, N::FunctionSpecification);
+    out.extend(body_scopes(cx, N::ProcedureSpecification));
+    out.extend(parameter_scopes(cx));
+    out
 }
 
 fn mismatch_prefix(rule: &str) -> &'static str {
@@ -1137,6 +1161,45 @@ mod tests {
         let src = "architecture rtl of e is\n  signal Count : integer;\nbegin\n  process\n    variable count : integer;\n  begin\n    count := 1;\n  end process;\nend architecture rtl;\n";
         let f = found(src, "rule:\n  signal_014:\n    spelling: declaration\n");
         assert!(!f.iter().any(|(r, _)| *r == "signal_014"), "{f:?}");
+    }
+
+    /// A subprogram parameter named like a generic hides the generic in the subprogram body, so
+    /// `architecture_600` must not ask for the generic's spelling there (`function_508` asks for the
+    /// parameter's, and `--fix` alternated between the two).
+    #[test]
+    fn a_parameter_hides_a_generic_of_the_same_name() {
+        let src = "entity e is
+  generic (FRAC : natural := 4);
+  port (y : out natural);
+end entity e;
+architecture rtl of e is
+  function scale (frac : natural) return natural is
+  begin
+    return frac * 2;
+  end function scale;
+begin
+  y <= scale(FRAC);
+end architecture rtl;
+";
+        let f = found(
+            src,
+            "rule:
+  generic_007:
+    case: upper
+",
+        );
+        assert!(!f.iter().any(|(r, _)| *r == "architecture_600"), "{f:?}");
+        assert!(!f.iter().any(|(r, _)| *r == "function_508"), "{f:?}");
+        // Outside the function body the generic is still checked.
+        let src = src.replace("scale(FRAC)", "scale(frac)");
+        let f = found(
+            &src,
+            "rule:
+  generic_007:
+    case: upper
+",
+        );
+        assert!(has(&f, "architecture_600", "frac"), "{f:?}");
     }
 
     /// VSG issues #1482 and #1187: a record element named in an aggregate is not a use of a
