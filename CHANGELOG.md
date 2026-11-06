@@ -5,6 +5,12 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **Rule groups apply to every rule VSG puts in them.** A group setting such as
+  `rule.group.case.disable: true` reached only the rules whose speja metadata lists the group,
+  which left out the consistency rules (`architecture_600`, `signal_014`, `function_508`, ...).
+  `--rule_configuration` showed them as disabled while checking and `--fix` still applied them.
+  Checking now layers VSG's groups as `--rule_configuration` already did.
+
 * **Layout findings carry the rule VSG reports them with.** The learned table that names the
   VSG rule for each formatting change looked at the token and its own syntax node only, which
   many constructs share: a blank line before an architecture's `begin` was reported as

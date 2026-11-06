@@ -1066,9 +1066,17 @@ impl Config {
             .as_str()
             .map(|case| BTreeMap::from([("case".to_owned(), Value::from(case))]))
             .unwrap_or_default();
+        // The rule's VSG groups as well as speja's own, as in `rule_by_id`: a `rule.group`
+        // setting must reach every rule VSG puts in that group.
+        let mut groups: Vec<&'static str> = crate::vsg_defaults::groups(info.id).to_vec();
+        for g in info.groups {
+            if !groups.contains(g) {
+                groups.push(g);
+            }
+        }
         self.layered(
             info.id,
-            info.groups,
+            &groups,
             info.enabled_by_default,
             info.severity,
             options,

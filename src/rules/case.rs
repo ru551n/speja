@@ -1132,6 +1132,28 @@ mod tests {
         assert!(has(&vsg, "signal_014", "sig"), "{vsg:?}");
     }
 
+    /// `rule.group.case.disable` reaches the consistency rules, which VSG puts in the `case`
+    /// group (`--rule_configuration` already said they were disabled).
+    #[test]
+    fn the_case_group_disables_the_consistency_rules() {
+        let src = "architecture rtl of e is
+  signal Sig : bit;
+begin
+  sig <= Sig;
+end architecture rtl;
+";
+        assert!(found(src, "").iter().any(|(r, _)| *r == "signal_014"));
+        let off = found(
+            src,
+            "rule:
+  group:
+    case:
+      disable: true
+",
+        );
+        assert!(!off.iter().any(|(r, _)| *r == "signal_014"), "{off:?}");
+    }
+
     #[test]
     fn names_declared_by_different_kinds_are_not_checked() {
         let src = "architecture rtl of e is\n  signal Count : integer;\nbegin\n  process\n    variable count : integer;\n  begin\n    count := 1;\n  end process;\nend architecture rtl;\n";
