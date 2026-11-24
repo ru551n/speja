@@ -1,0 +1,7 @@
+rule:
+  function_019:
+    ignore_single_line: 'yes'
+  procedure_013:
+    ignore_single_line: 'yes'
+speja:
+  keep_line_breaks: [enumerations, logical_operators, concatenations]

@@ -130,7 +130,7 @@ a reason, and never affect the exit code.
 | `--list_rules`, `--statistics` | what each rule is, and how often each fired |
 
 Configuration keys speja adds live under a `speja:` block: `reflow_comments`,
-`testbench_files`, `testbench_libraries`, `synchronizers`, and a `rule:` block per kind of
+`keep_line_breaks`, `testbench_files`, `testbench_libraries`, `synchronizers`, and a `rule:` block per kind of
 file.
 
 ### Editors and coding agents

@@ -17,6 +17,33 @@ pub enum KeywordCase {
     Preserve,
 }
 
+/// A construct whose line breaks in the source are kept (`speja: keep_line_breaks`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KeepLineBreaks {
+    /// Enumeration types.
+    Enumerations,
+    /// Chains of `and`, `or`, `xor`, ...
+    LogicalOperators,
+    /// Chains of `&`.
+    Concatenations,
+}
+
+impl KeepLineBreaks {
+    const NAMES: [(&'static str, KeepLineBreaks); 3] = [
+        ("enumerations", KeepLineBreaks::Enumerations),
+        ("logical_operators", KeepLineBreaks::LogicalOperators),
+        ("concatenations", KeepLineBreaks::Concatenations),
+    ];
+
+    fn parse(name: &str) -> Option<KeepLineBreaks> {
+        Self::NAMES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, construct)| *construct)
+    }
+}
+
 /// Formatting policy. Everything here influences canonical output.
 ///
 /// `#[non_exhaustive]`: new options are added here on most releases, so build one from
@@ -67,6 +94,12 @@ pub struct FormatConfig {
     pub comment_spaces: usize,
     /// Re-wrap comment paragraphs to `width` (speja extension `speja: reflow_comments`).
     pub reflow_comments: bool,
+    /// Subprogram specifications whose parameter list stays on several lines when the source
+    /// writes it so (`function_019` and `procedure_013` with `ignore_single_line: yes`).
+    pub keep_parameter_lists: Vec<vhdl_syntax::syntax::NodeKind>,
+    /// Other constructs that stay on several lines when the source writes them so (speja
+    /// extension `speja: keep_line_breaks`).
+    pub keep_line_breaks: Vec<KeepLineBreaks>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +130,8 @@ impl Default for FormatConfig {
             align_else_keywords: Vec::new(),
             comment_spaces: 1,
             reflow_comments: false,
+            keep_parameter_lists: Vec::new(),
+            keep_line_breaks: Vec::new(),
         }
     }
 }
@@ -466,6 +501,20 @@ impl Config {
                 "reflow_comments" => {
                     self.format.reflow_comments =
                         yaml_bool(value).ok_or("`reflow_comments` must be true or false")?;
+                }
+                "keep_line_breaks" => {
+                    let names = KeepLineBreaks::NAMES.map(|(name, _)| name).join(", ");
+                    let expected = || format!("`keep_line_breaks` must be a list of: {names}");
+                    self.format.keep_line_breaks = value
+                        .as_sequence()
+                        .ok_or_else(expected)?
+                        .iter()
+                        .map(|v| {
+                            v.as_str()
+                                .and_then(KeepLineBreaks::parse)
+                                .ok_or_else(expected)
+                        })
+                        .collect::<Result<_, _>>()?;
                 }
                 key => self.warn(&format!("unknown `speja` key `{key}` ignored")),
             }
@@ -922,6 +971,7 @@ impl Config {
                 }
             }
         }
+        self.resolve_parameter_lists();
         if self.rule_by_id("if_009").is_some_and(|s| {
             s.enabled
                 && s.option_bool("align_left") == Some(true)
@@ -950,6 +1000,44 @@ impl Config {
             }
             if other {
                 self.format.align_else_keywords.push(statement);
+            }
+        }
+    }
+
+    /// VSG's structure rules for subprogram specifications. They put one parameter on each line
+    /// whether or not the list fits; the formatter does so for a list that does not fit and, with
+    /// `ignore_single_line: yes`, for one that the source writes over several lines.
+    fn resolve_parameter_lists(&mut self) {
+        use vhdl_syntax::syntax::NodeKind;
+        self.format.keep_parameter_lists.clear();
+        for (rule, kind) in [
+            ("function_019", NodeKind::FunctionSpecification),
+            ("procedure_013", NodeKind::ProcedureSpecification),
+        ] {
+            if !self.rule_by_id(rule).is_some_and(|s| s.enabled) {
+                continue;
+            }
+            let keep = self
+                .layer_option(rule, &["structure"], "ignore_single_line")
+                .and_then(yaml_bool)
+                == Some(true);
+            if keep {
+                self.format.keep_parameter_lists.push(kind);
+            }
+            for (key, supported) in [
+                ("first_open_paren", "remove_new_line"),
+                ("last_close_paren", "add_new_line"),
+                ("interface_element", "add_new_line"),
+                ("interface_list_semicolon", "remove_new_line"),
+            ] {
+                let value = self
+                    .layer_option(rule, &["structure"], key)
+                    .and_then(Value::as_str)
+                    .filter(|v| *v != supported && *v != "ignore");
+                if let Some(value) = value {
+                    let message = format!("{rule}: unsupported option `{key}: {value}`");
+                    self.warn(&message);
+                }
             }
         }
     }
@@ -1387,6 +1475,53 @@ mod tests {
                 "sequential_009: unsupported option `new_line_after_comma: no`",
             ]
         );
+    }
+
+    #[test]
+    fn parameter_list_structure_options() {
+        use vhdl_syntax::syntax::NodeKind;
+        let cfg = Config::parse(
+            "rule:\n  function_019:\n    ignore_single_line: 'yes'\n    last_close_paren: remove_new_line\n    interface_element: ignore\n  procedure_013:\n    disable: true\n    ignore_single_line: 'yes'\n",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.format.keep_parameter_lists,
+            [NodeKind::FunctionSpecification]
+        );
+        assert_eq!(
+            cfg.warnings,
+            ["function_019: unsupported option `last_close_paren: remove_new_line`"]
+        );
+        // VSG's default, written out or not, leaves the layout to the line width.
+        for yaml in ["", "rule: {function_019: {ignore_single_line: no}}"] {
+            let cfg = Config::parse(yaml).unwrap();
+            assert_eq!(cfg.format.keep_parameter_lists, []);
+        }
+        // Resolving again for a file does not add to the list.
+        let cfg = Config::parse(
+            "rule: {procedure_013: {ignore_single_line: yes}}\nfile_rules:\n  '**/*.vhd':\n    rule: {length_001: {length: 80}}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.for_path(Path::new("a/b.vhd"))
+                .format
+                .keep_parameter_lists,
+            [NodeKind::ProcedureSpecification]
+        );
+    }
+
+    #[test]
+    fn keep_line_breaks_names() {
+        let cfg =
+            Config::parse("speja: {keep_line_breaks: [enumerations, concatenations]}").unwrap();
+        assert_eq!(
+            cfg.format.keep_line_breaks,
+            [KeepLineBreaks::Enumerations, KeepLineBreaks::Concatenations]
+        );
+        for bad in ["enumerations", "[enumeration]", "[1]"] {
+            let error = Config::parse(&format!("speja: {{keep_line_breaks: {bad}}}")).unwrap_err();
+            assert!(error.contains("logical_operators"), "{error}");
+        }
     }
 
     #[test]

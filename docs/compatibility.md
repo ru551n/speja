@@ -130,6 +130,10 @@ could not be processed, missing files and invalid arguments).
   does not depend on the source's line breaks: an aggregate is folded when it does not fit,
   with the first `(` after the assignment operator and one element per line. Options asking
   for another structure are reported as unsupported (VSG issue #1502).
+* **Parameter lists.** `function_019` and `procedure_013` put one parameter on each line even
+  when the list fits. speja folds a list when it does not fit. With `ignore_single_line: 'yes'`
+  it also keeps a list on several lines when the source writes it so, as VSG does. Other options
+  asking for another structure are reported as unsupported.
 * **Line numbers.** VSG sometimes reports a port or statement on the blank line above it;
   speja reports the line of the construct.
 * **Syntax errors.** VSG may try to fix files it cannot fully parse. speja leaves such files
