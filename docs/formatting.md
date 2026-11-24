@@ -114,7 +114,8 @@ As in VSG's default configuration:
 * In declarative parts, consecutive declarations align their names (after `signal`,
   `constant`, …), their `:` and their `:=`.
 * Consecutive simple and conditional assignments align `<=` (concurrent statements) or `<=` and
-  `:=` together (sequential statements). Any other statement ends the group.
+  `:=` together (sequential statements). Any other statement ends the group. The statements of a
+  generate body are aligned among themselves, like those of an architecture.
 * Trailing comments align within consecutive lines of a declarative part, generic or port
   clause, generic or port map, and concurrent statement part. In a process body, all trailing
   comments align to one column after the longest code line.

@@ -5,6 +5,13 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **Assignments in generate bodies are aligned.** `concurrent_006` aligned `<=` among the
+  statements of an architecture or block, but inside a generate statement every `<=` got a single
+  space, and an alignment that was there was removed.
+
+* **Comments at the start and end of a generate body are indented with it.** They were at the
+  indentation of `generate`, also when the body has declarations.
+
 * **Layout findings carry the rule VSG reports them with.** The learned table that names the
   VSG rule for each formatting change looked at the token and its own syntax node only, which
   many constructs share: a blank line before an architecture's `begin` was reported as
