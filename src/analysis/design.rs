@@ -75,15 +75,17 @@ pub fn entity_of(statement: &SyntaxNode) -> Option<String> {
                 | NodeKind::InstantiatedConfiguration
         )
     })?;
-    let text = text_of(&instantiated);
+    // Without the keyword: the tokens are joined without spaces, so with it `component fifo` would
+    // name `componentfifo`.
+    let text: String = all_tokens(&instantiated)
+        .iter()
+        .map(lower)
+        .filter(|t| !matches!(t.as_str(), "entity" | "component" | "configuration"))
+        .collect();
     let head = text.split('(').next().unwrap_or(&text);
-    head.rsplit(['.', ' '])
-        .map(|part| part.trim().to_ascii_lowercase())
-        .find(|part| {
-            !part.is_empty()
-                && !matches!(part.as_str(), "entity" | "component" | "configuration")
-                && part.chars().all(|c| c.is_alphanumeric() || c == '_')
-        })
+    head.rsplit('.')
+        .find(|part| !part.is_empty() && part.chars().all(|c| c.is_alphanumeric() || c == '_'))
+        .map(str::to_owned)
 }
 
 /// The name a signal assignment writes to, as written.

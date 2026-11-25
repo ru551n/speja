@@ -5,6 +5,11 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **The lint layer sees through `u : component name`.** The instantiated unit was read as
+  `componentname`, which no file declares, so everything connected to such an instance counted
+  as driven and `lint_730` never reported it. `--fix` adds the keyword by default
+  (`instantiation_033`), so formatting a file could hide its findings.
+
 * **Layout findings carry the rule VSG reports them with.** The learned table that names the
   VSG rule for each formatting change looked at the token and its own syntax node only, which
   many constructs share: a blank line before an architecture's `begin` was reported as

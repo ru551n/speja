@@ -981,6 +981,30 @@ mod tests {
     }
 
     #[test]
+    fn every_form_of_instantiation_is_looked_up() {
+        // With `component` the name was read as `componentfifo`, which is not a unit, and an
+        // unknown unit drives everything it touches.
+        for unit in [
+            "fifo",
+            "component fifo",
+            "entity work.fifo",
+            "entity work.fifo(rtl)",
+        ] {
+            let messages = check(
+                &format!(
+                    "entity dut is\n  port (\n    y : out bit\n  );\nend entity dut;\n\n\
+                     architecture rtl of dut is\n\n  signal s : bit;\n\nbegin\n\n  \
+                     u : {unit}\n    port map (\n      wr => s,\n      rd => y\n    );\n\n\
+                     end architecture rtl;\n"
+                ),
+                &fifo(),
+            );
+            assert_eq!(messages.len(), 1, "{unit}: {messages:?}");
+            assert!(messages[0].contains("'s'"), "{unit}: {messages:?}");
+        }
+    }
+
+    #[test]
     fn an_unknown_entity_is_left_alone() {
         let messages = check(
             "entity dut is\n  port (\n    y : out bit\n  );\nend entity dut;\n\n\
