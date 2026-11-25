@@ -668,6 +668,10 @@ impl<'a> Builder<'a> {
             // The design file marks its items (and their blank lines) itself.
             return self.node_body(n);
         }
+        if n.kind() == N::GenerateStatementBody {
+            // Its comments belong to the declarations or statements it starts with.
+            return self.node_body(n);
+        }
         let first = n.first_token();
         if self.item_starts.contains(&first.text_offset()) && self.disabled(first.text_offset()) {
             return self.verbatim(n);
@@ -861,6 +865,9 @@ impl<'a> Builder<'a> {
         // Parts of a generate body are statements; elsewhere, those after `begin`.
         let mut after_begin = n.kind() == N::GenerateStatementBody;
         let mut body_level = 1;
+        if n.kind() == N::GenerateStatementBody {
+            out.push(self.generate_body_start(n, construct));
+        }
         let mut i = 0;
         while i < children.len() {
             let c = match &children[i] {
@@ -915,7 +922,8 @@ impl<'a> Builder<'a> {
                     // Own-line comments in front of a node that continues the line make it a
                     // continuation line, indented with the comments (VSG issue #1585).
                     let first = c.first_token();
-                    let commented = !self.comments_done.contains(&first.text_offset())
+                    let commented = c.kind() != N::GenerateStatementBody
+                        && !self.comments_done.contains(&first.text_offset())
                         && comments(&first, true).0.iter().any(|c| !c.trailing);
                     let condition = self.cfg.indent_conditions.contains(&n.kind());
                     let doc = self.node(&c);
@@ -973,11 +981,45 @@ impl<'a> Builder<'a> {
             prev = (place, c.kind() == N::StmtLabel);
             i += 1;
         }
+        if n.kind() == N::GenerateStatementBody
+            && prev.0 == Place::Indented
+            && let Some(next) = self.closing_keyword(n)
+        {
+            self.mark_item(&SyntaxElement::Token(next.clone()));
+            out.push(Doc::indent_n(body_level, self.leading(&next)));
+        }
         if soft {
             self.group(concat(out))
         } else {
             concat(out)
         }
+    }
+
+    /// The comments in front of a generate body, indented with what it starts with. Its
+    /// statements, which are not in a list node of their own, are marked and aligned here.
+    fn generate_body_start(&mut self, n: &SyntaxNode, construct: N) -> Doc {
+        let Some(first) = n.first_child() else {
+            return Doc::Nil;
+        };
+        let level = match first.kind() {
+            k if is_concurrent_statement(k) => {
+                self.cfg.indent_policy.level(construct, Part::Statements)
+            }
+            N::GenerateBodyDeclarations
+                if first
+                    .first_child()
+                    .is_some_and(|c| is_declarative_part(c.kind())) =>
+            {
+                self.cfg.indent_policy.level(construct, Part::Body)
+            }
+            _ => 0,
+        };
+        let lead = self.leading(&n.first_token());
+        for c in n.children().filter(|c| is_concurrent_statement(c.kind())) {
+            self.mark_item(&SyntaxElement::Node(c));
+        }
+        self.align_statements(n);
+        Doc::indent_n(level, lead)
     }
 
     /// Child nodes of `n`, each on a new line, indented `levels` levels.
@@ -1326,7 +1368,7 @@ impl<'a> Builder<'a> {
         let align = self.cfg.align.clone();
         let (family, declarations) = match n.kind() {
             k if is_declarative_part(k) => (align.declaration_colons, true),
-            N::ArchitectureStatementPart | N::BlockStatementPart => {
+            N::ArchitectureStatementPart | N::BlockStatementPart | N::GenerateStatementBody => {
                 (align.concurrent_assignments, false)
             }
             N::ProcessStatementPart | N::SubprogramStatementPart | N::SequenceOfStatements => {
