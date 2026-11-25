@@ -99,6 +99,7 @@ The spaces around port modes follow `port_007` to `port_009` (`spaces_before`,
 * Subprogram parameter lists, calls, aggregates, index constraints, enumerations and
   sensitivity lists are flat when they fit, otherwise one element per line (see
   `line-folding.md`). Aggregates made only of short literals or names fill each line instead.
+  Some of them can be kept on several lines although they fit (see "Keeping line breaks").
 * Conditional assignments with an `else` have one branch per line, with `else` ending each line.
   With `align_when_keywords: yes` (or `align_else_keywords: yes`) in `concurrent_009`,
   `sequential_401` or `variable_assignment_400`, the `when` (or `else`) keywords of those lines
@@ -137,6 +138,38 @@ kind.
 See `compatibility.md` for the VSG configuration mapping. Formatter settings: width (from
 `length_001.length`, default 120), `indent_size` (default 2), `indent_style` (`spaces` or
 `smart_tabs`), keyword case, blank-line and alignment rules, and `linesep`.
+
+## Keeping line breaks
+
+By default the layout does not depend on the line breaks in the source: a construct that fits is
+printed on one line. For some constructs the configuration can keep them on several lines when
+the source writes them so. They are still laid out by the formatter (one element or operator per
+line), and one that is on a single line stays there while it fits.
+
+VSG's `ignore_single_line: 'yes'` does this for parameter lists, as in VSG:
+
+```yaml
+rule:
+  function_019:
+    ignore_single_line: 'yes'
+  procedure_013:
+    ignore_single_line: 'yes'
+```
+
+VSG has no setting for other constructs, since it does not join lines. An extension names them:
+
+```yaml
+speja:
+  keep_line_breaks: [enumerations, logical_operators, concatenations]
+```
+
+* `enumerations`: an enumeration type with a line break between its parentheses.
+* `logical_operators`: a chain of `and`, `or`, `nand`, `nor`, `xor` or `xnor` with a line break
+  before or after one of its operators.
+* `concatenations`: the same for `&`.
+
+Whatever encloses a construct that is kept is folded too: a call around a chain of operators puts
+its arguments on lines of their own.
 
 ## Comment reflowing (extension)
 

@@ -89,16 +89,20 @@ Conditional assignments are the exception: `else` ends its line, matching VSG's 
 * Existing line breaks in the source are not kept (except blank lines between items and the line
   structure implied by comments). The layout is a function of the tokens, comments and width
   only. That is why the result is stable: formatting the output again produces the same decisions.
-* A construct that fits is always printed flat, except the always-broken forms listed above. A
-  construct is never flattened into something that would break again on the next run: the fit
-  test for a group includes everything up to the next possible break after it.
+* A construct that fits is always printed flat, except the always-broken forms listed above, and
+  those the configuration keeps on several lines when the source writes them so ("Keeping line
+  breaks" in `formatting.md`). Breaking such a construct is what puts the line breaks back on the
+  next run, so this is stable too. A construct is never flattened into something that would break
+  again on the next run: the fit test for a group includes everything up to the next possible
+  break after it.
 * Boundaries: a line of exactly the target width counts as fitting; one column more does not.
 
 ## Comments
 
 * A trailing comment is printed after the token it follows. It does **not** count towards
   the width when layout is decided, so a long comment never changes how code is folded.
-  A trailing comment forces the enclosing groups to break, and it always ends its line.
+  A trailing comment forces the enclosing groups to break, and it always ends its line. After
+  the last element of a parenthesized list it breaks the list, not the element.
 * An own-line comment stays on its own line before the same token, indented like that token.
   Comments before `end` or `)` are indented with the body.
 * Comment text is never wrapped and never moved to another token.

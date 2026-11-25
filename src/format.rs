@@ -14,7 +14,7 @@ use vhdl_syntax::tokens::token::requires_separator;
 use vhdl_syntax::tokens::{Keyword as Kw, TokenKind as T, TriviaPiece};
 
 use crate::Parsed;
-use crate::config::{FormatConfig, KeywordCase};
+use crate::config::{FormatConfig, KeepLineBreaks, KeywordCase};
 use crate::doc::{Doc, GroupId, display_width};
 use crate::indent::Part;
 
@@ -145,6 +145,11 @@ pub(crate) fn directives(parsed: &Parsed) -> Vec<(usize, bool)> {
         }
     }
     out
+}
+
+/// Whether the source starts a new line somewhere between the token before `t` and `t`.
+fn starts_line(t: &SyntaxToken) -> bool {
+    t.leading_trivia().into_iter().any(TriviaPiece::is_newline)
 }
 
 fn newline_count(p: &TriviaPiece) -> usize {
@@ -1044,6 +1049,7 @@ impl<'a> Builder<'a> {
             N::ParenthesizedExpressionOrAggregate | N::ParenthesizedCondition | N::PathnameElement
         ) && items.len() == 1
             && !is_named_association(&items[0]);
+        let broken = self.keeps_breaks(&open, &close);
         let doc = if expression {
             let body = items[0].iter().map(|e| self.elem(e)).collect();
             concat(vec![
@@ -1061,7 +1067,7 @@ impl<'a> Builder<'a> {
                 if k > 0 {
                     body.push(Doc::Line);
                 }
-                body.push(concat(item.iter().map(|e| self.elem(e)).collect()));
+                body.push(self.list_item(item));
             }
             let body = if fill { Doc::Fill(body) } else { concat(body) };
             let body = vec![Doc::Line, body, self.leading(&close)];
@@ -1077,9 +1083,44 @@ impl<'a> Builder<'a> {
             Doc::Group {
                 id,
                 doc: Box::new(doc),
-                broken: false,
+                broken,
             },
         ])
+    }
+
+    /// Whether the configuration keeps the list between `open` and `close` on several lines,
+    /// because the source writes it so.
+    fn keeps_breaks(&self, open: &SyntaxToken, close: &SyntaxToken) -> bool {
+        let list = open.parent();
+        let configured = match list.kind() {
+            N::EnumerationTypeDefinition => self
+                .cfg
+                .keep_line_breaks
+                .contains(&KeepLineBreaks::Enumerations),
+            N::ParenthesizedInterfaceList if !self.cfg.keep_parameter_lists.is_empty() => list
+                .ancestors()
+                .any(|a| self.cfg.keep_parameter_lists.contains(&a.kind())),
+            _ => false,
+        };
+        let index = |t| self.parsed.token_index(t);
+        configured
+            && index(open)
+                .zip(index(close))
+                .is_some_and(|(a, b)| self.parsed.tokens()[a + 1..=b].iter().any(starts_line))
+    }
+
+    /// Whether the configuration keeps a chain of binary operators on several lines, because the
+    /// source starts a new line before or after `operator`.
+    fn keeps_operator_break(&self, operator: &SyntaxToken) -> bool {
+        let construct = match operator.kind() {
+            T::Keyword(Kw::And | Kw::Or | Kw::Nand | Kw::Nor | Kw::Xor | Kw::Xnor) => {
+                KeepLineBreaks::LogicalOperators
+            }
+            T::Concat => KeepLineBreaks::Concatenations,
+            _ => return false,
+        };
+        self.cfg.keep_line_breaks.contains(&construct)
+            && (starts_line(operator) || self.parsed.next_token(operator).is_some_and(starts_line))
     }
 
     /// Interface clauses and map aspects: always one element per line.
@@ -1103,16 +1144,7 @@ impl<'a> Builder<'a> {
             for item in &items {
                 self.mark_item(&item[0]);
                 body.push(Doc::Hard);
-                // The comment after the last element (before `)`) ends the item's line.
-                let last = item.last().map(last_token_of);
-                if let Some(last) = &last {
-                    self.deferred_trailing.insert(last.text_offset());
-                }
-                body.extend(item.iter().map(|e| self.elem(e)));
-                if let Some(last) = last {
-                    self.deferred_trailing.remove(&last.text_offset());
-                    body.push(self.trailing_now(&last));
-                }
+                body.push(self.list_item(item));
             }
             let close_tok = children[close].as_token().expect("matched parenthesis");
             body.push(self.leading(&close_tok));
@@ -1130,6 +1162,21 @@ impl<'a> Builder<'a> {
                 out.push(Doc::indent_n(close_level, closing));
             }
             i = close + 1;
+        }
+        concat(out)
+    }
+
+    /// An element of a parenthesized list. A comment after it ends its line; after the last
+    /// element (before `)`) the comment must not break what is inside the element.
+    fn list_item(&mut self, item: &[SyntaxElement]) -> Doc {
+        let last = item.last().map(last_token_of);
+        if let Some(last) = &last {
+            self.deferred_trailing.insert(last.text_offset());
+        }
+        let mut out: Vec<Doc> = item.iter().map(|e| self.elem(e)).collect();
+        if let Some(last) = last {
+            self.deferred_trailing.remove(&last.text_offset());
+            out.push(self.trailing_now(&last));
         }
         concat(out)
     }
@@ -1515,21 +1562,28 @@ impl<'a> Builder<'a> {
             chain.push(lhs);
         }
         let mut out = Vec::new();
+        let mut broken = false;
         for (depth, b) in chain.iter().rev().enumerate() {
             for (j, c) in b.children_with_tokens().enumerate() {
                 if depth > 0 && j == 0 {
                     continue; // the nested chain element, already emitted
                 }
-                if c.as_token()
-                    .is_some_and(|t| binary_precedence(t.kind()).is_some())
+                if let Some(t) = c
+                    .as_token()
+                    .filter(|t| binary_precedence(t.kind()).is_some())
                 {
+                    broken |= self.keeps_operator_break(&t);
                     out.push(Doc::Line);
                 }
                 out.push(self.elem(&c));
             }
         }
         let doc = self.align(n, concat(out));
-        self.group(doc)
+        Doc::Group {
+            id: self.new_group(),
+            doc: Box::new(doc),
+            broken,
+        }
     }
 
     /// Continuation lines of `n` align with its start, except in an `if` or `elsif` condition
