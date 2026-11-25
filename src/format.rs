@@ -1067,7 +1067,7 @@ impl<'a> Builder<'a> {
                 if k > 0 {
                     body.push(Doc::Line);
                 }
-                body.push(concat(item.iter().map(|e| self.elem(e)).collect()));
+                body.push(self.list_item(item));
             }
             let body = if fill { Doc::Fill(body) } else { concat(body) };
             let body = vec![Doc::Line, body, self.leading(&close)];
@@ -1144,16 +1144,7 @@ impl<'a> Builder<'a> {
             for item in &items {
                 self.mark_item(&item[0]);
                 body.push(Doc::Hard);
-                // The comment after the last element (before `)`) ends the item's line.
-                let last = item.last().map(last_token_of);
-                if let Some(last) = &last {
-                    self.deferred_trailing.insert(last.text_offset());
-                }
-                body.extend(item.iter().map(|e| self.elem(e)));
-                if let Some(last) = last {
-                    self.deferred_trailing.remove(&last.text_offset());
-                    body.push(self.trailing_now(&last));
-                }
+                body.push(self.list_item(item));
             }
             let close_tok = children[close].as_token().expect("matched parenthesis");
             body.push(self.leading(&close_tok));
@@ -1171,6 +1162,21 @@ impl<'a> Builder<'a> {
                 out.push(Doc::indent_n(close_level, closing));
             }
             i = close + 1;
+        }
+        concat(out)
+    }
+
+    /// An element of a parenthesized list. A comment after it ends its line; after the last
+    /// element (before `)`) the comment must not break what is inside the element.
+    fn list_item(&mut self, item: &[SyntaxElement]) -> Doc {
+        let last = item.last().map(last_token_of);
+        if let Some(last) = &last {
+            self.deferred_trailing.insert(last.text_offset());
+        }
+        let mut out: Vec<Doc> = item.iter().map(|e| self.elem(e)).collect();
+        if let Some(last) = last {
+            self.deferred_trailing.remove(&last.text_offset());
+            out.push(self.trailing_now(&last));
         }
         concat(out)
     }

@@ -5,6 +5,10 @@ reports are that version's. `speja --version` prints the same thing.
 
 ## Unreleased
 
+* **A comment after the last element of a list no longer breaks the element.** In a parameter
+  list, call or aggregate, the `(7 downto 0)` in front of such a comment was folded over three
+  lines. Port and generic clauses already did this right.
+
 * **`ignore_single_line: 'yes'` is applied to parameter lists.** Set in `function_019` or
   `procedure_013`, it was ignored without a warning, and a list written over several lines was
   joined when it fits. Such a list now has one parameter per line, as in VSG; one on a single line
